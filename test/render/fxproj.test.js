@@ -157,6 +157,45 @@ describe('particles', () => {
 });
 
 describe('shots', () => {
+  test('arrow volleys show 2/4 shots in sequence at the battle clock rate, including low quality', () => {
+    const a = unit(1, 3, 10), b = unit(2, 9, 10, { isEnemy: true });
+    for (const count of [2, 4]) for (const ts of [1, 2, 4]) for (const quality of ['high', 'low']) {
+      const { fx } = makeFx({ ts, quality, views: [a, b] });
+      fx.attack(a, b, 'arrow', count);
+      assert.equal(fx.projs.length, count);
+      const shots = [...fx.projs];
+      for (let i = 0; i < count; i++) assert.ok(Math.abs(shots[i].delay - i * 0.08 / ts) < 1e-9);
+      fx.update(0.04 / ts);
+      assert.ok(shots[0].t > 0, 'first arrow is in flight');
+      assert.equal(shots[1].t, 0, 'next arrow waits for its own release');
+      assert.equal(shots[1].core.alpha, 0, 'pending arrows are invisible');
+      fx.update(0.06 / ts);
+      assert.ok(shots[1].t > 0, 'second arrow released');
+      if (count === 4) assert.equal(shots[2].t, 0, 'remaining arrows still wait');
+      run(fx, 2);
+      assert.equal(fx.projs.length, 0, 'all volley arrows are released after landing');
+      fx.attack(a, b, 'arrow');
+      assert.equal(fx.projs[0].delay, 0, 'pooled single shot has no stale volley delay');
+      fx.destroy();
+    }
+  });
+
+  test('old attack events remain a single shot; volley input cannot multiply shells or beams', () => {
+    const a = unit(1, 3, 10), b = unit(2, 9, 10, { isEnemy: true });
+    const { fx } = makeFx({ views: [a, b] });
+    for (const count of [undefined, 0, -3, NaN]) {
+      fx.clear(); fx.attack(a, b, 'arrow', count);
+      assert.equal(fx.projs.length, 1);
+    }
+    fx.clear(); fx.attack(a, b, 'arrow', 999);
+    assert.equal(fx.projs.length, 4, 'bounded cosmetic count');
+    fx.clear(); fx.attack(a, b, 'bomb', 4);
+    assert.equal(fx.projs.length, 1, 'other projectile kinds keep their behavior');
+    fx.clear(); fx.attack(a, b, 'beam', 4);
+    assert.equal(fx.beamList.length, 1);
+    fx.destroy();
+  });
+
   test('flight time = distance / sim speed / clock rate; homing on the moving target; one arrival burst', () => {
     FX.setSimProjectileSpeeds(null);
     const a = unit(1, 3, 10), b = unit(2, 9, 10, { isEnemy: true });

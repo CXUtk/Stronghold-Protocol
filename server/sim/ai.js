@@ -167,7 +167,10 @@ export function performAttack(b, u, prof, targets, opts = null) {
   const vis = prof._fortressMelee ? 'none' : (prof.projectile || 'none');
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i];
-    b._ev(['atk', u.id, t.id, vis]);
+    const ev = ['atk', u.id, t.id, vis];
+    // Optional cosmetic volley size; the existing impact/damage timing stays unchanged.
+    if (prof.visualVolley) ev.push(prof.hitsFn ? prof.hitsFn(b, u) : prof.hits || 1);
+    b._ev(ev);
     if (isHeal) { doHeal(b, u, prof, t); continue; }
     const info = { isSkill, index: i, attackId };
     if (ranged && t.side === 'enemy' && prof.projectile === 'boomerang') {
