@@ -67,6 +67,7 @@
 //   'sword' 'vest' 'blink' 'summon' 'grow' 'phase' 'lpLoss' (x, y + extra {id, r, tiles, kind, tx, ty …}).
 
 import { MOVE_SCALE } from '../constants.js';
+import { enemySpawnMods } from '../enemyScaling.js';
 import { aggroCmp, areaSelectable } from '../targeting.js';
 import { compileRoute } from '../ai.js';
 import { normalizeRoute } from '../simdata.js';
@@ -216,7 +217,7 @@ function branchRoute(tpl, name) {
 }
 
 /** Spawn one phase of a template branch. Returns the spawned enemies. */
-function branchSpawn(b, tpl, name, phaseIdx, { fallback = null, mods = null, at = null } = {}) {
+function branchSpawn(b, tpl, name, phaseIdx, { fallback = null, mods = null, at = null, summon = false } = {}) {
   const br = tpl && tpl.branches && tpl.branches[name];
   if (!Array.isArray(br) || !br.length) return fallback ? fallback() : [];
   const phase = br[Math.max(0, Math.min(phaseIdx, br.length - 1))] || [];
@@ -228,11 +229,19 @@ function branchSpawn(b, tpl, name, phaseIdx, { fallback = null, mods = null, at 
     if (!key || !String(key).startsWith('enemy_')) continue;
     const route = tpl.extraRoutes && tpl.extraRoutes[s.routeIndex];
     for (let i = 0; i < Math.max(1, s.count ?? 1); i++) {
-      const u = b.spawnEnemy(key, { route: route || (at ? toGoal(b, at.x, at.y) : undefined), pos: route ? undefined : at ? [at.y, at.x] : undefined, tag: s.tag ?? null, countInTotal: s.unharmful ? false : undefined, mods });
+      const spawnMods = summon ? summonMods(b, key, mods) : mods;
+      const u = b.spawnEnemy(key, { route: route || (at ? toGoal(b, at.x, at.y) : undefined), pos: route ? undefined : at ? [at.y, at.x] : undefined, tag: s.tag ?? null, countInTotal: s.unharmful ? false : undefined, mods: spawnMods });
       if (u) out.push(u);
     }
   }
   return out;
+}
+
+/** Summons receive the round effects once, then any skill-specific HP multiplier. */
+function summonMods(b, key, skillMods = null) {
+  const scale = enemySpawnMods(b.opts.flags?.enemyScale, key);
+  if (!scale) return skillMods;
+  return { ...scale, ...skillMods, hpMul: scale.hpMul * (skillMods?.hpMul ?? 1) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -393,8 +402,8 @@ function kitHelm(ab, e, b, tpl) {
         const hpMul = s2.bb['summon.hp_ratio'] > 0 ? s2.bb['summon.hp_ratio'] : null;
         const key = s2.bs.enemy_key ?? 'enemy_1005_yokai';
         const drones = branchSpawn(b2, tpl, s2.bs.branch_id ?? 'boss_summon_enemy', 0, {
-          mods: hpMul ? { hpMul } : null, at: { x: e2.x, y: e2.y },
-          fallback: () => [b2.spawnEnemy(key, { pos: [e2.y, e2.x], route: toGoal(b2, e2.x, e2.y, 'FLY'), mods: hpMul ? { hpMul } : null })].filter(Boolean),
+          mods: hpMul ? { hpMul } : null, summon: true, at: { x: e2.x, y: e2.y },
+          fallback: () => [b2.spawnEnemy(key, { pos: [e2.y, e2.x], route: toGoal(b2, e2.x, e2.y, 'FLY'), mods: summonMods(b2, key, hpMul ? { hpMul } : null) })].filter(Boolean),
         });
         b2.fx('summon', { x: e2.x, y: e2.y, id: e2.id, key, n: drones.length });
         const ratio = s2.bb.hp_ratio ?? 0;
@@ -424,7 +433,7 @@ export function droneLinkBase(boss, base = DRONE_LINK_BASE) {
 /** Launch a 刺胄之弹 from `boss` at `target`'s tile. */
 function fireShell(b, boss, target) {
   const tr = target.tileR, tc = target.tileC;
-  const sh = b.spawnEnemy(SHELL_KEY, { pos: [boss.y, boss.x], route: { motion: 'FLY', start: [boss.y, boss.x], end: [tr, tc], steps: [{ t: 'wait', s: 99999 }] }, tag: 'part', countInTotal: false, ownerPlayerId: boss.ownerId });
+  const sh = b.spawnEnemy(SHELL_KEY, { pos: [boss.y, boss.x], route: { motion: 'FLY', start: [boss.y, boss.x], end: [tr, tc], steps: [{ t: 'wait', s: 99999 }] }, mods: summonMods(b, SHELL_KEY), tag: 'part', countInTotal: false, ownerPlayerId: boss.ownerId });
   if (!sh) return null;
   sh.mem.ab.shell = { tr, tc, boss };
   b.fx('shell', { x: boss.x, y: boss.y, id: sh.id, tx: tc, ty: tr, r: 1.5, kind: 'helmShell' });
@@ -779,7 +788,7 @@ function pipeCore(ab, e, b, tpl, { form, prefix }) {
   const key = ab.tS['1.enemy_key'] ?? ECHO_KEY;
   const P = { acc: 0, atk: Infinity };   // first strike as soon as an echo of its form exists (engine attack rule)
   const summon = (b2, e2) => {
-    const got = branchSpawn(b2, tpl, 'summon_enemy', 0, { at: { x: e2.x, y: e2.y }, fallback: () => [b2.spawnEnemy(key, { pos: [e2.y, e2.x], route: toGoal(b2, e2.x, e2.y) })].filter(Boolean) });
+    const got = branchSpawn(b2, tpl, 'summon_enemy', 0, { summon: true, at: { x: e2.x, y: e2.y }, fallback: () => [b2.spawnEnemy(key, { pos: [e2.y, e2.x], route: toGoal(b2, e2.x, e2.y), mods: summonMods(b2, key) })].filter(Boolean) });
     for (const u of got) if (u.defId === ECHO_KEY && form === 'gold') setEchoForm(b2, u, 'gold');
     b2.fx('summon', { x: e2.x, y: e2.y, id: e2.id, key, n: got.length });
   };
@@ -957,7 +966,7 @@ function kitLucien(ab, e) {
       const route = remainingRoute(e2);
       const from = blinkForward(b, e2, s.bb.dist ?? 1.5);
       if (!from) return;
-      const ph = b.spawnEnemy(PHANTOM_KEY, { pos: [from.y, from.x], route, ownerPlayerId: e2.ownerId, sourcePlayerId: e2.sourcePlayerId });
+      const ph = b.spawnEnemy(PHANTOM_KEY, { pos: [from.y, from.x], route, mods: summonMods(b, PHANTOM_KEY), ownerPlayerId: e2.ownerId, sourcePlayerId: e2.sourcePlayerId });
       if (ph) b.fx('summon', { x: from.x, y: from.y, id: e2.id, key: PHANTOM_KEY, n: 1 });
     },
   }];
@@ -989,7 +998,7 @@ function kitLion(ab, e, b) {
     const spot = b2.rng.pick(free);
     if (spot) {
       const key = b2.rng.pick(EQUIP_KEYS);
-      const q = b2.spawnEnemy(key, { pos: spot, route: { motion: 'FLY', start: spot, end: spot, steps: [{ t: 'wait', s: 99999 }] }, tag: 'part', countInTotal: false, ownerPlayerId: e2.ownerId });
+      const q = b2.spawnEnemy(key, { pos: spot, route: { motion: 'FLY', start: spot, end: spot, steps: [{ t: 'wait', s: 99999 }] }, mods: summonMods(b2, key), tag: 'part', countInTotal: false, ownerPlayerId: e2.ownerId });
       if (q) b2.fx('equip', { x: spot[1], y: spot[0], id: q.id, key });
     }
     return true;

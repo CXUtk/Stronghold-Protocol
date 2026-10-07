@@ -1185,7 +1185,7 @@ export class Match {
     const b = this.newBattle({
       seed: deriveSeed(this.seed, `preview:${this.round}:${ps.seat}`), kind: 'normal', modeId: this.modeId, round: this.round,
       stageId: this.stageId, rect: { ...GEO.NORMAL_RECT }, timeLimit: 60, players, spawns: [], routes: this.wave ? this.wave.routes : [],
-      sharedBoss: null, flags: { layerGainsEnabled: !bossRound, ...this.gd.dp }, fieldId: `n:${ps.playerId}`, recordEvents: false,
+      sharedBoss: null, flags: { layerGainsEnabled: !bossRound, ...this.gd.dp, enemyScale: this.gd.enemySpawnScale(this.round) }, fieldId: `n:${ps.playerId}`, recordEvents: false,
     });
     try {
       if (typeof b.start === 'function') b.start();
@@ -1908,7 +1908,7 @@ export class Match {
       spawns: this._sanitizeSpawns(Array.isArray(ev.spawns) ? ev.spawns : spawns, ps.playerId),
       routes: wave.routes,
       sharedBoss: null,
-      flags: { layerGainsEnabled: true, ...this.gd.dp },
+      flags: { layerGainsEnabled: true, ...this.gd.dp, enemyScale: this.gd.enemySpawnScale(this.round) },
       fieldId: `n:${ps.playerId}`,
       enemyOverrides: wave.overrides,
       waveId: wave.templateId,
@@ -2036,7 +2036,7 @@ export class Match {
       spawns: this._sanitizeSpawns(wave.spawns),
       routes: wave.routes,
       sharedBoss: null,
-      flags: { layerGainsEnabled: false, ...this.gd.dp },
+      flags: { layerGainsEnabled: false, ...this.gd.dp, enemyScale: this.gd.enemySpawnScale(this.round) },
       fieldId: 'u',
       // leaked enemies re-enter with the stats they had: the round template's stat overrides apply again
       enemyOverrides: this.wave && this.wave.overrides ? this.wave.overrides : {},
@@ -3026,7 +3026,7 @@ export class Match {
         spawns: this._sanitizeSpawns(spawns),
         routes: wave.routes,
         sharedBoss: this.bossPool,
-        flags: { layerGainsEnabled: false, ...this.gd.dp },
+        flags: { layerGainsEnabled: false, ...this.gd.dp, enemyScale: this.gd.enemySpawnScale(this.round) },
         fieldId,
         enemyOverrides: wave.overrides,
         waveId: wave.templateId,

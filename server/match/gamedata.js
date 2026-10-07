@@ -373,6 +373,22 @@ export class GameData {
     return this.baseEnemyScale(r);
   }
 
+  /** Keep 补给线 separate so its explicit enemy exclusions also work for dynamic summons. */
+  enemySpawnScale(r) {
+    const scale = this.enemyScale(r);
+    const table = this.mode.enemyScale;
+    const row = table && table[String(r)], first = table && table['1'];
+    let supplyHpMul = 1;
+    if (Number.isFinite(row?.kHp) && Number.isFinite(first?.kHp)) {
+      const hpWithoutSupply = first.hp * Math.pow(1.2, row.kHp - first.kHp);
+      const ratio = scale.hpMul / hpWithoutSupply;
+      // Config multipliers are rounded to six decimals.
+      if (Math.abs(ratio - 1.08) < 1e-5) supplyHpMul = 1.08;
+      else if (Math.abs(ratio - 1.2) < 1e-5) supplyHpMul = 1.2;
+    }
+    return { ...scale, supplyHpMul };
+  }
+
   timer(key) {
     const t = this.config.timers && this.config.timers[key];
     return typeof t === 'number' && Number.isFinite(t) && t > 0 ? t : DEFAULTS.timers[key] ?? 10;

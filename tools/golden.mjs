@@ -443,7 +443,7 @@ export function rosterScenarios() {
     scenarios.push({
       id: `roster-${String(i + 1).padStart(3, '0')}`, family: 'roster', kind: 'normal', modeId, round, stageId, seed, pass: first.v,
       rect: { ...GEO.NORMAL_RECT }, timeLimit: wave.timeLimit, routes: wave.routes, waveId: wave.templateId, enemyOverrides: wave.overrides,
-      flags: { layerGainsEnabled: true, ...gd.dp },
+      flags: { layerGainsEnabled: true, ...gd.dp, enemyScale: gd.enemySpawnScale(round) },
       players: [playerInput(pid, 0, units, { bonds: bondsOf(gd, units, LAYER_STEPS[i % LAYER_STEPS.length]), bandId: bands.next(), effects, deviceOverrides })],
       // the round's wave three times (a quarter of the time limit apart): the operators fight long enough to cast their
       // skills (one copy is cleared in ~40–80 s by 12 operators)
@@ -522,7 +522,7 @@ export function bondScenarios() {
       scenarios.push({
         id: `bond-${bondId}-${level}`, family: 'bonds', kind: 'normal', modeId, round, stageId, seed,
         rect: { ...GEO.NORMAL_RECT }, timeLimit: wave.timeLimit, routes: wave.routes, waveId: wave.templateId, enemyOverrides: wave.overrides,
-        flags: { layerGainsEnabled: true, ...gd.dp },
+        flags: { layerGainsEnabled: true, ...gd.dp, enemyScale: gd.enemySpawnScale(round) },
         players: [playerInput(pid, 0, units, { bonds, bandId: null })],
         spawns: wave.spawns.map((s) => ({ ...s, ownerPlayerId: pid })),
         about: `${bond.name} ${level}: tier ${bonds[bondId] ? bonds[bondId].tier : 0} layers ${bonds[bondId] ? bonds[bondId].layers : 0}; ${placeName(units).join(' ')}`,
@@ -574,7 +574,7 @@ export function fieldScenarios() {
       scenarios.push({
         id: `${hidden ? 'hidden' : 'boss'}-${bossId}-${solo ? 'solo' : 'pair'}`, family: 'fields', kind: hidden ? 'hidden' : 'boss', modeId, round, stageId, seed,
         rect: { ...GEO.BOSS_RECT }, timeLimit: Infinity, routes: wave.routes, waveId: wave.templateId, enemyOverrides: wave.overrides,
-        flags: { layerGainsEnabled: false, ...gd.dp }, bossId, boss: { poolHp: pool, poolMax: pool }, fieldId: 'b1', cap: 200,
+        flags: { layerGainsEnabled: false, ...gd.dp, enemyScale: gd.enemySpawnScale(round) }, bossId, boss: { poolHp: pool, poolMax: pool }, fieldId: 'b1', cap: 200,
         players, spawns: wave.spawns.map((s) => ({ ...s })),
         about: `${data.bosses[bossId].name} ${solo ? 'solo' : 'pair'} pool ${pool}: ${players.map((p) => placeName(p.units).join(' ')).join(' | ')}`,
       });
@@ -613,7 +613,7 @@ export function fieldScenarios() {
     scenarios.push({
       id: `unite-${helpers}`, family: 'fields', kind: 'unite', modeId, round, stageId, seed,
       rect: { ...GEO.UNITE_RECT }, timeLimit: src.timeLimit, routes: wave.routes, waveId: wave.templateId, enemyOverrides: src.overrides,
-      flags: { layerGainsEnabled: false, ...gd.dp }, fieldId: 'u', players, spawns: wave.spawns,
+      flags: { layerGainsEnabled: false, ...gd.dp, enemyScale: gd.enemySpawnScale(round) }, fieldId: 'u', players, spawns: wave.spawns,
       about: `联防 ${helpers} helper(s), ${leaked.length} leaked: ${players.map((p) => placeName(p.units).join(' ')).join(' | ')}`,
     });
   }

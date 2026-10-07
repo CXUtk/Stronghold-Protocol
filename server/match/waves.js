@@ -36,6 +36,7 @@
 // largest owner group (client `_CalculateActionPredelayConsiderUid`, decoded).
 
 import { createRng, deriveSeed } from '../sim/rng.js';
+import { enemySpawnMods } from '../sim/enemyScaling.js';
 
 const ACLOON = 'enemy_9012_acloon';
 const DEFAULT_PLACEHOLDERS = Object.freeze({
@@ -280,7 +281,7 @@ function previewInfo(gd, key, route, boss = false, leader = undefined) {
  *   server } (`server` = client ShouldActionUpToServer: valid, not the leader, no random spawn group)
  */
 function templateSpawns(gd, tpl, round, pick) {
-  const scale = scaleFor(gd, round);
+  const scale = gd.enemySpawnScale(round);
   const ph = placeholderMap(gd);
   const routes = Array.isArray(tpl.routes) ? tpl.routes : [];
   const leader = isLeaderTemplate(tpl);
@@ -328,7 +329,7 @@ function templateSpawns(gd, tpl, round, pick) {
       // the round multipliers are ENEMY effects on every enemy but 炎佑 (aceffect_enemy_1–5 `enemy_attribute_mul`,
       // enemy_exclude = enemy_9012_acloon): leader parts take them all; the leader takes ATK / speed but not HP — its HP
       // is the server pool, "领袖单位于服务器的生命值加成不受上述加成影响" (PRTS 下半)
-      mods: isBoss ? { atkMul: scale.atkMul, speedMul: scale.speedMul, slot } : { hpMul: scale.hpMul, atkMul: scale.atkMul, speedMul: scale.speedMul, slot },
+      mods: isBoss ? { atkMul: scale.atkMul, speedMul: scale.speedMul, slot } : { ...enemySpawnMods(scale, key), slot },
       actionIndex: i,
       preview: previewInfo(gd, key, routes[routeIndex], isBoss, leader),
     };
@@ -476,7 +477,7 @@ function runsOf(list) {
 }
 
 function bountyPlan(gd, round, wave, bounties, playerId, side) {
-  const scale = scaleFor(gd, round);
+  const scale = gd.enemySpawnScale(round);
   const routes = (wave && wave.routes) || [];
   const acts = Array.isArray(wave && wave.actions) ? wave.actions : [];
   const leader = isLeaderTemplate(wave && wave.templateId ? gd.wave(wave.templateId) : null);
@@ -528,7 +529,7 @@ function bountyPlan(gd, round, wave, bounties, playerId, side) {
         routeIndex,
         count: run.len,
         interval: run.len > 1 ? step : 0,
-        mods: { hpMul: scale.hpMul, atkMul: scale.atkMul, speedMul: scale.speedMul, slot: classOf(gd, c.enemyKey), bountyId: b.id },
+        mods: { ...enemySpawnMods(scale, c.enemyKey), slot: classOf(gd, c.enemyKey), bountyId: b.id },
         tag: 'bounty',
         ownerPlayerId: playerId,
         preview: previewInfo(gd, c.enemyKey, routes[routeIndex], false, leader),
