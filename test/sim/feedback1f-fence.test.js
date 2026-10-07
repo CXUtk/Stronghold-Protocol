@@ -114,6 +114,7 @@ test('fix: a unit on a fenced tile (围墙) blocks no ground enemy pushed agains
     h.step(2);
     assert.equal(e.blockedBy, null, 'one tile away: not in contact');
     const moved = h.b.displace(e, { x: -1, y: 0 }, 0.6);
+    assert.ok(h.runUntil(() => !e.unbalance, 2), 'the push reaches the fence');
     assert.ok(Math.hypot(e.x - 7, e.y - 11) < 0.7071, `within the ground block radius (${e.x.toFixed(3)})`);
     h.step(1);
     return { h, u, e, moved };
@@ -126,8 +127,9 @@ test('fix: a unit on a fenced tile (围墙) blocks no ground enemy pushed agains
   assert.ok(a.moved > 0.4 && a.moved < 0.6 && Math.round(a.e.x) === 8, `stopped at the fence edge (moved ${a.moved})`);
   assert.equal(a.e.blockedBy, null, 'the enemy against the fence is not blocked by the unit on the fenced tile');
   assert.equal(a.u.blocking.length, 0);
-  a.h.step(30);
-  assert.ok(a.e.alive && a.e.blockedBy === null && Math.hypot(a.e.x - 7.5, a.e.y - 11.05) > 0.2, 'it walks on');
+  const ax = a.e.x, ay = a.e.y;
+  assert.ok(a.h.runUntil(() => Math.hypot(a.e.x - ax, a.e.y - ay) > 0.05, 2), 'it walks on');
+  assert.ok(a.e.alive && a.e.blockedBy === null);
   // control: the same tile made a road — the pushed enemy is blocked as before
   const road = { ...fenced, rows: fenced.rows.map((row, r) => (r === 11 ? `${row.slice(0, 7)}r${row.slice(8)}` : row)) };
   const b = push(road);

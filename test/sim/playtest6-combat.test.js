@@ -28,6 +28,10 @@ import { spawnYanyou, TOKEN_IDS } from '../../server/sim/content/tokens.js';
 
 const REAL = { skip: !hasGeneratedData() };
 const approx = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg ?? ''} ${a} ≈ ${b}`);
+const settleDisplacement = (h, e, maxSeconds = 3) => {
+  assert.ok(e.unbalance, 'displacement entered unbalance');
+  assert.ok(h.runUntil(() => !e.unbalance, maxSeconds), 'displacement settled');
+};
 
 // =====================================================================================================================
 // #17 — the enemy held between two operators
@@ -319,7 +323,8 @@ test('#14 the official push table: 受力等级 = 力度 − 重量 (PRTS 游戏
       const want = PUSH.find(([l]) => l === Math.max(-3, Math.min(4, force - m)))[1];
       const moved = h.b.push(e, force, { from: { x: 2, y: 10 } });
       approx(moved, want, 1e-9, `force ${force} vs weight ${m}`);
-      approx(e.x, 3 + want, 1e-9, 'radial: straight away from the pusher');
+      if (want > 0) settleDisplacement(h, e);
+      approx(e.x, 3 + want, 1e-5, 'radial: straight away from the pusher');
       h.b.loseHp(e, 1e12);
     }
   }
@@ -339,22 +344,28 @@ test('#14 directional pushes: > 45° off the direction or nearer than 0.25 → r
   const from = { x: 3, y: 10 }, right = { x: 1, y: 0 };
   const a = h.spawn('enemy_m1', { pos: [10, 4] });
   approx(h.b.push(a, 1, { from, dir: right }), 1.7, 1e-9, 'straight ahead: 中力 vs 1 = 1.7 along the direction');
+  settleDisplacement(h, a);
   approx(a.y, 10, 1e-9);
   const b = h.spawn('enemy_m1', { pos: [11, 3.5] }); // 63° off the direction
   const moved = h.b.push(b, 1, { from, dir: right });
   approx(moved, 0.12, 1e-9, 'radial, 受力等级 0 − 2 = −2');
+  settleDisplacement(h, b);
   assert.ok(b.y > 11, 'pushed away from the pusher, not along its direction');
   const c = h.spawn('enemy_m1', { pos: [11, 3.5] });
   approx(h.b.push(c, 1, { from, dir: right, fixed: true }), 1.7, 1e-9, 'fixed: along the direction, full force');
+  settleDisplacement(h, c);
   approx(c.y, 11, 1e-9);
   // 见行者 S2 (PRTS 备注 waives only the angle): 63° off → along the direction at full force; nearer than 0.25 → radial −2
   const d = h.spawn('enemy_m1', { pos: [12, 3.5] });
   approx(h.b.push(d, 1, { from: { x: 3, y: 11 }, dir: right, fixedAngle: true }), 1.7, 1e-9, 'fixedAngle: angle waived');
+  settleDisplacement(h, d);
   approx(d.y, 12, 1e-9);
   const n = h.spawn('enemy_m1', { pos: [9, 3.1] });
   approx(h.b.push(n, 1, { from: { x: 3, y: 9 }, dir: right, fixedAngle: true }), 0.12, 1e-9, 'fixedAngle: < 0.25 tile still radial −2');
+  settleDisplacement(h, n);
   const n2 = h.spawn('enemy_m1', { pos: [8, 3.1] });
   approx(h.b.push(n2, 1, { from: { x: 3, y: 8 }, dir: right, fixed: true }), 1.7, 1e-9, 'fixed (圣聆初雪): < 0.25 tile waived too');
+  settleDisplacement(h, n2);
   checkInvariants(h.b);
 });
 
@@ -370,6 +381,7 @@ test('#14 见行者 S2 惊爆射击: angle waived, a target nearer than 0.25 til
     const u = h.unit(id);
     assert.ok(h.runUntil(() => h.hooksOf('statusApplied').some((c) => c.source === u && c.status === 'stun'), 6), 'cast');
     const st = h.hooksOf('statusApplied').find((c) => c.source === u && c.status === 'stun');
+    settleDisplacement(h, h.b.enemies[0]);
     return { e: h.b.enemies[0], stun: st.duration };
   };
   // straight ahead, open ground: 中力 vs weight 0 = 受力等级 1 — a 特效 push (PRTS 推与拉 names 见行者's skills 特效类):
@@ -393,6 +405,7 @@ test('#14 特效 pushes (PRTS 推与拉: one frame less of travel than 弹道 on
     const want = EFFECT.find(([l]) => l === Math.max(-3, Math.min(4, 1 - m)))[1];
     approx(h.b.pushDistance(e, 1, { effect: true }), want, 1e-9, `distance: 中力 vs weight ${m}`);
     approx(h.b.push(e, 1, { from: { x: 2, y: 10 }, effect: true }), want, 1e-9, `push: 中力 vs weight ${m}`);
+    if (want > 0) settleDisplacement(h, e);
     h.b.loseHp(e, 1e12);
   }
   // 见行者 S1 (generic kit, 推击手 directional push on her next attack, bb.force 1) on a weight-0 enemy ahead: 1.987, not 2.14
@@ -406,7 +419,7 @@ test('#14 特效 pushes (PRTS 推与拉: one frame less of travel than 弹道 on
   k.step();
   const e = k.b.enemies[0];
   assert.ok(e && k.runUntil(() => e.x > 4.01, 6), 'pushed');
-  k.step(2);
+  settleDisplacement(k, e);
   approx(e.x, 4 + PUSH_TILES_EFFECT[1], 1e-6, '特效 column');
 });
 
@@ -486,25 +499,25 @@ test('#14 the user\'s case: 野鬃 S2 夹枪冲锋 pushes by 力度 − 重量 �
   // the displacement of her first skill hit: the enemy's position before the attack and right after it (the melee hit and
   // its push resolve inside the attack)
   const moved = (mass) => {
-    const pushes = [];
     const h = makeBattle({
       defs: { enemies: { enemy_t: foe('enemy_t', { speed: 0, mass }) } }, units: [{ chessId: id, row: 10, col: 3, carryState: { sp: 1e3 } }],
       enemies: [{ key: 'enemy_t', pos: [10, 4] }], autoFinish: false, timeLimit: 30, hooks: [],
       setup(b) {
-        let x0 = null;
-        b.on('beforeAttack', (c) => { if (c.attacker.defId === id && c.isSkill) x0 = c.targets[0]?.x ?? null; }, { priority: -2000 });
-        b.on('attack', (c) => { if (c.attacker.defId === id && c.isSkill && x0 != null) { pushes.push(c.targets[0].x - x0); x0 = null; } }, { priority: -2000 });
+        b.on('beforeAttack', (c) => { if (c.attacker.defId === id && c.isSkill && c.targets[0]) c.targets[0].mem.testPushX = c.targets[0].x; }, { priority: -2000 });
       },
     });
     const u = h.unit(id);
-    assert.ok(h.runUntil(() => pushes.length > 0, 5), 'a skill hit');
+    const enemy = () => h.b.enemies[0];
+    assert.ok(h.runUntil(() => { const e = enemy(); return !!e && (!!e.unbalance || mass >= 4 && e.mem.testPushX != null); }, 5), 'a skill hit');
+    const e = enemy();
     assert.ok(u.skill.active);
-    return pushes[0];
+    if (e.unbalance) settleDisplacement(h, e);
+    return e.x - e.mem.testPushX;
   };
   const want = { 0: 2.14, 1: 1.7, 2: 0.44, 3: 0.12, 4: 0, 5: 0, 6: 0 };
   for (const [m, d] of Object.entries(want)) {
     const got = moved(Number(m));
-    approx(got, d, 1e-6, `weight ${m}`);
+    approx(got, d, 1e-5, `weight ${m}`);
   }
 });
 

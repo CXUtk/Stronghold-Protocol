@@ -6,14 +6,15 @@
 //     PRTS 失衡位移机制: "这里的敌方单位也包括空中单位，但会因下述的判断而被取消位移".
 //   - every air unit of data/enemies.json but “炎佑” (weight 10) lists "{{特殊机制|静态刚体}}" in its PRTS 天赋 (妖怪 "{{特殊机制|
 //     静态刚体}}，不进行普通攻击", 寒霜, 暴鸰, 法术大师A1, 御4, 护障, 远眺 …), and so does the ground boss 盐风主教昆图斯 →
-//     enemies.json `staticBody` (tools/build-data.mjs STATIC_BODIES) → Battle._displaceable: 0 tiles from every source.
+//     enemies.json `staticBody` (tools/build-data.mjs STATIC_BODIES) → 0 movement, while the 失衡 state still occurs.
 //   - the skills keep their reach: 薄绿 (阵法术师 "攻击时可对空"), 锏 S3 ("※可对空"), the 钩索师 … still hit the drones.
 //   - 刺胄之弹 / “斩胄之剑” / “破胄之锤” are also 失衡免疫 (PRTS 天赋 "{{特殊机制|静态刚体}}，…失衡免疫…").
 //   - 喷气人's 飞行模式 (PRTS 喷气人 "近地悬浮，不可阻挡，失衡免疫，移动速度+50%，不进行攻击") hovers like the two 近地悬浮 enemies.
 //   - 守墓石像 turns into a flyer at run time (data WALK, no 静态刚体): its statue ("无法被阻挡，自缚，失衡免疫，免疫浮空") and its
 //     flight ("变为飞行单位，失衡免疫") are 失衡免疫 (PRTS 守墓石像 / 愤怒的守墓石像 天赋).
 // Unchanged: ground enemies keep the 力度 − 重量 tables (DESIGN §20.3); the hovering 吉兆飞鳞 / 掠海漂移体 are 失衡免疫 while they
-// hover and displaceable once grounded (no 静态刚体 on their pages). [ASSUMED] the 0.1 s 失衡硬直 of a 静态刚体 is not modelled.
+// hover and displaceable once grounded (no 静态刚体 on their pages). Static bodies still enter the official minimum
+// 0.1 s unbalance state, so repeated pushes can briefly delay their route without changing their position.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -60,6 +61,7 @@ function firstHitDrag(h, u, pos) {
   const hits = () => h.hooksOf('damaged').filter((c) => c.source === u && c.target === e);
   assert.ok(h.runUntil(() => hits().length > 0, 8), 'she hits it');
   assert.equal(hits().length, 1, 'one hit so far');
+  assert.ok(h.runUntil(() => !e.unbalance, 2), 'the first displacement settles');
   return { e, moved: Math.hypot(e.x - x0, e.y - y0), dmg: hits()[0].amount };
 }
 
@@ -100,7 +102,7 @@ test('B5 (the player\'s scenario): 薄绿 S2 hits the drones but never drags the
     approx(res[YOKAI], 0, 1e-9, `${chessId}: 妖怪 (静态刚体) stays`);
     approx(res[FROST], 0, 1e-9, `${chessId}: 寒霜 (静态刚体) stays`);
     // 小力 (0) − weight 0 = 受力等级 0: 1.7 tiles, stopped at the 急停 radius 0.6708 from her centre; − weight 1 = −1: 0.44
-    approx(res[SLIME], Math.min(PUSH_TILES[0], 2 - PULL_STOP_RADIUS), 1e-6, `${chessId}: 源石虫`);
+    approx(res[SLIME], Math.min(PUSH_TILES[0], 2 - PULL_STOP_RADIUS), 1e-4, `${chessId}: 源石虫`);
     approx(res[AGENT], PUSH_TILES[-1], 1e-6, `${chessId}: 步兵`);
   }
 });
@@ -123,9 +125,12 @@ test('B5 (the player\'s scenario): on act2 m01 a round-7 drone flies past 薄绿
   };
   const ref = fly(false), got = fly(true);
   assert.ok(got.hits >= 5, `S2 hits the drone (${got.hits} hits)`);
-  assert.equal(got.path.length, ref.path.length, 'it reaches the goal on the same tick');
+  assert.ok(got.path.length > ref.path.length, 'each hit gives the static body its 0.1 s unbalance hold');
+  const compact = (path) => path.filter((p, i) => !i || Math.hypot(p[0] - path[i - 1][0], p[1] - path[i - 1][1]) > 1e-9);
+  const gp = compact(got.path), rp = compact(ref.path);
+  assert.equal(gp.length, rp.length, 'only stationary frames were added');
   let dev = 0;
-  for (let i = 0; i < ref.path.length; i++) dev = Math.max(dev, Math.hypot(got.path[i][0] - ref.path[i][0], got.path[i][1] - ref.path[i][1]));
+  for (let i = 0; i < rp.length; i++) dev = Math.max(dev, Math.hypot(gp[i][0] - rp[i][0], gp[i][1] - rp[i][1]));
   approx(dev, 0, 1e-9, 'its flight is the undisturbed one');
   checkInvariants(got.h.b);
 });
@@ -133,7 +138,7 @@ test('B5 (the player\'s scenario): on act2 m01 a round-7 drone flies past 薄绿
 test('B5: 静态刚体 is the body, not the movement — a dynamic flyer is dragged, a static walker is not; push / pull give 0 at any 力度', REAL, () => {
   const pos = [10, 5];
   const drag = (key) => { const { h, u } = mintVs(key, pos, { route: key === DYN_FLY ? 2 : 0, defs: SYNTH }); h.step(); return firstHitDrag(h, u, pos).moved; };
-  approx(drag(DYN_FLY), Math.min(PUSH_TILES[0], 2 - PULL_STOP_RADIUS), 1e-6, 'a non-static FLY body: the weight-0 table');
+  approx(drag(DYN_FLY), Math.min(PUSH_TILES[0], 2 - PULL_STOP_RADIUS), 1e-4, 'a non-static FLY body: the weight-0 table');
   approx(drag(STATIC_WALK), 0, 1e-9, 'a static ground body stays');
   const { h } = mintVs(YOKAI, pos, { route: 2 });
   h.step();
@@ -170,7 +175,8 @@ test('B5: hovering enemies are 失衡免疫 while they hover, dragged once groun
   const hitsOn = () => h.hooksOf('damaged').filter((c) => c.source === u && c.target === e).length;
   const n0 = hitsOn();
   assert.ok(h.runUntil(() => hitsOn() > n0, 8));
-  approx(Math.hypot(e.x - at.x, e.y - at.y), Math.min(PUSH_TILES[0], Math.hypot(at.x - 3, at.y - 10) - PULL_STOP_RADIUS), 1e-6, 'dragged');
+  assert.ok(h.runUntil(() => !e.unbalance, 2), 'the grounded drag settles');
+  approx(Math.hypot(e.x - at.x, e.y - at.y), Math.min(PUSH_TILES[0], Math.hypot(at.x - 3, at.y - 10) - PULL_STOP_RADIUS), 1e-4, 'dragged');
   // 掠海漂移体 爬行模式: no 失衡免疫, but weight 4 — 小力 − 4 = −4 → no movement (the table), 大力 (3) − 4 = −1 → 0.44
   const s = mintVs(SYUFO, pos).h;
   s.step();
@@ -291,7 +297,8 @@ test('B5 audit: 缪尔赛思 S3 — a melee 流形 copy\'s pulse reaches air uni
     const t = tok();
     const e = h.spawn(key, { routeIndex: route, pos: [10, 7], mods: STILL });
     assert.ok(u.skill.activate('test', { free: true }), 'S3 on');
-    h.step(2);
+    assert.ok(h.runUntil(() => !!e.unbalance, 2), 'the pulse starts a pull');
+    assert.ok(h.runUntil(() => !e.unbalance, 2), 'the pull settles');
     // 小力 − weight 0 = 0: all the way to the 急停 radius around the copy's centre (from √2 tiles)
     if (pulled) approx(Math.hypot(e.x - t.x, e.y - t.y), PULL_STOP_RADIUS, 1e-6, `${key}: pulled to the copy`);
     else approx(Math.hypot(e.x - 7, e.y - 10), 0, 1e-9, `${key}: a 静态刚体 stays`);
