@@ -302,10 +302,9 @@ export function stepToward(u, tx, ty, dist) {
   return false;
 }
 
-/** Set a 次数怪 form's raw hits × spawn HP multiplier, full; keep fractional HP until damage resolves. */
+/** Set a 频次 unit's hits (maxHp := hits, full): `n` rounded to a whole count, at least 1. */
 export function setHits(e, n) {
-  const mul = Number(e.mods?.hpMul);
-  const h = Math.max(1, n * (Number.isFinite(mul) && mul > 0 ? mul : 1));
+  const h = Math.max(1, Math.round(n));
   e.base.maxHp = h;
   e.markDirty();
   void e.s;

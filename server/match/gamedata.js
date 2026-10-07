@@ -397,36 +397,26 @@ export class GameData {
     return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
   }
 
-  /** Official enemy multipliers of round r (config enemyScale: the PRTS table + 终极 speed ×1.15 from R3). */
+  /**
+   * Official enemy multipliers of round r (config enemyScale: the PRTS table + 终极 speed ×1.15 from R3). `supplyHpMul`
+   * (only when ≠ 1: co-op 终极 R5–R15) = the share of hpMul from 补给线 / 补给线II (config `supplyHp`), effects whose
+   * `enemy_exclude` leaves out the 14 器物 hit-count keys — they take hpMul / supplyHpMul (archetypes.js `times`).
+   */
   baseEnemyScale(r) {
     const e = this.mode.enemyScale && this.mode.enemyScale[String(r)];
     if (!e || typeof e !== 'object') return { hpMul: 1, atkMul: 1, speedMul: 1 };
+    const supply = numOr(e.supplyHp, 1);
     return {
       hpMul: Math.max(0.01, numOr(e.hp, 1)),
       atkMul: Math.max(0, numOr(e.atk, 1)),
       speedMul: Math.max(0.01, numOr(e.speed, 1)),
+      ...(supply > 0 && supply !== 1 ? { supplyHpMul: supply } : {}),
     };
   }
 
   /** Enemy multipliers of round r = the official table (baseEnemyScale; no custom multiplier). */
   enemyScale(r) {
     return this.baseEnemyScale(r);
-  }
-
-  /** Keep 补给线 separate so its explicit enemy exclusions also work for dynamic summons. */
-  enemySpawnScale(r) {
-    const scale = this.enemyScale(r);
-    const table = this.mode.enemyScale;
-    const row = table && table[String(r)], first = table && table['1'];
-    let supplyHpMul = 1;
-    if (Number.isFinite(row?.kHp) && Number.isFinite(first?.kHp)) {
-      const hpWithoutSupply = first.hp * Math.pow(1.2, row.kHp - first.kHp);
-      const ratio = scale.hpMul / hpWithoutSupply;
-      // Config multipliers are rounded to six decimals.
-      if (Math.abs(ratio - 1.08) < 1e-5) supplyHpMul = 1.08;
-      else if (Math.abs(ratio - 1.2) < 1e-5) supplyHpMul = 1.2;
-    }
-    return { ...scale, supplyHpMul };
   }
 
   timer(key) {

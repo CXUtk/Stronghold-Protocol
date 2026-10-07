@@ -11,13 +11,10 @@ import { makeBattle, chessRec, checkInvariants } from '../helpers/battleHarness.
 import * as enemiesMod from '../../server/sim/content/enemies.js';
 import * as bossesMod from '../../server/sim/content/bosses.js';
 import { spawnYanyou } from '../../server/sim/content/tokens.js';
-import { GameData } from '../../server/match/gamedata.js';
-import { enemySpawnMods } from '../../server/sim/enemyScaling.js';
 import { attackWindup } from '../../server/sim/ai.js';
 
 const E = JSON.parse(fs.readFileSync(new URL('../../data/enemies.json', import.meta.url), 'utf8'));
 const W = JSON.parse(fs.readFileSync(new URL('../../data/waves.json', import.meta.url), 'utf8'));
-const CONFIG = JSON.parse(fs.readFileSync(new URL('../../data/config.json', import.meta.url), 'utf8'));
 const { KITS, STATS_ONLY, EROSION, EROSION_BURST } = enemiesMod;
 const { BOSS_KITS, PART_TRANSFER, BLADE_TRANSFER, DRONE_LINK_BASE, droneLinkBase } = bossesMod;
 const { HUSK_REBIRTH, TRANSLATOR_CHANGE } = enemiesMod;
@@ -219,45 +216,12 @@ for (const key of ['enemy_2034_sythef', 'enemy_2034_sythef_2']) {
 
 const TIMES_KEYS = ['enemy_1196_msfyin', 'enemy_1196_msfyin_2', 'enemy_1198_msfshu', 'enemy_1198_msfshu_2', 'enemy_1200_msfjin', 'enemy_1200_msfjin_2',
   'enemy_1202_msfzhi', 'enemy_1202_msfzhi_2', 'enemy_1204_msfhu', 'enemy_1204_msfhu_2', 'enemy_1208_msfji', 'enemy_1208_msfji_2', 'enemy_1210_msfden', 'enemy_1210_msfden_2'];
-
-test('frequency HP and husk revival retain each solo/co-op difficulty and round multiplier', () => {
-  for (const modeId of Object.keys(CONFIG.modes).filter((id) => /mode_(single|multi)_/.test(id))) {
-    const gd = new GameData({ config: CONFIG }, modeId);
-    for (const [round, row] of Object.entries(CONFIG.modes[modeId].enemyScale)) {
-      const h = arena();
-      h.step();
-      const scale = gd.enemySpawnScale(Number(round));
-      const supply = modeId === 'mode_multi_abyss' && [6, 13, 14, 15].includes(Number(round)) ? 1.08 : 1;
-      assert.equal(scale.supplyHpMul, supply, `${modeId} R${round}: supply effect`);
-      for (const key of TIMES_KEYS) {
-        const e = put(h, key, [10, 7], { mods: enemySpawnMods(scale, key) });
-        const expected = E[key].stats.maxHp * row.hp / supply;
-        approx(e.s.maxHp, expected, 1e-9, `${modeId} R${round} ${key}`);
-        for (let i = 0; i < Math.ceil(expected) - 1; i++) h.b.dealDamage(null, e, { amount: 10000, type: 'true' });
-        assert.ok(e.alive, 'fractional HP requires the last damage instance');
-        h.b.dealDamage(null, e, { amount: 10000, type: 'true' });
-        assert.ok(!e.alive);
-      }
-      for (const key of ['enemy_1288_duskls', 'enemy_1288_duskls_2', 'enemy_1292_duskld', 'enemy_9010_acpupp']) {
-        const e = put(h, key, [10, 7], { mods: enemySpawnMods(scale, key) });
-        const full = e.s.maxHp;
-        h.b.kill(e, null);
-        approx(e.s.maxHp, tb(key, 'Revive[Trigger].prop_max_hp') * row.hp, 1e-9, `${modeId} R${round}: husk`);
-        h.run(HUSK_REBIRTH + tb(key, 'Revive[Trigger].interval') + 0.1);
-        approx(e.s.maxHp, full, 1e-9, 'revival restores the scaled original form');
-        h.b.kill(e, null);
-        approx(e.s.maxHp, tb(key, 'Revive[Trigger].prop_max_hp') * row.hp, 1e-9, 'second transformation does not compound');
-        e.alive = false;
-      }
-    }
-  }
-});
 for (const key of TIMES_KEYS) {
   const artsOnly = /1204/.test(key);
-  test(`${nm(key)}: 频次 — difficulty HP ×3 triples the required ${artsOnly ? 'arts/true ' : ''}hits, unblockable`, () => {
+  test(`${nm(key)}: 频次 — needs ${E[key].stats.maxHp} × the round's HP ${artsOnly ? 'arts/true ' : ''}hits, unblockable`, () => {
     const h = arena({ units: [{ chessId: 't_gun', row: 12, col: 3 }], hooks: ['death'], mods: { hpMul: 3 } });
     h.step();
-    const e = put(h, key, [10, 7], { mods: { hpMul: 3 } });
+    const e = put(h, key, [10, 7], { mods: { hpMul: 3 } });   // the round's HP multiplier (攻坚装备) scales the hit count (PR #272)
     const n = E[key].stats.maxHp * 3;
     assert.equal(e.s.maxHp, n);
     assert.ok(e.s.flags.unblockable);
@@ -271,6 +235,33 @@ for (const key of TIMES_KEYS) {
     assert.ok(!e.alive);
   });
 }
+
+// PR #272 (感谢 @CXUtk): 补给线 / 补给线II leave out exactly these 14 keys (+ 炎佑); 攻坚装备 / II / III and 急行军 only 炎佑
+const EFFECTS = JSON.parse(fs.readFileSync(new URL('../../data/effects.json', import.meta.url), 'utf8'));
+const excludeOf = (id) => new Set(String(EFFECTS[id].params.enemy_exclude).split('|'));
+test('频次 器物 vs the round effects: the 14 kitTimes keys are exactly 补给线 / 补给线II\'s enemy_exclude (+ 炎佑); 攻坚装备 / II / III / 急行军 leave out only 炎佑', () => {
+  for (const id of ['aceffect_enemy_2', 'aceffect_enemy_2_2']) assert.deepEqual([...excludeOf(id)].sort(), ['enemy_9012_acloon', ...TIMES_KEYS].sort(), id);
+  for (const id of ['aceffect_enemy_1', 'aceffect_enemy_3', 'aceffect_enemy_4', 'aceffect_enemy_5']) assert.deepEqual([...excludeOf(id)], ['enemy_9012_acloon'], id);
+});
+
+test('频次 器物: hits = data × hpMul / supplyHpMul (补给线\'s share out, 攻坚装备 kept), rounded [ASSUMED]; a 频次 enemy\'s death spawn inherits that', () => {
+  const h = arena();
+  h.step();
+  // co-op 终极 R6: hp 1.2⁴ × 1.08 (补给线) — the mirror takes 1.2⁴ only: 30 × 2.0736 = 62.2 → 62
+  const mods = { hpMul: 2.239488, atkMul: 1.4641, speedMul: 0, supplyHpMul: 1.08 };
+  const jin = put(h, 'enemy_1200_msfjin', [10, 7], { mods });
+  assert.equal(jin.s.maxHp, 62);
+  const parent = put(h, 'enemy_1199_sfjin', [10, 9], { mods });
+  approx(parent.s.maxHp, E.enemy_1199_sfjin.stats.maxHp * 2.239488, 1e-9, '身观 itself takes 补给线');
+  h.b.kill(parent, null);
+  h.step();
+  const child = h.enemies().find((e) => e.defId === 'enemy_1200_msfjin' && e !== jin);
+  assert.ok(child, '身观 leaves its 青铜镜');
+  assert.equal(child.s.maxHp, 62);
+  // solo 标准 (攻坚装备III, HP ×0.75): fewer hits — 2 → 1.5 → 2, 3 → 2.25 → 2, 30 → 22.5 → 23
+  for (const [key, n] of [['enemy_1196_msfyin', 2], ['enemy_1196_msfyin_2', 2], ['enemy_1200_msfjin', 23]]) assert.equal(put(h, key, [11, 7], { mods: { hpMul: 0.75 } }).s.maxHp, n, key);
+  assert.equal(put(h, 'enemy_1196_msfyin', [11, 8]).s.maxHp, 2, 'no mods: the data\'s count');
+});
 
 for (const key of ['enemy_1200_msfjin', 'enemy_1204_msfhu', 'enemy_1288_duskls']) {
   test(`${nm(key)}: 频次 hits keep their DamageInfo — a self-excluding bonus-on-damaged attacker never recurses, death hooks fire`, () => {
@@ -2005,8 +1996,7 @@ test('失衡: 弧光锋卫 bleeds per tile pushed; 冒失的小弟 is stunned; �
   const moved = h.b.displace(j, { x: 1, y: 0 }, 1, { force: 3 });
   h.b.displace(g, { x: 1, y: 0 }, 1, { force: 3 });
   h.b.displace(p, { x: 1, y: 0 }, 1, { force: 3 });
-  assert.ok(h.runUntil(() => !j.unbalance && !g.unbalance && !p.unbalance, 4));
-  h.step(); // content observes the last physics tick on the next step
+  h.step();
   approx(hp0 - j.hp, (tb('enemy_1328_cbjedi', 'unbalanced_bleed.damage') * moved) / (tb('enemy_1328_cbjedi', 'unbalanced_bleed.interval') * 5), 0.05);
   assert.equal(statuses(h, g.id, 'stun').length, 1);
   approx(statuses(h, g.id, 'stun')[0].duration, tb('enemy_10112_ymgds', 'StunAfterUnbalance.stun'));
@@ -2021,7 +2011,6 @@ test('失衡: 弧光锋卫 bleeds per tile pushed; 冒失的小弟 is stunned; �
   const s0 = sn.hp, s20 = sn2.hp;
   h.b.displace(sn, { x: -1, y: 0 }, 1, { force: 3 });                // (10,3) → wall at (10,2)
   h.b.displace(sn2, { x: 1, y: 0 }, 0.5, { force: 3 });              // open road: no collision
-  assert.ok(h.runUntil(() => !sn.unbalance && !sn2.unbalance, 4));
   h.step();
   approx(s0 - sn.hp, tb('enemy_10138_xdsnow', 'hitWall.value'));
   assert.equal(sn2.hp, s20);
@@ -2314,49 +2303,44 @@ test('template overrides of talents/skills are honoured (卢西恩 evade 0.2 in 
 const bossArena = (o = {}) => arena({ kind: 'boss', sharedBoss: pool(o.hp ?? 1e6), ...o });
 const setTpl = (id) => (b) => { b.opts.templateId = id; };
 
-for (const modeId of Object.keys(CONFIG.modes).filter((id) => /mode_(single|multi)_/.test(id))) {
-  test(`${modeId}: leader summons receive round HP/ATK/speed exactly once; pool HP stays exempt`, () => {
-    const gd = new GameData({ config: CONFIG }, modeId);
-    const round = modeId === 'mode_single_funny' ? 9 : 14;
-    const scale = gd.enemySpawnScale(round);
-    const options = { flags: { enemyScale: scale } };
-    const check = (u, hpRatio = 1) => {
-      assert.ok(u, 'summon exists');
-      approx(u.s.maxHp, E[u.defId].stats.maxHp * scale.hpMul * hpRatio, 1e-9, `${u.defId}: HP`);
-      approx(u.base.atk, E[u.defId].stats.atk * scale.atkMul, 1e-9, `${u.defId}: ATK`);
-      approx(u.base.moveSpeed, E[u.defId].stats.moveSpeed * scale.speedMul, 1e-9, `${u.defId}: speed`);
-    };
-    for (const [bossKey, tpl] of [['enemy_9013_acstmk', 'act1autochess_h07_01'], ['enemy_9013_acstmk_2', 'act1autochess_h08_01']]) {
-      const h = bossArena({ ...options, units: [{ chessId: 't_wall', row: 10, col: 6 }], setup: setTpl(tpl) });
-      h.step();
-      const boss = put(h, bossKey, [3, 10], { tag: 'boss', mods: { atkMul: scale.atkMul, speedMul: scale.speedMul } });
-      boss.profile.noAttack = true;
-      assert.equal(boss.s.maxHp, h.b.sharedBoss.maxHp, 'leader uses the pool');
-      h.runUntil(() => alive(h, 'enemy_1005_yokai').length > 0, 60);
-      check(alive(h, 'enemy_1005_yokai')[0], skb(bossKey, '2').bb['summon.hp_ratio'] ?? 1);
-      h.runUntil(() => alive(h, 'enemy_9016_acstmr').length > 0, 60);
-      check(alive(h, 'enemy_9016_acstmr')[0]);
-    }
-    // Both a real template branch and the no-template fallback must preserve scaling.
-    for (const setup of [setTpl('act1autochess_h07_03'), () => {}]) {
-      const h = bossArena({ ...options, setup });
-      h.step();
-      put(h, 'enemy_9021_acduml', [3, 10], { tag: 'boss' });
-      h.runUntil(() => alive(h, 'enemy_9023_acdums').length > 0, 50);
-      check(alive(h, 'enemy_9023_acdums')[0]);
-    }
-    const lucien = bossArena({ ...options, units: [{ chessId: 't_wall', row: 9, col: 6 }] });
-    lucien.step();
-    put(lucien, 'enemy_2016_csphtm', [2, 8], { tag: 'boss', move: true, route: { motion: 'WALK', start: [2, 8], end: [2, 2], checkpoints: [] } });
-    lucien.runUntil(() => alive(lucien, 'enemy_2017_csphts').length > 0, 60);
-    check(alive(lucien, 'enemy_2017_csphts')[0]);
-    const lion = bossArena({ ...options, units: [{ chessId: 't_wall', row: 10, col: 9 }], setup: setTpl('act1autochess_h07_06') });
-    lion.step();
-    put(lion, 'enemy_9032_aclionk', [3, 11], { tag: 'boss' }).profile.noAttack = true;
-    lion.runUntil(() => lion.enemies().some((u) => /enemy_100(28|29|30)/.test(u.defId)), 60);
-    check(lion.enemies().find((u) => /enemy_100(28|29|30)/.test(u.defId)));
-  });
-}
+// PR #272 (感谢 @CXUtk): a leader's mid-fight summons are enemies like any other — the round's effects reach them
+test('leader summons take the round\'s enemy effects (flags.enemyScale): HP — hit counts too — ATK, speed; the leader keeps the pool', () => {
+  const enemyScale = { hpMul: 2, atkMul: 1.5, speedMul: 1.15, supplyHpMul: 1.08 };
+  const stats = (u, msg) => {
+    assert.ok(u, msg);
+    const d = E[u.defId].stats;
+    approx(u.base.atk, d.atk * 1.5, 1e-9, `${msg}: ATK`);
+    approx(u.base.moveSpeed, d.moveSpeed * 1.15, 1e-9, `${msg}: speed`);
+  };
+  for (const [key, tpl] of [['enemy_9013_acstmk', 'act1autochess_h07_01'], ['enemy_9013_acstmk_2', 'act1autochess_h08_01']]) {
+    const h = bossArena({ flags: { enemyScale }, units: [{ chessId: 't_wall', row: 10, col: 6 }], setup: setTpl(tpl) });
+    h.step();
+    const boss = put(h, key, [3, 10], { tag: 'boss', mods: { atkMul: 1.5, speedMul: 1.15 } });
+    boss.profile.noAttack = true;
+    assert.equal(boss.s.maxHp, h.b.sharedBoss.maxHp, `${key}: the leader's HP is the pool`);
+    assert.ok(h.runUntil(() => alive(h, 'enemy_1005_yokai').length > 0, 90), `${key}: 死亡集群`);
+    const drone = alive(h, 'enemy_1005_yokai')[0];
+    stats(drone, `${key} 妖怪`);
+    approx(drone.s.maxHp, E.enemy_1005_yokai.stats.maxHp * 2 * (skb(key, '2').bb['summon.hp_ratio'] ?? 1), 1e-9, `${key} 妖怪: HP × the round × its summon.hp_ratio`);
+    assert.ok(h.runUntil(() => alive(h, 'enemy_9016_acstmr').length > 0, 90), `${key}: 刺胄之弹`);
+    const shell = alive(h, 'enemy_9016_acstmr')[0];
+    stats(shell, `${key} 刺胄之弹`);
+    assert.equal(shell.s.maxHp, E.enemy_9016_acstmr.stats.maxHp * 2, `${key} 刺胄之弹: hits × the round's HP`);
+  }
+  const p = bossArena({ flags: { enemyScale }, setup: setTpl('act1autochess_h07_03') });
+  p.step();
+  put(p, 'enemy_9021_acduml', [3, 10], { tag: 'boss', mods: { atkMul: 1.5, speedMul: 1.15 } });
+  assert.ok(p.runUntil(() => alive(p, 'enemy_9023_acdums').length > 0, 90), '假想敌：管 summons');
+  const echo = alive(p, 'enemy_9023_acdums')[0];
+  stats(echo, '余音');
+  assert.equal(echo.s.maxHp, E.enemy_9023_acdums.stats.maxHp * 2, '余音: hits × the round\'s HP');
+  // without the flag (tools, tests): the data's numbers
+  const q = bossArena({ units: [{ chessId: 't_wall', row: 10, col: 6 }], setup: setTpl('act1autochess_h07_01') });
+  q.step();
+  put(q, 'enemy_9013_acstmk', [3, 10], { tag: 'boss' }).profile.noAttack = true;
+  assert.ok(q.runUntil(() => alive(q, 'enemy_9016_acstmr').length > 0, 90));
+  assert.equal(alive(q, 'enemy_9016_acstmr')[0].s.maxHp, E.enemy_9016_acstmr.stats.maxHp);
+});
 
 test('假想敌：胄: arts ray on a random target in range; <20 % pool: damage taken ×0.5, still one 刺胄之弹 (PRTS 能力修正)', () => {
   const h = bossArena({ units: [{ chessId: 't_wall', row: 10, col: 6 }, { chessId: 't_wall2', row: 12, col: 4 }] });

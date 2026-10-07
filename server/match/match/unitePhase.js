@@ -40,9 +40,10 @@ export class MatchUnite {
   }
 
   /**
-   * 联防 carries the round's map together with the helpers' deployment. The escaped template supplies enemy routes
-   * and waves only; replacing the stage with its empty map loses water, fences, platforms and stage devices.
-   * Both the streamed field metadata and the client battle spec keep the round's stageId.
+   * Battle options of the 联防 field (helpers' carried end state, the leakers' enemies) on the round's battlefield, its
+   * terrain, crates, water, devices and runes included (unite.js header; the owner's decision of 2026-10-07 — 0.2.0's
+   * escaped-level map is withdrawn). The field meta and the client-run spec carry the match stageId, so every viewer
+   * draws the battlefield the boards stand on.
    */
   _uniteOpts(plan, limit) {
     const { wave, players } = uniteBattleOpts(this, plan, limit);
@@ -58,7 +59,7 @@ export class MatchUnite {
       spawns: this._sanitizeSpawns(wave.spawns),
       routes: wave.routes,
       sharedBoss: null,
-      flags: { layerGainsEnabled: false, ...this.gd.dp, enemyScale: this.gd.enemySpawnScale(this.round) },
+      flags: { layerGainsEnabled: false, ...this.gd.dp },
       fieldId: 'u',
       // leaked enemies re-enter with the stats they had: the round template's stat overrides apply again
       enemyOverrides: this.wave && this.wave.overrides ? this.wave.overrides : {},

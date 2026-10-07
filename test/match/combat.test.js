@@ -26,7 +26,6 @@ test('COMBAT: one battle per alive player with the board as input; watchers get 
   assert.deepEqual(fa.opts.rect, GEO.NORMAL_RECT);
   assert.equal(fa.opts.timeLimit, m.gd.combatTimeLimit(1));
   assert.equal(fa.opts.flags.layerGainsEnabled, true);
-  assert.deepEqual(fa.opts.flags.enemyScale, m.gd.enemySpawnScale(m.round));
   assert.equal(fa.opts.players.length, 1);
   assert.deepEqual(fa.opts.players[0].units.map((u) => [u.chessId, u.row, u.col]), [[id, tile[0], tile[1]]]);
   assert.ok(fa.opts.spawns.length > 0 && fa.opts.spawns.every((s) => s.ownerPlayerId === 'p_0'));
