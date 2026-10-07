@@ -272,7 +272,7 @@ export function TitleScreen() {
 
     <footer class="title-foot">
       <span>非官方同人复刻 · 游戏素材版权归 上海鹰角网络 / Yostar 所有</span>
-      <${MicroLabel}>v${APP_VERSION} · WEB SIMULATION<//>
+      <${MicroLabel}>卫戍协议 · v${APP_VERSION}<//>
     </footer>
   </div>`;
 }
