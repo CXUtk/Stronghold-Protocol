@@ -356,14 +356,14 @@ function MatchScreen() {
   const shownMembers = shownField ? ((Array.isArray(pub?.fields) ? pub.fields : []).find((f) => f && f.fieldId === shownField.fieldId)?.players
     || (Array.isArray(shownField.players) ? shownField.players : null)) : null;
   const ownView = showPrep || (shownField ? (shownMembers ? shownMembers.includes(myId) : shownField.fieldId === ownFieldId(myId)) : !watchingOther);
-  // a field on a map of its own (联防: the escaped template's map, GitHub #41) shows that map; leaving it restores the board's
+  // A field may name a different map; otherwise it keeps the round's map and the player's terrain changes.
   const fieldStage = gd.ready && shownField && shownField.stageId && shownField.stageId !== pub?.stageId ? gd.stage(shownField.stageId) : null;
   useEffect(() => {
     if (!view) return;
     const st = fieldStage || (ownView ? ownStage : baseStage);
     if (st) view.setStage(st);
   }, [view, ownView, ownStage, baseStage, fieldStage]);
-  // the stage behind the board ON SCREEN — the one view.setStage was just given: a field's own map (联防, GitHub #41),
+  // the stage behind the board ON SCREEN — the one view.setStage was just given: a field's own map,
   // else the own one (机变 overrides applied) or, while watching a teammate, the plain one — and how a tapped BOARD tile
   // maps to it (GitHub issue #184: tileClick → gameLogic.terrainInfo). Everywhere but a boss-prep board the two spaces
   // are the same: a 最终攻势 / 隐秘核心 battle renders the stage's own rows (GEO.BOSS_RECT), 联防 / normal rects are

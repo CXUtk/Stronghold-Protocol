@@ -5,10 +5,10 @@
 // players chosen by most units on the field (downed included) > has an active bond (存疑) > most undowned units, then
 // seat; with 2 helpers the one ranked first by most units > active bond > Σ active bond layers (存疑) > most undowned
 // units "率先迎敌" on the RIGHT-hand field (colOffset +8, where the escaped_multi routes enter), the other keeps the
-// left half (colOffset 0); a lone helper plays escaped_single on its own field. The field is the template's own map
-// (uniteStageId: data/stages.json act1autochess_escaped_single / _multi, kind 'unite' — two road halves joined at col 10,
-// the right half's gates at col 18; GitHub #41: until 0.1.3 it was the round's stage, its water, crates and devices
-// included), every helper's pieces on their prep tiles ("按休整期位置部署在场"), the right-hand one shifted 8 columns
+// left half (colOffset 0); a lone helper plays escaped_single on its own field. The field keeps the round's map,
+// including its water, fences, platforms and stage devices. The escaped templates supply the routes and waves only
+// (one helper enters at col 10, two at col 18). Every helper's pieces stand on their prep tiles
+// ("按休整期位置部署在场"), the right-hand one shifted 8 columns
 // (the official maps' halves, = the stage config's player_map_lr_offset 8). Their operators keep the HP ratio and
 // the SP (技力, stored charges included) from the end of their own combat, nothing else — a skill still running then
 // enters switched off (BattleResult.unitsEnd → PlayerBattleInput.units[].carryState `{ hpPct, sp }`, "阵地以其当前状态";
@@ -121,10 +121,11 @@ export function helperOrder(m, perfects, results) {
 }
 
 /**
- * The map of the 联防 field (GitHub #41): act2autochess constData escapedBattleTemplateMapSinglePlayer (1 helper) /
+ * Lookup of the escaped template map (retained for data compatibility; 联防 itself keeps the round's map).
+ * act2autochess constData escapedBattleTemplateMapSinglePlayer (1 helper) /
  * MultiPlayer (2 helpers) name one level for both the 联防 wave and its map — config.unite.templates[n], built into
  * data/stages.json as the stage of the same id (kind 'unite'). null when the data has no such stage (degraded data:
- * the caller keeps the round's stage).
+ * no template map is available).
  * @param {import('./gamedata.js').GameData} gd
  * @param {number} helperCount
  * @returns {string|null}

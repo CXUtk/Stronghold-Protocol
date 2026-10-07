@@ -119,7 +119,7 @@ function pushPublic() {
 function buildState() {
   uidSeq = 100;
   seed = 20260927;
-  const stage = data.lookup('stages', 'act2autochess_m01');
+  const stage = data.lookup('stages', params.get('stage') || 'act2autochess_m01') || data.lookup('stages', 'act2autochess_m01');
   const melee = stage.deployTiles.normal.melee.slice();
   const ranged = stage.deployTiles.normal.rangedOnly.slice();
   const bonds = data.list('bonds');
@@ -206,7 +206,7 @@ function buildState() {
 
   const pub = {
     phase: PHASE.PREP, round: 6, lastRound: 14, bossRound: 14, hiddenRound: 15, deadline: Date.now() + 74000, serverNow: Date.now(), modeId: 'mode_multi_hard', difficulty: 'HARD',
-    stageId: 'act2autochess_m01', factions: ['FLY', 'TIMES', 'SPECIAL'], disabledBonds: [...disabled], bannedChess: banned, bossId: 'boss_5',
+    stageId: stage.id, factions: ['FLY', 'TIMES', 'SPECIAL'], disabledBonds: [...disabled], bannedChess: banned, bossId: 'boss_5',
     hiddenBossId: 'boss_8', teamLp: null, bossHp: null, draft: null, sp: null, players, fields: [],
   };
   if (VARIANTS.has('boss') || VARIANTS.has('bossR')) pub.round = pub.bossRound;
@@ -472,8 +472,7 @@ function startCombat(phase) {
     const e = data.lookup('enemies', bossRec.enemyKey);
     enemies.push({ id: id++, kind: 'enemy', side: 'enemy', ownerId: ME, defId: bossRec.enemyKey, name: bossRec.name, spine: bossRec.enemyKey, avatar: bossRec.enemyKey, x: 10, y: 3, facing: -1, maxHp: e?.stats?.maxHp || 1e5, hp: (e?.stats?.maxHp || 1e5) * 0.62, spawnAt: 0, dir: 0, boss: true, dead: false });
   }
-  // the 联防 field fights on its own map (server unite.js uniteStageId: 2 helpers → escaped_multi; GitHub #41)
-  const field = { fieldId, kind, rect, stageId: kind === 'unite' ? 'act1autochess_escaped_multi' : pub.stageId, units: units.map((u) => ({ ...u })) };
+  const field = { fieldId, kind, rect, stageId: pub.stageId, units: units.map((u) => ({ ...u })) };
   store.patch('match', { field });
   const allyState = units.map((u) => ({ ...u, hp: u.maxHp * (0.55 + rnd() * 0.45), sp: rnd() * 20, spMax: 20 }));
   const t0 = performance.now();
