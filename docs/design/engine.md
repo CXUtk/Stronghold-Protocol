@@ -180,3 +180,8 @@ Each domain file `server/sim/content/{tokens,bonds,garrisons,items,bands,enemies
 - choices: 机变 families (悬赏决策 bounties, 道具补给, 机密商店, 战术决策 team/personal buffs). 悬赏决策 = the official structure of its round (choices.json `bountyDrafts`, 86 drafted cards: R3 a fixed set of six 两场 cards, R9 6 of a boss group's list, R11 6 of a seen 7-card list; §21.2); 机密商店 (R11 the official composition) and 战术决策 can offer the same card twice (`shopDraft` / `tacticDraft`); bounty cards carry `descRaw`; no draft offers a multi-round card, and 教鞭's lasts two battles (`choices.js MULTI_ROUND_BOUNTY_BATTLES`, §20.6). 教鞭 = a random 战术特训 card (3 drawn, 1 taken).
 
 ---
+
+
+## Temporary deploy displacement experiment
+
+The deploy branch temporarily replaces instantaneous displacement with fixed-step continuous unbalance motion. Pushes add velocity impulses and friction stops the body; pulls act over a force window. Terrain stops movement. While unbalanced, enemies cannot acquire a blocker or attack, and a cancelled normal-attack wind-up consumes its attack slot. Static bodies enter the state without moving. This experiment overrides the instantaneous-displacement description above and is kept in one separately revertible commit. Unit-to-unit physical collision resolution is not yet modelled.

@@ -2005,7 +2005,8 @@ test('失衡: 弧光锋卫 bleeds per tile pushed; 冒失的小弟 is stunned; �
   const moved = h.b.displace(j, { x: 1, y: 0 }, 1, { force: 3 });
   h.b.displace(g, { x: 1, y: 0 }, 1, { force: 3 });
   h.b.displace(p, { x: 1, y: 0 }, 1, { force: 3 });
-  h.step();
+  assert.ok(h.runUntil(() => !j.unbalance && !g.unbalance && !p.unbalance, 4));
+  h.step(); // content observes the last physics tick on the next step
   approx(hp0 - j.hp, (tb('enemy_1328_cbjedi', 'unbalanced_bleed.damage') * moved) / (tb('enemy_1328_cbjedi', 'unbalanced_bleed.interval') * 5), 0.05);
   assert.equal(statuses(h, g.id, 'stun').length, 1);
   approx(statuses(h, g.id, 'stun')[0].duration, tb('enemy_10112_ymgds', 'StunAfterUnbalance.stun'));
@@ -2020,6 +2021,7 @@ test('失衡: 弧光锋卫 bleeds per tile pushed; 冒失的小弟 is stunned; �
   const s0 = sn.hp, s20 = sn2.hp;
   h.b.displace(sn, { x: -1, y: 0 }, 1, { force: 3 });                // (10,3) → wall at (10,2)
   h.b.displace(sn2, { x: 1, y: 0 }, 0.5, { force: 3 });              // open road: no collision
+  assert.ok(h.runUntil(() => !sn.unbalance && !sn2.unbalance, 4));
   h.step();
   approx(s0 - sn.hp, tb('enemy_10138_xdsnow', 'hitWall.value'));
   assert.equal(sn2.hp, s20);

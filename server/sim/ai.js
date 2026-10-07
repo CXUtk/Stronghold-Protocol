@@ -539,6 +539,8 @@ export function updateEnemy(b, e, dt) {
   const stunned = e.s.flags.stun;
   const prevCd = e.atkCd;
   if (e.atkCd > 0 && !stunned && !e.hidden) e.atkCd = Math.max(0, e.atkCd - dt);
+  // Continuous displacement owns movement and prevents fresh attacks or blocks.
+  if (b.updateUnbalance(e, dt)) return;
   // a stun / freeze / sleep / 浮空 — or leaving the field — takes the enemy out of its attack: a swing short of its damage
   // frame does not land, and the attack starts again from its wind-up afterwards (enemyAttack)
   if (e.swing && (stunned || e.hidden)) e.swing = false;
@@ -740,6 +742,21 @@ export function attackWindup(e) {
  * The allies `e` could hit now: its blocker (and, with a range, the others in reach), passing its own target rule. An
  * enemy whose 索敌不受阻挡影响 (profile `blockFree`: 自制投石机) selects as if unblocked: the allies in reach it may target.
  */
+/** Displacement cuts a normal-attack wind-up while preserving its consumed attack slot. */
+export function interruptEnemyWindup(b, e) {
+  if (!e || !e.alive || e.hidden || e.s.flags.stun || e.s.flags.fear || e.s.flags.disarm) return false;
+  const type = e.profile?.dmgType || e.def?.dmgType;
+  if (e.profile?.noAttack || type === 'heal' || type === 'none' || e.s.atk <= 0 || !(e.atkCd > 0)) return false;
+  if (e.atkCd > attackWindup(e) + 1e-9) return false;
+  const melee = e.profile?.melee ?? e.def?.applyWay === 'MELEE';
+  const radius = melee ? 0 : e.base.rangeRadius;
+  const own = typeof e.profile?.canTarget === 'function' ? e.profile.canTarget : null;
+  if (!attackTargets(b, e, radius, radius > 0 ? radius + ALLY_COLLIDER_RADIUS : 0, own).length) return false;
+  e.swing = false;
+  e.atkWindupCancelled = true;
+  return true;
+}
+
 function attackTargets(b, e, radius, reach, own) {
   let targets = [];
   if (e.blockedBy && !(radius > 0 && e.profile && e.profile.blockFree)) {
@@ -771,6 +788,11 @@ function attackTargets(b, e, radius, reach, own) {
  * before this tick's countdown.
  */
 function enemyAttack(b, e, prevCd) {
+  if (e.atkWindupCancelled) {
+    e.swing = false;
+    if (e.atkCd <= 0) { e.atkWindupCancelled = false; e.atkCd = e.s.interval; }
+    return false;
+  }
   const def = e.def;
   if (e.profile && e.profile.noAttack) { e.swing = false; return false; }
   const dmgType = (e.profile && e.profile.dmgType) || def.dmgType;

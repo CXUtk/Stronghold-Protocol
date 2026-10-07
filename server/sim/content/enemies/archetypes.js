@@ -391,10 +391,13 @@ function unbalanced(onMove) {
       const px = a.px, py = a.py, hid = a.hid;
       a.px = e.x; a.py = e.y; a.hid = e.hidden;
       if (px == null || hid || e.hidden) return;
+      const physical = e.unbalanceStepDistance || 0;
       const own = e.s.moveSpeed * MOVE_SCALE * dt * 1.5 + 1e-3;
-      const extra = Math.hypot(e.x - px, e.y - py) - own;
-      a.lx = px; a.ly = py;                                          // where the move started (direction for onMove)
-      if (extra > 0.05) onMove(b, e, a, extra);
+      const extra = physical > 0 ? physical : Math.hypot(e.x - px, e.y - py) - own;
+      a.lx = physical > 0 ? e.unbalanceStepFromX : px;
+      a.ly = physical > 0 ? e.unbalanceStepFromY : py;                 // where the move started (direction for onMove)
+      // Physics already identifies forced motion; even a slow tail contributes to travelled distance.
+      if (physical > 0 || extra > 0.05) onMove(b, e, a, extra);
     },
   };
 }

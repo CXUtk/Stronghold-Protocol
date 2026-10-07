@@ -1429,3 +1429,8 @@ modelled — only its distance, `push` / `pull`); pushes PRTS does not classify 
 platforms/mounds are ground obstacles that elevate operators; the generic kit maps 凋亡 to `apoptosis` (侵蚀 has no element key
 yet — enemy content must pick one); 抵抗 covers the control statuses of `RESIST_STATUSES` (the official term lists 晕眩/寒冷/
 冻结/恐惧/诱导…, the rest follow the operator kits that grant it) and caps at 0.95; tactical points prefer enemy path tiles.
+
+
+## Temporary deploy displacement experiment
+
+The deploy branch temporarily replaces instantaneous displacement with fixed-step continuous unbalance motion. Pushes add velocity impulses and friction stops the body; pulls act over a force window. Terrain stops movement. While unbalanced, enemies cannot acquire a blocker or attack, and a cancelled normal-attack wind-up consumes its attack slot. Static bodies enter the state without moving. This experiment overrides the instantaneous-displacement description above and is kept in one separately revertible commit. Unit-to-unit physical collision resolution is not yet modelled.

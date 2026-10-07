@@ -24,6 +24,7 @@ export class BattleBlocking {
    * once it wakes it is blocked again only by a blocker with room.
    */
   _checkBlock(e) {
+    if (e.unbalance) return false;
     if (e.blockedBy || e.hidden || !e.alive) return !!e.blockedBy;
     const f = e.s.flags;
     if (f.unblockable || f.levitate || f.fear || f.sleep) return false;
