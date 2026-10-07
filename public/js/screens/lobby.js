@@ -369,6 +369,6 @@ export function LobbyScreen() {
         </div>
       </section>
     </div>
-    <footer class="lobby-version">卫戍协议 · v${APP_VERSION}</footer>
+    <footer class="lobby-version">${t('卫戍协议')} · v${APP_VERSION}</footer>
   </div>`;
 }
