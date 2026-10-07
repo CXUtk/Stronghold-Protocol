@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // test/content/op_lmlee.test.js — the 自选 operator kit of 老鲤 (char_322_lmlee, 6★ 行商; kit
 // server/sim/content/kits/ops/op-lmlee.js), fielded the production way (a DIY slot + its `diy` pick, simdata getDiy) in
 // every form: tiers 5 / 6, normal (E2 Lv1, skill rank 4, no module) and elite (E2 Lv60, rank 7) with no module, MER-X
@@ -293,6 +294,7 @@ test('S3 贵客盈门 (AUTO, SP_FULL): range x-4, ATK / DEF +31 % / +37 %, taunt
     const main = h.hooksOf('attack').find((c) => c.attacker === u).targets[0];
     const other = main === a ? b : a;
     assert.ok(Math.hypot(main.x - (main === a ? 6 : 5), main.y - (main === a ? 10 : 11)) < 1e-6, `T${tier}: the target is not pushed`);
+    finishDisplacement(h, other);
     assert.ok(Math.hypot(other.x - (other === a ? 6 : 5), other.y - (other === a ? 10 : 11)) > 1, `T${tier}: the other one is pushed`);
     done(h);
   }

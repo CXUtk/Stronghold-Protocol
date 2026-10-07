@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // Tier-4 operator loadouts (DESIGN §16): every selectable NON-default skill of every visible tier-4 chess has a
 // hand-authored spec in its kit file (server/sim/content/kits/ops/, `skills[skillId]`), proven here by its signature effect for
 // the normal (Lv4) and the elite (Lv7) chess; non-default modules (and 'none') change what their text says. Numbers
@@ -510,6 +511,7 @@ test('歌蕾蒂娅 S1 缺水的大洋裂断: charges; next attack atk_scale (×1
     approx(sk[0].amount, u.s.atk * bb.atk_scale * t1.atk_scale, 1e-6, `${id} hit`);
     assert.ok(e.x < x0 - 0.5, `${id}: pulled towards her (${x0} → ${e.x})`);
     // 中力 vs weight 1 (受力等级 0): "必定拉至身前" — to the 急停 radius 0.6708 around her centre (PRTS 推与拉), never past it
+    finishDisplacement(h, e);
     approx(e.x, u.x + 0.6708, 1e-6, `${id}: stops at her front`);
   }
 });
@@ -1090,6 +1092,7 @@ test('百炼嘉维尔 S2 链锯强袭: wider range, ATK/DEF up, unblocked enemie
     assert.ok(u.skill.activate('test', { free: true }));
     approx(u.s.atk, u.base.atk * (1 + bb.atk + D(id, 1).talents[0].bb.atk), 1e-6, 'ATK (+ 战地巨斧)');
     assert.ok(h.runUntil(() => dmgBy(h, u).length > 0, 5), `${id}: reaches 2 tiles ahead`);
+    finishDisplacement(h, e);
     assert.ok(e.x < 6 - 0.4, `pulled (${e.x})`);
   }
 });

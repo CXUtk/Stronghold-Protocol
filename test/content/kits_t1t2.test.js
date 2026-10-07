@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // Content tests for the tier 1 / tier 2 operator kits (server/sim/content/kits/ops/chess_char_1_*.js, chess_char_2_*.js).
 // Every chess (normal + elite where the elite adds something) runs a real battle through the harness and the test
 // asserts its signature effect with numbers taken from the chess blackboards (data/chess.json).
@@ -717,6 +718,7 @@ test('2_03 崖心 (hidden): 束缚链 drags max_target enemies to the front tile
   const u = h.unit(id);
   h.step();
   approx(u.s.atk, u.base.atk * (1 + t.atk), 'not blocking: ATK +6 %');
+  finishDisplacement(h);
   const pulled = h.enemies().filter((e) => e.x < 6);
   assert.equal(pulled.length, bb.max_target);
   for (const e of pulled) {
@@ -736,6 +738,7 @@ test('2_03 崖心 (hidden): 束缚链 drags max_target enemies to the front tile
   const idb = 'chess_char_2_03_b', tb = tbOf(idb);
   const h3 = run({ defs: { enemies: { e: dummy('e') } }, units: [{ chessId: idb, row: 10, col: 4, carryState: READY }], enemies: [{ key: 'e', pos: [10, 7] }] });
   h3.step();
+  finishDisplacement(h3);
   const drag = dealt(h3, h3.unit(idb), tagged('drag'));
   assert.equal(drag.length, 1);
   approx(drag[0].amount, tb.value * (3 - 0.6708) / tb.dist, 'value per dist tiles', 0.06);

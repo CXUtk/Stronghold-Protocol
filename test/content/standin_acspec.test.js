@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // test/content/standin_acspec.test.js — the 补位 stand-in Misery (char_615_acspec, 6★ 特种·处决者; kit
 // server/sim/content/kits/ops/standin-acspec.js) on every chess she replaces: 缄默德克萨斯 (tier 4, S2), 山 (tier 5, S3 +
 // EXE-X), 新约能天使 / 锏 (tier 6, S3 + EXE-X), normal (E2 Lv1, skill 4) and elite (E2 Lv60, skill 7). Her three skills
@@ -213,11 +214,14 @@ test('Misery S3 空间的归依 (山 / 锏): nothing at the battle start; knocke
     for (const c of burst) { approx(c.amount, atk * bb.atk_scale, `${id}: ${bb.atk_scale * 100} % ATK`); assert.equal(c.type, 'phys'); assert.ok(c.dmg.isSkill); }
     // the drag and the 停顿 ride a 0-damage hit on the ones nobody blocks
     assert.deepEqual(new Set(tagged(h, u, 'acspec:pull').map((c) => c.target)), new Set([diag, above]));
+    const shiftStart = h.b.time;
+    finishDisplacement(h, [diag, above]);
+    const shiftTime = h.b.time - shiftStart;
     for (const e of [diag, above]) {
       approx(Math.hypot(e.x - u.x, e.y - u.y), PULL_STOP_RADIUS, `${id}: dragged to her front (weight 0, 小力)`, 1e-3);
       assert.ok(Math.hypot(e.x - start.get(e)[0], e.y - start.get(e)[1]) > 0.2, `${id}: it moved`);
       const s = e.findBuff('sluggish');
-      assert.ok(s && s.timeLeft > bb.sluggish - 0.1 && s.timeLeft <= bb.sluggish + 1e-9, `${id}: 停顿 ${bb.sluggish} s`);
+      assert.ok(s && s.timeLeft > bb.sluggish - shiftTime - 0.1 && s.timeLeft <= bb.sluggish - shiftTime + 1e-9, `${id}: 停顿 ${bb.sluggish} s`);
     }
     for (const e of [held, far, fly]) {
       assert.deepEqual([e.x, e.y], start.get(e), `${id}: ${e.defId} stays`);

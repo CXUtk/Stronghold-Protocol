@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // test/content/op_phatom.test.js — the 自选 operator kit of 傀影 (char_250_phatom, 6★ 处决者; kit
 // server/sim/content/kits/ops/op-phatom.js) and of his summon 镜中虚影 (token_10007_phatom_twin), fielded the production way
 // (a DIY slot + its `diy` pick, simdata getDiy; the twin as a placed token piece `{ kind: 'token', tokenId, ownerUid }`) in
@@ -186,6 +187,7 @@ test('S3 夜幕突袭 (被动): at each deployment 210 % / 240 % ATK physical to
         assert.deepEqual([c.type, c.dmg.isSkill], ['phys', true]);
       }
       assert.ok(!hits.some((c) => c.target === fly || c.target === far), 'flyer / outside untouched');
+      finishDisplacement(h, [ahead, diag]);
       assert.ok(ahead.x > 5.5, `seed ${seed}: pushed away (radial, 小力)`);
       approx(heavy.y, 11, `seed ${seed}: 重量 9 — 小力 moves nothing`);
       const st = h.hooksOf('statusApplied').slice(s0).filter((c) => c.source === u);

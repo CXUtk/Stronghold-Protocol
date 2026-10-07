@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // Tier-3 operator loadouts (DESIGN §16, server/sim/content/kits/ops/): every selectable NON-default skill of every
 // visible tier-3 chess is hand-authored (`skills[skillId]`) and proves its signature effect for the normal (Lv4) and the
 // elite (Lv7) chess with its own blackboard; non-default modules that change behaviour are exercised too.
@@ -318,6 +319,7 @@ test('3_04 琳琅诗怀雅 S3 千金一掷: 二连击, kills pay a coin, a full 
   const x0 = e.x;
   v.mem.coins = SB(id, 'skchr_swire2_3').sp;
   g.step();
+  finishDisplacement(g, e);
   assert.ok(e.x > x0 + 0.3, 'pushed forward');
   assert.ok(tagged(g, 'swire2Cash', v).length >= 1);
   done(g);

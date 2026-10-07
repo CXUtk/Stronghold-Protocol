@@ -39,12 +39,26 @@ export default {
             const wall = expect > 0 && moved + 0.05 < expect;
             battle.applyStatus(e, 'stun', { duration: wall ? sWall : sDirect, source: unit });
           }
-          for (const e of victims) {
-            for (const o of battle.enemiesInRadius(e.x, e.y, COLLIDE)) {
-              if (pushed.has(o)) continue;
-              pushed.add(o);
-              battle.applyStatus(o, 'stun', { duration: sBrush, source: unit });
+          // Brush stun follows the bodies while they slide, as well as an instantaneous displacement.
+          // Read live positions: the spatial index was built before this frame's enemy movement.
+          const brush = (bodies) => {
+            for (const e of bodies) {
+              if (!e.alive || e.hidden) continue;
+              for (const o of battle.enemies) {
+                if (!o.alive || o.hidden || pushed.has(o) || Math.hypot(o.x - e.x, o.y - e.y) > COLLIDE) continue;
+                pushed.add(o);
+                battle.applyStatus(o, 'stun', { duration: sBrush, source: unit });
+              }
             }
+          };
+          brush(victims);
+          const motions = new Map(victims.filter((e) => e.unbalance).map((e) => [e, e.unbalance]));
+          if (motions.size) {
+            const hook = battle.on('tick', () => {
+              brush(motions.keys());
+              for (const [e, state] of motions) if (!e.alive || e.unbalance !== state) motions.delete(e);
+              if (!motions.size) battle.off(hook);
+            }, { owner: unit });
           }
           fx(battle, 'push', unit, { skill: 'forcer_2', n: victims.length });
         },

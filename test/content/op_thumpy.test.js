@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // test/content/op_thumpy.test.js — the 自选 operator kit of 珊比 (char_4235_thumpy, 6★ 本源铁卫; kit
 // server/sim/content/kits/ops/op-thumpy.js), fielded the production way (a DIY slot + its `diy` pick, simdata getDiy) in
 // every form: tiers 5 / 6, normal (E2 Lv1, skill rank 4, no module) and elite (E2 Lv60, rank 7) with no module or PRP-X
@@ -119,6 +120,7 @@ test('S1 “还不走？” (30 s): ATK / DEF +28 % / +37 %; she strikes every e
     const hit = h.hooksOf('damaged').slice(n0).filter((c) => c.source === u && c.dmg.isAttack && c.dmg.isSkill);
     assert.equal(new Set(hit.map((c) => c.dmg.attackId)).size, 1, `T${tier}: one attack`);
     assert.deepEqual(sortN(hit.map((c) => c.target.id)), sortN([right.id, left.id, upE.id]), `T${tier}: every blocked enemy struck at once`);
+    finishDisplacement(h, [right, left, upE]);
     approx(right.x - at[0][0], 1.7, `T${tier}: weight 0 pushed right 1.7`);
     approx(at[1][0] - left.x, 1.7, `T${tier}: weight 0 pushed left 1.7`);
     approx(upE.y - at[2][1], 0.44, `T${tier}: weight 1 pushed up 0.44`);

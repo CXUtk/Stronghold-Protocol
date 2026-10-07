@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // test/content/op_ebnhlz.test.js — the 自选 operator kit of 黑键 (char_4046_ebnhlz, 6★ 秘术师; kit
 // server/sim/content/kits/ops/op-ebnhlz.js) and of his S2 summon 旧日残影 (token_10024_ebnhlz_rcube), fielded the
 // production way (a DIY slot + its `diy` pick, simdata getDiy) in every form: tiers 5 / 6, normal (E2 Lv1, skill rank 4,
@@ -387,6 +388,7 @@ test('旧日残影: a selectable ground enemy within 1.35 activates it; 0.93 s l
     const side = h.spawn('enemy_dummy', { pos: [11, 7] });
     const d0 = Math.hypot(side.x - r.x, side.y - r.y);
     assert.ok(h.runUntil(() => !r.alive, 3));
+    finishDisplacement(h, side);
     assert.ok(Math.hypot(side.x - r.x, side.y - r.y) < d0 - 0.1, 'pulled in (a push towards it)');
     void e;
     done(h);

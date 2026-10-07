@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // Operator loadouts (DESIGN §16) for the tier-6 kits (server/sim/content/kits/ops/): every selectable NON-default
 // skill of every visible tier-6 chess is hand-authored (tools/kit-coverage.mjs) and shows its signature effect for the
 // normal (Lv4) and the elite (Lv7) chess — numbers from the selected skill's blackboard (data/chess.json skills[]) —
@@ -181,11 +182,14 @@ test('6_02 圣聆初雪 S1 铃音吹雪: 2 charges (cast with enemies in range);
     assert.equal(colds.length, 2);
     for (const c of colds) approx(c.duration, bb.cold, 'cold');
     const [e1] = h.enemies();
+    const motionStart = h.b.time;
+    finishDisplacement(h, e1);
+    const motionTime = h.b.time - motionStart;
     approx(e1.x, 5 + 0.44 * started(h, u).length, 'pushed forward along her direction by the official 0.44 tiles per cast');
     approx(e1.y, 10, 'no sideways push');
     // (the pushed enemies clear the snow of the tiles they leave: "首个敌人离开该地块时积雪消失")
     for (let d = 3; d <= bb.trig_cnt; d++) assert.ok((u.mem.snow.get(10 * COLS + 4 + d) ?? 0) >= 1, `snow ${d} tiles ahead`);
-    h.run(2.5);
+    h.run(2.5 - motionTime);
     assert.equal(started(h, u).length, 1, 'the next automatic cast waits the 3 s operation cooldown ("自动操作具有3s冷却")');
     h.run(1);
     assert.equal(started(h, u).length, 2, 'the second charge fires too');

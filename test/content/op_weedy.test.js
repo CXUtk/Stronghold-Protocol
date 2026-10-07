@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // test/content/op_weedy.test.js — the 自选 operator kit of 温蒂 (char_400_weedy, 6★ 推击手; kit
 // server/sim/content/kits/ops/op-weedy.js) and of her summon 工程蓄水炮 (token_10009_weedy_cannon), fielded the production
 // way (a DIY slot + its `diy` pick, simdata getDiy; the cannon as the placed hand piece of her player) in every form:
@@ -109,6 +110,7 @@ test('S1 炮管敲击 (AUTO, data DEFAULT): her next attack — 120 % / 135 % AT
       assert.equal(hit.type, 'phys');
       const st = h.hooksOf('statusApplied').find((c) => c.source === u && c.status === 'stun' && c.target === e);
       approx(st.duration, sk.bb.stun, `T${tier}: stun`);
+      finishDisplacement(h, e);
       if (key === 'enemy_dummy') approx(e.x - 6, PUSH_TILES[1], `T${tier}: pushed along +x`, 0.06);
       else assert.equal(e.x, 6, `T${tier}: weight 9 ⇒ not moved`);
       assert.equal(e.y, 10, `T${tier}: straight ahead`);
@@ -139,6 +141,7 @@ test('S2 水炮模式 (AUTO, SP_FULL): ATK +140 % / +170 %, interval ×3.2, rang
     assert.ok(one.some((c) => c.target === main) && one.some((c) => c.target === side), `T${tier}: target + the flyer within ${WATER_SPLASH}`);
     assert.ok(!one.some((c) => c.target === far));
     for (const c of one) approx(c.amount, u.s.atk, `T${tier}: full damage`);
+    finishDisplacement(h, main);
     approx(main.x - 7, PUSH_TILES[0], `T${tier}: 小力 push (weight 0: 1.7 tiles)`, 0.06);
     h.run(60);
     assert.ok(u.skill.active, `T${tier}: stays on`);
@@ -163,6 +166,7 @@ test('S3 液氮大炮 (MANUAL, SKILL_RANGE 4-1): 290 % / 320 % ATK arts on the t
     assert.deepEqual(shot.map((c) => c.target).sort((a, b) => a.id - b.id), [t, fly].sort((a, b) => a.id - b.id), `T${tier}: within ${NITRO_SPLASH}`);
     for (const c of shot) { assert.equal(c.type, 'arts'); approx(c.amount, u.s.atk * sk.bb.atk_scale, `T${tier}: arts`); }
     assert.ok(!shot.some((c) => c.target === out));
+    finishDisplacement(h, [t, fly]);
     const x0 = 7, moved = t.x - x0;
     approx(moved, PUSH_TILES[Math.min(3, sk.bb.force)], `T${tier}: pushed`, 0.06);
     h.run(sk.bb.duration + 0.2);
@@ -212,17 +216,34 @@ test('T1 工程蓄水炮: the placed cannon deploys with the board — untargeta
     assert.deepEqual(c.liveRangeGrid, v.rangeGrid, `${label(f)}: 3-2`);
     assert.deepEqual([c.skill.id, c.skill.kind, c.skill.rule, c.skill.spCost], ['sktok_weedy_token', 'instant', 'DEFAULT', 0], `${label(f)}: its skill`);
     const near = h.spawn('enemy_dummy', { pos: [11, 7] }), farther = h.spawn('enemy_dummy', { pos: [11, 8] });
-    assert.ok(h.runUntil(() => c.skill.activations === 1, 4), `${label(f)}: its skill on its first attack`);
+    // Isolate its forced skill from the normal shot of the same frame: continuous motion can stack both impulses.
+    c.profile.noAttack = true;
+    assert.ok(h.runUntil(() => c.skill.activations === 1, 4), `${label(f)}: its forced DEFAULT skill`);
     const sbb = v.skill.bb;
     const shot = from(h, u, 'weedy:nitro');
     assert.ok(shot.length >= 1 && shot.every((x) => Math.abs(x.amount - u.s.atk * sbb.atk_scale) < 1e-6), `${label(f)}: ${sbb.atk_scale * 100} % of 温蒂's ATK`);
     assert.ok(shot.some((x) => x.target === near), `${label(f)}: the nearest enemy`);
+    finishDisplacement(h, near);
     approx(near.x - 7, PUSH_TILES[Math.min(3, sbb.force + 1)], `${label(f)}: its force +1`, 0.06);
     h.run(30);
     assert.equal(c.skill.activations, 1, `${label(f)}: once per deployment`);
     void farther;
     done(h);
   }
+});
+
+test('continuous displacement: the cannon skill and its normal shot stack push impulses when both land', (t) => {
+  const { h, u, c } = field({ tier: 5, skill: 0, cannon: [11, 5] });
+  if (typeof h.b.updateUnbalance !== 'function') { t.skip('continuous displacement experiment is inactive'); return; }
+  const near = h.spawn('enemy_dummy', { pos: [11, 7] });
+  h.spawn('enemy_dummy', { pos: [11, 8] });
+  assert.ok(h.runUntil(() => c.skill.activations === 1, 4), 'forced skill casts');
+  assert.ok(h.runUntil(() => from(h, c).some((hit) => hit.target === near), 3), 'normal shot also lands');
+  assert.ok(from(h, u, 'weedy:nitro').some((hit) => hit.target === near), 'skill hit on the same target');
+  finishDisplacement(h, near);
+  const single = PUSH_TILES[Math.min(3, c.def.skill.bb.force + 1)];
+  assert.ok(near.x - 7 > single + 0.1, 'two impulses carry it farther than the isolated skill');
+  done(h);
 });
 
 test('T1 工程蓄水炮: each attack pushes a ground target on the 3 tiles ahead with 小力 + 1 (weight 0: 2.14 tiles), a flyer is hit but not moved; it leaves after 20 s and comes back 35 s later (PUS-Y stage 3: 27 s) for 5 DP — not while 温蒂 is off the field', () => {
@@ -234,6 +255,7 @@ test('T1 工程蓄水炮: each attack pushes a ground target on the 3 tiles ahea
     assert.ok(h.runUntil(() => from(h, c).some((x) => x.target === g), 3), `${label(f)}: attacks`);
     h.run(0.2);
     approx(from(h, c).find((x) => x.target === g).amount, c.s.atk, `${label(f)}: its own ATK`);
+    finishDisplacement(h, g);
     approx(g.x - 6, PUSH_TILES[1], `${label(f)}: 小力 + 1`, 0.06);
     h.b.kill(g, null);
     const fl = h.spawn('enemy_fly', { pos: [11, 6] });
@@ -292,6 +314,7 @@ test('S3 with the cannon beside her: it fires its own 液氮炮 too (its nearest
     const shot = from(h, u, 'weedy:nitro');
     assert.ok(shot.some((x) => x.target === a), 'hers');
     assert.equal(shot.some((x) => x.target === b), fires, `the cannon at ${tile}`);
+    finishDisplacement(h, [a, b]);
     if (fires) approx(b.x - 7, PUSH_TILES[Math.min(3, cbb.force + 1)], 'its force +1', 0.06);
     done(h);
   }
@@ -322,6 +345,7 @@ test('PUS-X trait: redeployed on a 高台 she gets half her cost back (not at th
     u.skill.gainSp(999);
     assert.ok(h.runUntil(() => u.skill.activations === 1, 3));
     h.step();
+    finishDisplacement(h, [w1, w2]);
     const moved = [w1.x - xs[0], w2.x - xs[1]];
     for (const m of moved) approx(m, PUSH_TILES[mod === Y ? 2 : 1], `${mod ?? 'none'}: every blocked enemy pushed`, 0.08);
     done(h);

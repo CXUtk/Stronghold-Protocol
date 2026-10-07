@@ -1,3 +1,4 @@
+import { finishDisplacement } from '../helpers/displacement.js';
 // 4-direction facing in the content (research 09 §6.1 item 3): every "身前 / 身后 / 左右 / 对着" effect follows the unit's
 // direction `dir` (UP|RIGHT|DOWN|LEFT, server/sim/dir.js) — bonds (阿戈尔 front tile, devour order), items (叙拉古正装
 // perpendicular pair, 歌利亚头盔 front tile), devices (blower relation by direction equality / opposition: the m01 DOWN
@@ -179,6 +180,7 @@ test('见行者 (3_07) 惊爆射击 pushes along her direction (DOWN: the enemy 
   const e = h.enemy('enemy_a');
   fill(u);
   assert.ok(h.runUntil(() => u.skill.activations === 1, 5), 'skill cast');
+  finishDisplacement(h, e);
   assert.ok(e.y < 10.6, `pushed down (${e.y})`);
   close(e.x, 4, 'no sideways push', 1e-3);
   checkInvariants(h.b);
