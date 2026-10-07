@@ -458,6 +458,9 @@ export function updateEnemy(b, e, dt) {
   // hidden (teleporting) enemies only advance wait legs
   const stunned = e.s.flags.stun;
   if (e.atkCd > 0 && !stunned && !e.hidden) e.atkCd = Math.max(0, e.atkCd - dt);
+  // Push / pull owns locomotion while active: its fixed-step physics moves the body and suppresses ordinary attacks,
+  // route walking and fresh block acquisition until the state exits.
+  if (b.updateUnbalance(e, dt)) return;
   // true: an unblocked ranged enemy in the wind-up of its next attack with a target in range (it stands)
   const winding = !e.hidden && !stunned && enemyAttack(b, e);
   if (!e.alive) return;
@@ -629,34 +632,9 @@ export function attackStand(e, out = { wind: 0, rest: 0 }) {
 }
 const STAND = { wind: 0, rest: 0 };
 
-/**
- * One tick of an enemy's attack: attacks when its cooldown is over and a target is in reach. Returns true while an
- * unblocked ranged enemy is in the wind-up of its next attack (cooldown ≤ its clip's wind-up, attackStand) with a
- * target in range: it stands (updateEnemy).
- */
-function enemyAttack(b, e) {
-  const def = e.def;
-  if (e.profile && e.profile.noAttack) return false;
-  const dmgType = (e.profile && e.profile.dmgType) || def.dmgType;
-  if (dmgType === 'none' || e.s.atk <= 0) return false;
-  if (e.s.flags.fear || e.s.flags.disarm) return false;
-  if (e.s.flags.tremble && e.blockedBy) return false; // 战栗: 被阻挡后无法进行普通攻击
-  if (dmgType === 'heal') { if (e.atkCd <= 0) enemyHeal(b, e, e.base.rangeRadius); return false; }
-  // applyWay MELEE enemies only ever hit their blocker, even when their data carries a rangeRadius (粉碎攻坚手 2.5,
-  // 宿主士兵 2.5, 深池伙友卫队 1.4 … — that radius belongs to their abilities/splash, handled by content).
-  // Content may flip it with `e.profile.melee = false`.
-  const melee = e.profile?.melee ?? def.applyWay === 'MELEE';
-  const radius = melee ? 0 : e.base.rangeRadius;
-  // the range circle takes an ally whose 0.25 collider touches it (PRTS 作战机制 §碰撞体积: 索敌 uses the colliders)
+/** Targets currently available to an enemy normal attack (also used when deciding whether a wind-up is interrupted). */
+function enemyAttackTargets(b, e, radius, own = null) {
   const reach = radius > 0 ? radius + ALLY_COLLIDER_RADIUS : 0;
-  // `e.profile.canTarget(ally)`: the enemy's own target rule (只攻击地面单位, 不会攻击飞行单位 …; content/enemies.js),
-  // applied to the candidates before the priority sort and the target count
-  const own = e.profile && typeof e.profile.canTarget === 'function' ? e.profile.canTarget : null;
-  if (e.atkCd > 0) {
-    // the wind-up of the next attack (GitHub #58): an unblocked ranged enemy stands once a target is in range
-    if (e.blockedBy || radius <= 0 || !(e.atkCd <= attackStand(e, STAND).wind + 1e-9)) return false;
-    return b.alliesInRadius(e.x, e.y, reach, null).some((a) => canTargetAlly(e, a, true) && (!own || own(a)));
-  }
   let targets = [];
   if (e.blockedBy) {
     const bl = e.blockedBy;
@@ -669,6 +647,55 @@ function enemyAttack(b, e) {
   }
   if (own && targets.length) targets = targets.filter((a) => own(a));
   if (targets.length > 1) sortAllyTargets(e, targets);
+  return targets;
+}
+
+/** Cancel the current normal-attack wind-up when displacement starts; the interrupted attack still consumes its slot. */
+export function interruptEnemyWindup(b, e) {
+  if (!e || !e.alive || e.hidden || e.s.flags.stun || e.s.flags.fear || e.s.flags.disarm) return false;
+  if (!e.profile || e.profile.noAttack || e.profile.dmgType === 'heal' || e.def?.dmgType === 'heal') return false;
+  const dmgType = e.profile?.dmgType || e.def?.dmgType;
+  if (dmgType === 'none' || e.s.atk <= 0 || !(e.atkCd > 0)) return false;
+  const melee = e.profile?.melee ?? e.def?.applyWay === 'MELEE';
+  const radius = melee ? 0 : e.base.rangeRadius;
+  if (!(e.atkCd <= attackStand(e, STAND).wind + 1e-9)) return false;
+  const own = typeof e.profile?.canTarget === 'function' ? e.profile.canTarget : null;
+  if (!enemyAttackTargets(b, e, radius, own).length) return false;
+  e.atkWindupCancelled = true;
+  return true;
+}
+
+/**
+ * One tick of an enemy's attack: attacks when its cooldown is over and a target is in reach. Returns true while an
+ * unblocked ranged enemy is in the wind-up of its next attack (cooldown ≤ its clip's wind-up, attackStand) with a
+ * target in range: it stands (updateEnemy).
+ */
+function enemyAttack(b, e) {
+  const def = e.def;
+  if (e.atkWindupCancelled) {
+    if (e.atkCd <= 0) { e.atkWindupCancelled = false; e.atkCd = e.s.interval; }
+    return false;
+  }
+  if (e.profile && e.profile.noAttack) return false;
+  const dmgType = (e.profile && e.profile.dmgType) || def.dmgType;
+  if (dmgType === 'none' || e.s.atk <= 0) return false;
+  if (e.s.flags.fear || e.s.flags.disarm) return false;
+  if (e.s.flags.tremble && e.blockedBy) return false; // 战栗: 被阻挡后无法进行普通攻击
+  if (dmgType === 'heal') { if (e.atkCd <= 0) enemyHeal(b, e, e.base.rangeRadius); return false; }
+  // applyWay MELEE enemies only ever hit their blocker, even when their data carries a rangeRadius (粉碎攻坚手 2.5,
+  // 宿主士兵 2.5, 深池伙友卫队 1.4 … — that radius belongs to their abilities/splash, handled by content).
+  // Content may flip it with `e.profile.melee = false`.
+  const melee = e.profile?.melee ?? def.applyWay === 'MELEE';
+  const radius = melee ? 0 : e.base.rangeRadius;
+  // `e.profile.canTarget(ally)`: the enemy's own target rule (只攻击地面单位, 不会攻击飞行单位 …; content/enemies.js),
+  // applied to the candidates before the priority sort and the target count
+  const own = e.profile && typeof e.profile.canTarget === 'function' ? e.profile.canTarget : null;
+  if (e.atkCd > 0) {
+    // the wind-up of the next attack (GitHub #58): an unblocked ranged enemy stands once a target is in range
+    if (e.blockedBy || radius <= 0 || !(e.atkCd <= attackStand(e, STAND).wind + 1e-9)) return false;
+    return enemyAttackTargets(b, e, radius, own).length > 0;
+  }
+  let targets = enemyAttackTargets(b, e, radius, own);
   if (!targets.length) return false;
   // 麻痹 (ba.palsy): each stack interrupts one normal attack
   const palsy = e.buffs.length ? e.findBuff('palsy') : null;

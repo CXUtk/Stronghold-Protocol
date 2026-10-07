@@ -25,7 +25,7 @@
 // Robustness: every content callback and every step phase is wrapped; errors are logged once per key and the
 // battle continues. After MAX_INTERNAL_ERRORS the battle force-ends as a timeout.
 
-import { TICK, ROWS, COLS, BLOCK_RADIUS_SQ, DP_DEFAULTS, DOWN_STATE, FORCED_EXIT, MAX_BATTLE_TIME, MAX_INTERNAL_ERRORS, COLD_FREEZE_DURATION, OBSTACLE_DEVICES, EVENT_BUFFER_CAP, BOSS_ROW_OFFSET, MAX_HOOK_DEPTH, MAX_ALIVE_ENEMIES, LEVITATE_HALF_WEIGHT, RESIST_DEFAULT, RESIST_PALSY_DECAY, PUSH_TILES, PUSH_TILES_EFFECT, PULL_WEAK_SHARE, PULL_CRAWL, PULL_ORIGIN, PULL_STOP_RADIUS, PUSH_DIRECTIONAL_MIN_DIST, AUTO_OP_COOLDOWN, STEALTH_RESTORE } from './constants.js';
+import { TICK, ROWS, COLS, BLOCK_RADIUS_SQ, DP_DEFAULTS, DOWN_STATE, FORCED_EXIT, MAX_BATTLE_TIME, MAX_INTERNAL_ERRORS, COLD_FREEZE_DURATION, OBSTACLE_DEVICES, EVENT_BUFFER_CAP, BOSS_ROW_OFFSET, MAX_HOOK_DEPTH, MAX_ALIVE_ENEMIES, LEVITATE_HALF_WEIGHT, RESIST_DEFAULT, RESIST_PALSY_DECAY, PUSH_TILES, PUSH_TILES_EFFECT, PULL_WEAK_SHARE, PULL_CRAWL, PULL_ORIGIN, PULL_STOP_RADIUS, PUSH_DIRECTIONAL_MIN_DIST, AUTO_OP_COOLDOWN, STEALTH_RESTORE, UNBALANCE_MIN_DURATION, UNBALANCE_EXIT_SPEED, UNBALANCE_FRICTION, PULL_DURATION, PULL_WEAK_DURATION, PULL_FORCE } from './constants.js';
 import { GEO, layerGainRoom } from '../../shared/constants.js';
 import { createRng } from './rng.js';
 import { Grid } from './grid.js';
@@ -38,7 +38,7 @@ import { normDir, mirrorDir, localOrder, localBefore } from './dir.js';
 import { ProjectileSystem } from './projectiles.js';
 import { stampFear } from './fear.js';
 import { SkillRuntime } from './skills.js';
-import { updateAlly, updateEnemy, compileRoute, remainingDistance, effectiveProfile, performAttack, acquireTargets } from './ai.js';
+import { updateAlly, updateEnemy, compileRoute, remainingDistance, effectiveProfile, performAttack, acquireTargets, interruptEnemyWindup } from './ai.js';
 import { resolveProfile } from './professions.js';
 import { unitInfo, snapshotUnits } from './snapshot.js';
 import { toDataSource, normalizeRoute, normalizeStage, normalizeToken, normalizeEnemy } from './simdata.js';
@@ -1123,6 +1123,7 @@ export class Battle {
    */
   _checkBlock(e) {
     if (e.blockedBy || e.hidden || !e.alive) return !!e.blockedBy;
+    if (e.unbalance) return false;
     const f = e.s.flags;
     if (f.unblockable || f.levitate || f.fear || f.sleep) return false;
     const r0 = Math.round(e.y), c0 = Math.round(e.x);
@@ -1981,10 +1982,10 @@ export class Battle {
    * 而改变推动的方向或削减力度" — the < 0.25 tile rule still applies). `inward` = a radial push towards `from` (薄绿 S2's "拖拽", PRTS 备注 "实际为
    * 反方向（指向薄绿方向）的推开"), never nearer than PULL_STOP_RADIUS to its centre [ASSUMED: "至面前"]. `effect` = a 特效
    * push (PRTS 推与拉: one frame less of travel than a 弹道 push — constants.js PUSH_TILES_EFFECT / PUSH_EFFECT_SKILLS).
-   * Returns the tiles moved.
+   * Returns the unobstructed travel predicted for this impulse. The movement itself is integrated on later ticks.
    */
   push(e, force, { from = null, dir = null, fixed = false, fixedAngle = false, inward = false, effect = false } = {}) {
-    if (!this._displaceable(e)) return 0;
+    if (!this._canUnbalance(e)) return 0;
     let level = this.forceLevel(e, force);
     const fx0 = fin(from?.x, e.x), fy0 = fin(from?.y, e.y);
     const vx = e.x - fx0, vy = e.y - fy0, d = Math.hypot(vx, vy);
@@ -2011,8 +2012,8 @@ export class Battle {
    * −1 — PULL_WEAK_SHARE of its starting distance to `to`; −2 — PULL_CRAWL tiles; ≤ −3 — nothing. `pullToFront` aims at
    * the official 拉力起点 in front of an operator. Returns the tiles moved.
    */
-  pull(e, force, { to, center = null, stop = PULL_STOP_RADIUS } = {}) {
-    if (!this._displaceable(e) || !to) return 0;
+  pull(e, force, { to, center = null, stop = PULL_STOP_RADIUS, duration = null, source = null } = {}) {
+    if (!this._canUnbalance(e) || !to) return 0;
     // an enemy the puller itself blocks already stands in front of it (at contact) [ASSUMED: no pull, no unblocking]
     if (center && center.side === 'ally' && e.blockedBy === center) return 0;
     const tx = fin(to.x, e.x), ty = fin(to.y, e.y);
@@ -2030,7 +2031,22 @@ export class Battle {
     }
     const level = this.forceLevel(e, force);
     const dist = level >= 0 ? full : level === -1 ? Math.min(full, PULL_WEAK_SHARE * d0) : level === -2 ? Math.min(full, PULL_CRAWL) : 0;
-    return dist > 1e-6 ? this.displace(e, { x: ux, y: uy }, dist) : 0;
+    if (level <= -3 || !(full > 1e-6)) return 0;
+    const U = this._beginUnbalance(e);
+    const l = Math.max(-2, Math.min(3, Math.round(level)));
+    U.pulls.push({
+      to, center, stop: r, x0: d0, force: PULL_FORCE[l],
+      until: this.time + Math.max(TICK, fin(duration, l === -2 ? PULL_WEAK_DURATION : PULL_DURATION)),
+      source: source ?? (center && center.side ? center : null),
+    });
+    // The weakest effective pull has only the measured ~0.03-tile crawl. At 30 Hz Unity's contact solver cannot be
+    // reproduced directly, so seed the equivalent tiny velocity and let the same friction integrator consume it.
+    if (l === -2 && this._displaceable(e)) {
+      const crawlSpeed = Math.sqrt(2 * (UNBALANCE_FRICTION - PULL_FORCE[-2]) * Math.min(PULL_CRAWL, full));
+      U.vx += ux * crawlSpeed; U.vy += uy * crawlSpeed;
+    }
+    this.fx('displace', { x: e.x, y: e.y, id: e.id });
+    return this._displaceable(e) ? this._traceDisplacement(e, ux, uy, dist) : 0;
   }
 
   /** Official distance (tiles) a push of 力度 `force` would move `e` on open ground (0 when it cannot be displaced). */
@@ -2046,48 +2062,166 @@ export class Battle {
   }
 
   /**
-   * Can `e` be displaced at all: a living enemy, not a leader part of the boss pool, not 失衡免疫 (flag `noDisplace`:
-   * 近地悬浮, 浮空, the 胄 parts …) and not a 静态刚体 (data `staticBody`). PRTS 特殊机制 静态刚体: such a unit "可以进入
-   * 失衡状态 … 但物理层面上无法产生任何速度或移动" — every air unit of the mode except “炎佑”, plus the boss 昆图斯 (build-data
-   * STATIC_BODIES; player report after 0.1.0, "飞机可以被薄绿的技能拉走"). A skill that reaches it still hits it (its targeting
-   * is the skill's own: 锏 S3, 薄绿, the 钩索师 …); only the movement is 0, so distance-based effects (drag damage, 见行者 S2's
-   * wall stun) come to nothing. [ASSUMED] the 0.1 s 失衡硬直 a 静态刚体 still gets is not modelled (no displacement models it).
+   * `_canUnbalance`: living non-leader enemy without 失衡免疫. `_displaceable` additionally rejects 静态刚体. A static
+   * body still enters and holds the locomotion state (minimum 0.1 s, or an active pull's duration), but physics gives it
+   * no velocity or movement. Skills that can reach it still hit; distance-based effects receive 0 travel.
    */
+  _canUnbalance(e) {
+    return !!(e && e.alive && e.side === 'enemy' && !e.isBoss && !e.s.flags.noDisplace);
+  }
+
   _displaceable(e) {
-    return !!(e && e.alive && e.side === 'enemy' && !e.isBoss && !e.s.flags.noDisplace && !(e.def && e.def.staticBody));
+    return this._canUnbalance(e) && !(e.def && e.def.staticBody);
   }
 
   /**
-   * Move an enemy `distance` tiles along `dir` = {x, y} (normalised internally) over passable tiles — the raw mover of
-   * push() / pull(), which apply the official 力度 − 重量 rules (content uses those; the old `force` option is gone).
-   * 失衡免疫 (flag `noDisplace`: 近地悬浮, 浮空 — PRTS 异常效果 "不会被位移影响"), 静态刚体 (data `staticBody`) and leaders
-   * ⇒ no movement (_displaceable). The tiles it may cross follow its movement (`motion`): a hovering enemy walks the
-   * ground, so it stays on ground-passable tiles.
+   * Add an impulse whose open-ground travel is `distance` tiles along `dir`. The body moves on later fixed ticks over
+   * passable terrain; push() / pull() add the official weight rules. 失衡免疫 and leaders reject the state; 静态刚体
+   * enters it without velocity. The tiles it may cross follow `motion`.
    */
   displace(e, dir, distance) {
-    if (!this._displaceable(e) || !dir) return 0;
+    if (!this._canUnbalance(e) || !dir) return 0;
     const dxv = fin(dir.x, 0), dyv = fin(dir.y, 0);
     const len = Math.hypot(dxv, dyv);
     if (!(len > 0)) return 0;
     const eff = Math.min(fin(distance, 0), 2 * COLS);
     if (!(eff > 0)) return 0;
     const ux = dxv / len, uy = dyv / len;
-    let moved = 0;
-    const stepLen = 0.1;
-    while (moved + 1e-9 < eff) {
-      const s = Math.min(stepLen, eff - moved); // (the last step is a partial one: 0.12 tiles moves 0.12, not 0.2)
-      const nx = e.x + ux * s, ny = e.y + uy * s;
+    const U = this._beginUnbalance(e);
+    if (this._displaceable(e)) {
+      // The impulse that travels `eff` under constant ground friction. Multiple impulses add as vectors, like
+      // Rigidbody.AddForce(..., Impulse), rather than replacing an existing push or pull velocity.
+      const speed = Math.sqrt(2 * UNBALANCE_FRICTION * eff);
+      U.vx += ux * speed;
+      U.vy += uy * speed;
+    }
+    this.fx('displace', { x: e.x, y: e.y, id: e.id });
+    return this._displaceable(e) ? this._traceDisplacement(e, ux, uy, eff) : 0;
+  }
+
+  /** Enter displacement locomotion and cancel a normal attack that is still in its wind-up. */
+  _beginUnbalance(e) {
+    let U = e.unbalance;
+    if (!U) U = e.unbalance = { vx: 0, vy: 0, hardUntil: this.time + UNBALANCE_MIN_DURATION, pulls: [] };
+    else U.hardUntil = Math.max(U.hardUntil, this.time + UNBALANCE_MIN_DURATION);
+    interruptEnemyWindup(this, e);
+    e.atkStandUntil = -Infinity;
+    e.moving = false;
+    return U;
+  }
+
+  /** Maximum straight travel before terrain stops the body, without changing the enemy. */
+  _traceDisplacement(e, ux, uy, distance) {
+    let x = e.x, y = e.y, moved = 0;
+    while (moved + 1e-9 < distance) {
+      const s = Math.min(0.05, distance - moved);
+      const nx = x + ux * s, ny = y + uy * s;
       const r = Math.round(ny), c = Math.round(nx);
       const ok = e.motion === 'FLY' ? this.grid.inRect(r, c) : this.grid.groundPassable(r, c);
       if (!ok) break;
-      e.x = nx; e.y = ny; moved += s;
-    }
-    if (moved > 0) {
-      this._unblock(e);
-      if (e.route) e.route.pts = null;
-      this.fx('displace', { x: e.x, y: e.y, id: e.id });
+      x = nx; y = ny; moved += s;
     }
     return moved;
+  }
+
+  /** Move one physics slice over passable terrain. */
+  _moveUnbalanced(e, dx, dy) {
+    const distance = Math.hypot(dx, dy);
+    if (!(distance > 1e-12)) return { moved: 0, stopped: false };
+    const ux = dx / distance, uy = dy / distance;
+    const moved = this._traceDisplacement(e, ux, uy, distance);
+    if (moved > 0) {
+      const x0 = e.x, y0 = e.y;
+      e.x += ux * moved; e.y += uy * moved;
+      e.unbalanceStepFromX = x0; e.unbalanceStepFromY = y0;
+      e.unbalanceStepDistance = moved;
+      this._unblock(e);
+      if (e.route) e.route.pts = null;
+    }
+    return { moved, stopped: moved + 1e-7 < distance };
+  }
+
+  /** Advance continuous push / pull physics. True means normal attack, block acquisition and route movement stay suspended. */
+  updateUnbalance(e, dt) {
+    const U = e.unbalance;
+    if (!U) return false;
+    e.unbalanceStepDistance = 0;
+    if (!e.alive || e.hidden || e.s.flags.noDisplace) { e.unbalance = null; return false; }
+    U.pulls = U.pulls.filter((p) => p.until > this.time + 1e-9 && (!p.source || (p.source.alive && p.source.deployed && !p.source.hidden)));
+    const speed0 = Math.hypot(U.vx, U.vy);
+    if (this.time + 1e-9 >= U.hardUntil && !U.pulls.length && speed0 <= UNBALANCE_EXIT_SPEED) {
+      e.unbalance = null;
+      e.moving = false;
+      return true; // state transition consumes this tick; ordinary locomotion resumes on the next one
+    }
+    e.moving = false;
+    if (e.def && e.def.staticBody) { U.vx = 0; U.vy = 0; return true; }
+
+    let fx = 0, fy = 0;
+    for (const p of U.pulls) {
+      const tx = fin(p.to?.x, e.x), ty = fin(p.to?.y, e.y);
+      const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy);
+      if (!(d > 1e-9)) continue;
+      const scale = Math.pow(d / Math.max(1e-6, p.x0), 4);
+      fx += (dx / d) * p.force * scale;
+      fy += (dy / d) * p.force * scale;
+    }
+
+    const fm = Math.hypot(fx, fy);
+    if (!U.pulls.length && speed0 > 0) {
+      // Exact integration makes an isolated push stop at its distance-table value.
+      const use = Math.min(dt, speed0 / UNBALANCE_FRICTION);
+      const travel = speed0 * use - 0.5 * UNBALANCE_FRICTION * use * use;
+      const ux = U.vx / speed0, uy = U.vy / speed0;
+      const out = this._moveUnbalanced(e, ux * travel, uy * travel);
+      const speed1 = Math.max(0, speed0 - UNBALANCE_FRICTION * use);
+      U.vx = out.stopped ? 0 : ux * speed1;
+      U.vy = out.stopped ? 0 : uy * speed1;
+      return true;
+    }
+
+    let ax = fx, ay = fy;
+    if (speed0 > 1e-9) {
+      ax -= UNBALANCE_FRICTION * U.vx / speed0;
+      ay -= UNBALANCE_FRICTION * U.vy / speed0;
+    } else if (fm > UNBALANCE_FRICTION) {
+      ax -= UNBALANCE_FRICTION * fx / fm;
+      ay -= UNBALANCE_FRICTION * fy / fm;
+    } else { ax = 0; ay = 0; }
+    let nvx = U.vx + ax * dt, nvy = U.vy + ay * dt;
+    let mdx, mdy;
+    // A sub-friction external force cannot restart the body after kinetic friction brings it to rest. Integrate only
+    // to that stop instant instead of letting a coarse 30 Hz step reverse and jitter around zero.
+    if (speed0 > 1e-9 && fm <= UNBALANCE_FRICTION && U.vx * nvx + U.vy * nvy <= 0) {
+      const ux = U.vx / speed0, uy = U.vy / speed0;
+      const decel = Math.max(1e-9, -(ax * ux + ay * uy));
+      const use = Math.min(dt, speed0 / decel);
+      const travel = Math.max(0, speed0 * use - 0.5 * decel * use * use);
+      mdx = ux * travel; mdy = uy * travel; nvx = 0; nvy = 0;
+    } else {
+      mdx = (U.vx + nvx) * 0.5 * dt; mdy = (U.vy + nvy) * 0.5 * dt;
+    }
+
+    // 急停: reaching any active stop circle kills velocity, but the force keeps the state alive until it expires.
+    let cut = 1;
+    for (const p of U.pulls) {
+      const cx = fin(p.center?.x, fin(p.to?.x, e.x)), cy = fin(p.center?.y, fin(p.to?.y, e.y));
+      const r = Math.max(0, p.stop), sx = e.x - cx, sy = e.y - cy;
+      if (sx * sx + sy * sy <= r * r + 1e-9) { cut = 0; break; }
+      const a = mdx * mdx + mdy * mdy;
+      if (!(a > 1e-12)) continue;
+      const b = 2 * (sx * mdx + sy * mdy), c = sx * sx + sy * sy - r * r;
+      const disc = b * b - 4 * a * c;
+      if (disc >= 0) {
+        const t = (-b - Math.sqrt(disc)) / (2 * a);
+        if (t >= 0 && t <= cut) cut = t;
+      }
+    }
+    if (cut < 1) { mdx *= cut; mdy *= cut; nvx = 0; nvy = 0; }
+    const out = this._moveUnbalanced(e, mdx, mdy);
+    U.vx = out.stopped ? 0 : nvx;
+    U.vy = out.stopped ? 0 : nvy;
+    return true;
   }
 
   /**
