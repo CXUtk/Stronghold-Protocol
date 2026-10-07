@@ -130,19 +130,6 @@ export const PULL_STOP_RADIUS = 0.6708;
 export const PUSH_DIRECTIONAL_MIN_DIST = 0.25;
 
 /**
- * Continuous unbalance physics (PRTS 失衡位移机制 / 推与拉). The simulation uses tiles as metres. A push is an
- * impulse followed by Coulomb friction; a pull is a force lasting for a short action window and fading with the
- * fourth power of the remaining distance. The minimum state time and exit speed are the Unity locomotion-state
- * thresholds used by the client.
- */
-export const UNBALANCE_MIN_DURATION = 0.1;
-export const UNBALANCE_EXIT_SPEED = 0.1;
-export const UNBALANCE_FRICTION = 4.905; // μ 0.5 × gravity 9.81
-export const PULL_DURATION = 1;
-export const PULL_WEAK_DURATION = 0.5;
-export const PULL_FORCE = Object.freeze({ '-2': 2, '-1': 10, 0: 40, 1: 42, 2: 44, 3: 46 });
-
-/**
  * Fallback freeze when a second 寒冷 lands and neither the remaining cold nor the incoming one has a duration
  * (Battle.applyStatus). A real duration uses max(remaining, incoming) — PRTS 术语释义 寒冷 「持续时间取双方之中最高」.
  */

@@ -46,23 +46,20 @@ function wildmnHit(dir, off, { side = 'L', kind = 'normal', mass = 1 } = {}) {
   const fr = kind === 'boss' ? hr - 7 : hr, fc = side === 'R' ? 20 - hc : hc;
   const fieldDir = side === 'R' ? { RIGHT: 'LEFT', LEFT: 'RIGHT', UP: 'UP', DOWN: 'DOWN' }[dir] : dir;
   const [ar, ac] = rotateOffset(off[0], off[1], fieldDir);
-  let before = null, target = null, hit = false;
+  let before = null, moved = null;
   const h = makeBattle({
     kind, timeLimit: 30, autoFinish: false, hooks: [],
     defs: { enemies: { enemy_t: foe('enemy_t', { mass }) } },
     players: [{ playerId: 'p1', seat: 0, side, colOffset: 0, units: [{ uid: 1, kind: 'chess', chessId: WILDMN, row: hr, col: hc, dir, carryState: { sp: 1e3 } }], bonds: {}, playerEffects: [] }],
     enemies: [{ key: 'enemy_t', pos: [fr + ar, fc + ac] }],
     setup(b) {
-      b.on('beforeAttack', (c) => { if (c.attacker.defId === WILDMN && c.isSkill && c.targets[0]) { target = c.targets[0]; before = [target.y, target.x]; } }, { priority: -2000 });
-      b.on('attack', (c) => { if (c.attacker.defId === WILDMN && c.isSkill && before) hit = true; }, { priority: -2000 });
+      b.on('beforeAttack', (c) => { if (c.attacker.defId === WILDMN && c.isSkill && c.targets[0]) before = [c.targets[0].y, c.targets[0].x]; }, { priority: -2000 });
+      b.on('attack', (c) => { if (c.attacker.defId === WILDMN && c.isSkill && before && !moved) moved = [c.targets[0].y - before[0], c.targets[0].x - before[1]]; }, { priority: -2000 });
     },
   });
   const u = h.unit(WILDMN);
   assert.equal(u.dir, fieldDir, 'field direction');
-  assert.ok(h.runUntil(() => hit, 6), `${side} ${dir} ${off}: a skill hit`);
-  assert.ok(target?.unbalance, 'the hit starts continuous displacement');
-  assert.ok(h.runUntil(() => !target.unbalance, 3), 'the displacement settles');
-  const moved = [target.y - before[0], target.x - before[1]];
+  assert.ok(h.runUntil(() => moved != null, 6), `${side} ${dir} ${off}: a skill hit`);
   const [lf, ll] = toLocal(moved[0], moved[1], fieldDir); // [left (+row in the RIGHT frame), forward]
   return { fwd: ll, side: lf, len: Math.hypot(lf, ll) };
 }
@@ -143,11 +140,9 @@ function realRun(chessId, r, c, dir, round = 5) {
   const orig = b.push.bind(b);
   b.push = (e, force, o = {}) => {
     if (o.from !== u) return orig(e, force, o);
-    const x0 = e.x, y0 = e.y, vx0 = e.unbalance?.vx ?? 0, vy0 = e.unbalance?.vy ?? 0;
-    const behind = (x0 - u.x) * u.fwd[1] + (y0 - u.y) * u.fwd[0] < 0;
+    const x0 = e.x, y0 = e.y, behind = (x0 - u.x) * u.fwd[1] + (y0 - u.y) * u.fwd[0] < 0;
     const moved = orig(e, force, o);
-    const dvx = (e.unbalance?.vx ?? 0) - vx0, dvy = (e.unbalance?.vy ?? 0) - vy0, iv = Math.hypot(dvx, dvy);
-    if (moved > 1e-6 && iv > 1e-9) pushes.push({ dx: dvx * moved / iv, dy: dvy * moved / iv, moved, behind, massLevel: e.s.massLevel });
+    if (moved > 1e-6) pushes.push({ dx: e.x - x0, dy: e.y - y0, moved, behind, massLevel: e.s.massLevel });
     return moved;
   };
   for (let n = 0; !b.finished && n < 30 * 120; n++) b.step();
@@ -196,8 +191,6 @@ function swireCoin(off, dir = 'RIGHT') {
   u.mem.coins = 1;
   const y0 = e.y, x0 = e.x;
   u.skill.end('manual');
-  assert.ok(e.unbalance, 'the coin starts continuous displacement');
-  assert.ok(h.runUntil(() => !e.unbalance, 2), 'the coin push settles');
   const [ls, lf] = toLocal(e.y - y0, e.x - x0, dir);
   return { fwd: lf, side: ls, len: Math.hypot(ls, lf) };
 }

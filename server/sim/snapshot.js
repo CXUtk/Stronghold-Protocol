@@ -79,7 +79,6 @@ export function flagsOf(u) {
 export function animOf(u, t) {
   if (!u.alive) return ANIM.DIE;
   if (u.s.flags.stun) return ANIM.STUN;
-  if (u.side === 'enemy' && u.unbalance) return ANIM.IDLE;
   if (t - u.deployedAt < DEPLOY_ANIM_TIME && u.side === 'ally') return ANIM.DEPLOY;
   if (t < (u.skillAnimUntil ?? -1)) return ANIM.SKILL;
   if (t - u.lastAttackAt < ATTACK_ANIM_TIME) return u.skill && u.skill.active && u.skill.kind !== 'passive' ? ANIM.SKILL : ANIM.ATTACK;

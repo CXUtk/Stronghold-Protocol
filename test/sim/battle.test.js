@@ -535,10 +535,8 @@ test('displacement helper moves enemies along passable tiles and re-paths', () =
   const e = h.enemy('enemy_walker');
   const moved = h.b.displace(e, { x: 1, y: 0 }, 2, { force: 1 });
   assert.ok(moved > 1.8);
-  assert.ok(h.runUntil(() => !e.unbalance, 3), 'the first impulse settles');
   approx(Math.round(e.x), 8);
   const blocked = h.b.displace(e, { x: 0, y: 1 }, 5);
-  assert.ok(h.runUntil(() => !e.unbalance, 4), 'the wall stops the second impulse');
   assert.ok(e.y <= 12.5);
   assert.ok(blocked <= 3);
 });

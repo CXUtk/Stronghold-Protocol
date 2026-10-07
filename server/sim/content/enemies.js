@@ -23,7 +23,7 @@
 // Shared mechanics: reborn() — "首次被击倒后重生 / 第二形态" (the first KO is hidden from kill credit and bounty; a
 //   rebirth of Reborn.duration s, untargetable and inert, then the new form); artsBarrier() — "吸收法术伤害的屏障"
 //   (absorbs arts after RES); frontGuard() — "来自正面的伤害降低" (facing = walking direction or the bigger crowd);
-//   unbalanced() — exact distance from the engine's previous continuous-displacement tick;
+//   unbalanced() — 失衡 detection (displacement beyond the enemy's own speed; engine displace() has no hook);
 //   husk() — "被击倒时暂时变为…，一段时间后重生" (Revive[Trigger]: every knock-out of the first form ⇒ 1 s 重生 ⇒ a walking
 //   hit-count husk — 隐匿 逐火 embers, the unblockable 再生 puppet — until the real death or its revival); every 重生
 //   (reborn / husk / statue) clears the enemy's statuses and the buffs allies gave it (rebirthCleanse, PRTS 特殊机制
@@ -1022,8 +1022,8 @@ const faceCrowd = (b, e, a) => {
 };
 
 /**
- * 失衡 movement: Battle's fixed-step physics records the exact distance and start point of the previous physics tick.
- * The fallback keeps old replays/content-created teleports detectable without counting ordinary route movement.
+ * 失衡 (unbalanced movement): being pushed / pulled by operators. battle.displace() has no hook, so it is detected as
+ * movement beyond the enemy's own route speed between two ticks (teleport legs excluded). `onMove(b, e, a, tiles)`.
  */
 function unbalanced(onMove) {
   return {
@@ -1031,13 +1031,10 @@ function unbalanced(onMove) {
       const px = a.px, py = a.py, hid = a.hid;
       a.px = e.x; a.py = e.y; a.hid = e.hidden;
       if (px == null || hid || e.hidden) return;
-      const physical = e.unbalanceStepDistance || 0;
       const own = e.s.moveSpeed * MOVE_SCALE * dt * 1.5 + 1e-3;
-      const extra = physical > 0 ? physical : Math.hypot(e.x - px, e.y - py) - own;
-      a.lx = physical > 0 ? e.unbalanceStepFromX : px;
-      a.ly = physical > 0 ? e.unbalanceStepFromY : py;                 // where the move started (direction for onMove)
-      // Physics already identifies forced motion; even a slow tail contributes to travelled distance.
-      if (physical > 0 || extra > 0.05) onMove(b, e, a, extra);
+      const extra = Math.hypot(e.x - px, e.y - py) - own;
+      a.lx = px; a.ly = py;                                          // where the move started (direction for onMove)
+      if (extra > 0.05) onMove(b, e, a, extra);
     },
   };
 }
@@ -3107,9 +3104,7 @@ export const KITS = Object.freeze({
     const v = T(ab, 'unbalanced_bleed.damage') ?? 0, iv = T(ab, 'unbalanced_bleed.interval') ?? 1;
     if (v > 0 && iv > 0) b.dealDamage(null, e, { ...periodicDamage((v * d) / (iv * UNBALANCE_SPEED)), tags: ['dot', 'periodic', 'unbalanced'] });
   })],
-  enemy_10112_ymgds: (ab) => [unbalanced((b, e, a) => {              // 冒失的小弟 · once per continuous unbalance episode
-    if (e.unbalance && a.stunnedMotion === e.unbalance) return;
-    a.stunnedMotion = e.unbalance;
+  enemy_10112_ymgds: (ab) => [unbalanced((b, e) => {                 // 冒失的小弟 · stunned after being unbalanced
     const st = T(ab, 'StunAfterUnbalance.stun') ?? 0;
     if (st > 0) b.applyStatus(e, 'stun', { duration: st, source: null });
   })],
@@ -3118,8 +3113,6 @@ export const KITS = Object.freeze({
     if (!(d > 0)) return;
     const r = Math.round(e.y + (dy / d) * 0.6), c = Math.round(e.x + (dx / d) * 0.6);
     if (b.grid.isLow(r, c) && b.grid.groundPassable(r, c)) return;   // stopped by nothing: no collision
-    if (e.unbalance && a.wallMotion === e.unbalance) return;
-    a.wallMotion = e.unbalance;
     b.fx('explode', { x: e.x, y: e.y, r: 0.4, kind: 'wallHit', id: e.id });
     hurt(b, null, e, T(ab, 'hitWall.value') ?? 0, 'true', { tags: ['wallHit'] });
   })],
