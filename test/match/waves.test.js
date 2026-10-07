@@ -179,6 +179,24 @@ test('boss templates: leaders never scaled, pairs use the multi template, single
   assert.equal(w.pick, setup.picks[9], 'solo 标准: the leader round uses slot 9');
 });
 
+test('终极 R6: wave replacements and bounties exclude only 补给线 for 次数怪 tokens', () => {
+  const gd = new GameData(DATA, 'mode_multi_abyss');
+  const key = 'enemy_1200_msfjin';
+  const picks = [];
+  picks[6] = { round: 6, type: 'TIMES', key, normal: key, elite: key, fly: false, firstHalf: true };
+  const wave = buildNormalWave(gd, createRng(1), { picks }, 6);
+  const tokens = wave.spawns.filter((s) => s.enemyKey === key);
+  assert.ok(tokens.length > 0);
+  const expected = gd.enemyScale(6).hpMul / 1.08;
+  for (const s of tokens) assert.equal(s.mods.hpMul, expected);
+  const specs = bountySpawns(gd, 6, wave, [
+    { id: 'token', card: { enemyKey: key, count: 1 } },
+    { id: 'ember', card: { enemyKey: 'enemy_1288_duskls', count: 1 } },
+  ], 'p1');
+  assert.equal(specs.find((s) => s.enemyKey === key).mods.hpMul, expected);
+  assert.equal(specs.find((s) => s.enemyKey === 'enemy_1288_duskls').mods.hpMul, gd.enemyScale(6).hpMul);
+});
+
 test('bounty spawns: joined to the template\'s first normal action of the enemy\'s class, spread over its window; no solo ×0.7', () => {
   const gd = new GameData(DATA, 'mode_multi_hard');
   const picks = [];
