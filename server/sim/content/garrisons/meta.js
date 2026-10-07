@@ -284,9 +284,11 @@ H.SERVER_POOL_EQUIP = {
 
 H.SERVER_POOL_CHAR = {
   run(ctx) {
-    const { bb, bbStr } = ctx.source;
+    const { bb, bbStr, garrisonId } = ctx.source;
     if (!rowCondition(ctx, selfView(ctx))) return;
-    for (let i = 0; i < Math.min(10, num(bb.count, 1)); i++) {
+    // Deploy bonus for Gladiia's normal and elite traits; displayed blackboard values stay unchanged.
+    const bonus = garrisonId === 'garrison_39_a' || garrisonId === 'garrison_39_b' ? 1 : 0;
+    for (let i = 0; i < Math.min(10, num(bb.count, 1) + bonus); i++) {
       const r = ctx.rollPool(bbStr.pool);
       if (r && r.kind === 'chess') ctx.grantChess(r.id, { golden: !!r.golden });
     }
