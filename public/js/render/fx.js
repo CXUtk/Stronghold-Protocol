@@ -497,7 +497,7 @@ export class FxSystem {
   // ---- projectiles -----------------------------------------------------------------------------------------
 
   /** b.ev 'atk' visual. src/tgt are views (tgt may be null). */
-  attack(src, tgt, kind) {
+  attack(src, tgt, kind, shots = 1) {
     if (!src) return;
     // chain: the source is the previous target of the bounce (sim ai.js), so the arc hops unit to unit
     if (kind === 'chain' || kind === 'chainHeal') { if (tgt && tgt !== src) this._beam(src, tgt, kind === 'chainHeal' ? 0x7dffa8 : 0xc9a2ff, 0.22, 1, true); return; }
@@ -507,6 +507,12 @@ export class FxSystem {
       if (kind === 'none' || !kind) this._slashAt = src.id;
       return;
     }
+    const count = kind === 'arrow' ? clamp(Math.floor(Number(shots) || 1), 1, 4) : 1;
+    for (let i = 0; i < count; i++) this._launchShot(src, tgt, kind, spec, i * 0.08 / this._ts());
+  }
+
+  /** Stagger a cosmetic volley in game time without repeating the unit's attack animation. */
+  _launchShot(src, tgt, kind, spec, delay) {
     const pr = this._takeProj();
     const cam = this.ctx.cam();
     const dx = tgt.x - src.x, dy = tgt.y - src.y;
@@ -517,7 +523,7 @@ export class FxSystem {
     pr.kind = kind; pr.spec = spec; pr.src = src; pr.tgt = tgt; pr.rise = 0;
     pr.x0 = src.x + ux * hand; pr.y0 = src.y + uy * hand; pr.z0 = bodyZ(cam, src, SHOT_HEIGHT.launch);
     pr.tx = tgt.x; pr.ty = tgt.y; pr.tz = look === 'shell' ? feetZ(tgt) : bodyZ(cam, tgt, SHOT_HEIGHT.aim);
-    pr.t = 0; pr.fade = 0; pr.hit = false; pr.emit = Math.random(); pr.ang = Math.atan2(-uy, ux);   // ≈ on screen (rows run up)
+    pr.t = 0; pr.delay = delay; pr.fade = 0; pr.hit = false; pr.emit = Math.random(); pr.ang = Math.atan2(-uy, ux);   // ≈ on screen (rows run up)
     pr.dur = clamp(dist / projSpeed(kind) / this._ts(), 0.04, 1.5);
     pr.arc = spec.arc ? spec.arc * clamp(0.45 + dist * 0.18, 0.6, 1.8) : 0;
     pr.glow = spec.glow;
@@ -527,7 +533,7 @@ export class FxSystem {
     pr.spin = Math.random() * 6;
     this._dressProj(pr);
     this.projs.push(pr);
-    if (this.rich) this._muzzle(pr);
+    if (this.rich && !delay) this._muzzle(pr);
   }
 
   /** A pooled projectile record: trail + halo + core sprites (additive, above units) and a ground shadow. */
@@ -577,6 +583,7 @@ export class FxSystem {
   _releaseProj(pr) {
     pr.trail.visible = pr.halo.visible = pr.core.visible = pr.shadow.visible = false;
     pr.src = pr.tgt = null;
+    pr.delay = 0;
     this.projFree.push(pr);
   }
 
@@ -587,9 +594,16 @@ export class FxSystem {
     let w = 0;
     for (let i = 0; i < this.projs.length; i++) {
       const pr = this.projs[i];
+      let stepDt = dt;
+      if (pr.delay > 0) {
+        stepDt = Math.max(0, dt - pr.delay);
+        pr.delay = Math.max(0, pr.delay - dt);
+        if (pr.delay > 0) { this.projs[w++] = pr; continue; }
+        if (rich) this._muzzle(pr);
+      }
       const look = pr.spec.look;
-      const live = look === 'boomerang' ? this._stepBoomerang(pr, dt, cam, rich)
-        : look === 'mortar' ? this._stepMortar(pr, dt, cam, rich) : this._stepShot(pr, dt, cam, rich);
+      const live = look === 'boomerang' ? this._stepBoomerang(pr, stepDt, cam, rich)
+        : look === 'mortar' ? this._stepMortar(pr, stepDt, cam, rich) : this._stepShot(pr, stepDt, cam, rich);
       if (!live) { this._releaseProj(pr); continue; }
       this.projs[w++] = pr;
     }

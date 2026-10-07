@@ -1577,7 +1577,7 @@ export async function createFieldView(host, options = {}) {
         // chain / chainHeal bounces: the "source" is the previous target of the bounce, not an attacker
         if (src && !CHAIN_KINDS.has(e[3])) src.onAttack?.(tgt, now, e[3]);
         if (e[3] === 'none' || !e[3]) { if (tgt && src) meleePending.set(tgt.id, { src, t: now }); }
-        fx.attack(src, tgt, e[3]);
+        fx.attack(src, tgt, e[3], e[4]);
         break;
       }
       case 'dmg': {
