@@ -7,7 +7,7 @@ import { PHASE, ERR } from '../../../shared/constants.js';
 import { generateDraft, applyCard, bountyBattles, isMultiRoundBounty } from '../choices.js';
 import { weightedPick } from '../waves.js';
 import { botPickCard } from '../bot.js';
-import { OK, fail, DELAYS } from './common.js';
+import { OK, fail, DELAYS, prioritizeDraftHumans } from './common.js';
 
 export class MatchSpDraft {
   enterSpDraft() {
@@ -35,6 +35,7 @@ export class MatchSpDraft {
     const s = this.sp;
     this.cancel(this._turnTimer);
     this._turnTimer = null;
+    prioritizeDraftHumans(s, this.players);
     while (s.idx < s.order.length) {
       const ps = this.players.get(s.order[s.idx]);
       if (ps && ps.alive && s.picks[ps.playerId] == null) break;
@@ -69,6 +70,7 @@ export class MatchSpDraft {
       if (this.phase !== PHASE.SP_DRAFT || token !== this._turnToken || !this.sp) return;
       const ps = this.players.get(this.spTurn());
       if (!ps || !ps.botControlled) return;
+      if (prioritizeDraftHumans(this.sp, this.players)) { this.startSpTurn(); return; }
       const avail = this.sp.cards.map((c) => c.idx).filter((i) => this.sp.taken[i] == null);
       if (!avail.length) return;
       this._applyCard(ps, botPickCard(this, ps, this.sp.cards, avail));

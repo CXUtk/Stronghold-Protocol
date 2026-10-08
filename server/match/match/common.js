@@ -12,6 +12,17 @@ export const BOSS_CLOCK_MS = 250;
 export const OK = Object.freeze({ ok: true });
 export const fail = (error, detail) => (detail ? { error, detail } : { error });
 
+/** Keep the pending human turns ahead of AI-controlled seats, preserving order within each group. */
+export function prioritizeDraftHumans(draft, players) {
+  const pending = draft.order.slice(draft.idx);
+  const human = pending.filter((pid) => !players.get(pid)?.botControlled);
+  const ai = pending.filter((pid) => players.get(pid)?.botControlled);
+  const next = [...human, ...ai];
+  if (pending.every((pid, i) => pid === next[i])) return false;
+  draft.order.splice(draft.idx, pending.length, ...next);
+  return true;
+}
+
 /** Fixed presentation delays (real ms, × timerScale). */
 export const DELAYS = Object.freeze({
   ROUND_START: 2000,
