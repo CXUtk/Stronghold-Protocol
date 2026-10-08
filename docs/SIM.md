@@ -196,6 +196,16 @@ constant) and 碎铳之簧 (PRTS "受到伤害时令假想敌：胄/铳受到等
 ends by spawning a new 初始模式 copy on its level branch route (`left_hand_origin` / `right_hand_origin`) with the old
 HP, then `kill(old, null)` — uncounted, no bounty; the client sees a `die` and a `spawn`.
 
+隐秘核心铳's 【末日布道】 holds 碎铳之簧 in pursuit of the casting gun for the full 5 s gain
+(invulnerable, no ordinary attacks); reaching the gun does not end pursuit. On a pair field the second gun's first
+call is delayed by half its cooldown (22.5 s with the template's 45 s), while each gun retains that 45 s cooldown.
+An already-active pursuit also prevents another call from replacing its target. This pair-field coordination is
+**[ASSUMED]**, a fairness choice of the remake: near-simultaneous mirrored spawns otherwise made the second gun
+overwrite the first on every cycle and kept the springs on one half. The official pair-field coordination is not
+documented by the available sources; this does not promise exactly equal residence time (routes and attack pauses
+still apply). A solo gun keeps its data initial cooldown. Sources: [假想敌：铳](https://prts.wiki/w/假想敌：铳),
+[“碎铳之簧”](https://prts.wiki/w/“碎铳之簧”).
+
 WALK legs pathfind on the stage grid inside the rect with the official flow field (grid.js: 4-direction SPFA from the
 destination, crates cost 1000, then Bresenham line-of-sight smoothing — research 08 §3.4). The official route stays
 unless 0.1.0's road-over-floor preference route (the fewest non-blockable tiles among equal-length chains, a line of
