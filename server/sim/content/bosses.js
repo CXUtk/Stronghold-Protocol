@@ -637,7 +637,15 @@ function kitGun(ab, e, b) {
       },
     });
     if (s2) list.push({
-      cd: s2.cd, icd: s2.icd, cond: (b2) => b2.enemies.some((o) => o.alive && isSpring(o)),
+      cd: s2.cd, icd: s2.icd,
+      spawn(b2, e2, a) {
+        // Pair-field coordination [ASSUMED]: offset the second gun by half its cooldown. With near-simultaneous
+        // spawns, its call otherwise overwrote the first gun's on every cycle, drawing every spring to one side.
+        // Each gun keeps its own cooldown; solo fields keep the data's initial cooldown.
+        if (b2.players.length > 1 && b2.enemies.some((o) => o !== e2 && o.alive && o.defId === e2.defId)) a.left += s2.cd / 2;
+      },
+      cond: (b2) => b2.enemies.some((o) => o.alive && isSpring(o))
+        && !b2.enemies.some((o) => o.alive && isSpring(o) && o.mem.ab?.dash && b2.time < o.mem.ab.dash.until),
       fire(b2, e2) { // 【末日布道】 springs dash to 铳, invulnerable, trampling operators
         // PRTS “碎铳之簧” 追逐模式 "不进行普通攻击": `disarm` for the dash (until 0.1.3 it kept shooting while it ran)
         for (const sp of b2.enemies) {
@@ -707,11 +715,18 @@ function kitSpring(ab, e) {
         if (!P.up && P.downAt != null && b.time - P.downAt >= regen) raise(b);
         const d = e2.mem.ab.dash;
         if (!d) return;
+        if (b.time >= d.until) {
+          e2.mem.ab.dash = null;
+          b.removeBuff(e2, 'boss:dash');
+          if (e2.route) e2.route.pts = null;
+          return;
+        }
         const g = d.gun && d.gun.alive ? d.gun : gun(b);
-        const arrived = !g || stepToward(e2, g.x, g.y, e2.s.moveSpeed * d.mul * MOVE_SCALE * dt) || Math.hypot(g.x - e2.x, g.y - e2.y) < 1;
+        // The 5 s gain switches to pursuit for its whole duration (PRTS). Reaching the gun does not end it:
+        // keep following its current position, without ordinary attacks, until the gain expires.
+        if (g) stepToward(e2, g.x, g.y, e2.s.moveSpeed * d.mul * MOVE_SCALE * dt);
         // 追逐模式 "对进入自身0.35半径范围内的我方单位（包括飞行单位）造成一次攻击力100%的物理普通伤害" (until 0.1.3: radius 0.5)
         for (const u of areaAllies(b, e2, e2.x, e2.y, CHARGE_RADIUS)) if (!d.hit.has(u)) { d.hit.add(u); hurt(b, e2, u, e2.s.atk, 'phys'); }
-        if (arrived || b.time >= d.until) { e2.mem.ab.dash = null; b.removeBuff(e2, 'boss:dash'); if (e2.route) e2.route.pts = null; }
       },
     },
     // while shielded, every (spCost+1)-th attack (enemy SP +1 per attack, as 粉碎攻坚手's official text) adds the shield's
