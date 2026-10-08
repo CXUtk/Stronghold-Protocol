@@ -160,6 +160,7 @@ function MatchScreen() {
 
   const hostRef = useRef(null);
   const barRef = useRef(null);
+  const buyKeyBusy = useRef(false);
   const hudElRef = useRef(null);                         // .gm__hud (inside the safe-area insets: the panels' frame)
   const { view, kind: viewKind } = useFieldView(hostRef);
 
@@ -1182,6 +1183,21 @@ function MatchScreen() {
         return;
       }
       if (!L.editable) return;
+      if (act === 'buy') {
+        if (!L.showPrep || L.drag || L.facing || L.selBusy || buyKeyBusy.current) return;
+        const card = barRef.current?.querySelector('.scard[data-buy-slot]:hover');
+        if (!card) return;
+        const idx = Number(card.dataset.buySlot);
+        const slot = Number.isInteger(idx) ? L.priv.shop?.slots?.[idx] : null;
+        if (!slot || slot.id !== card.dataset.buyId) return;
+        const reason = shopBlockReason('buy', { priv: L.priv, editable: L.editable, slot });
+        if (reason) { audio.sfx('error', { volume: 0.5 }); toast(reason, 'warn'); return; }
+        buyKeyBusy.current = true;
+        try {
+          if (await actions.buy(idx)) setDetail(null);
+        } finally { buyKeyBusy.current = false; }
+        return;
+      }
       if (act === 'retreat' || act === 'sell') {
         if (!L.showPrep || L.drag || L.facing || L.selBusy || !L.sel) return;
         const selected = L.placeCtx.pieces.get(L.sel.uid);

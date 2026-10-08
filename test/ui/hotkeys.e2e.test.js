@@ -46,7 +46,7 @@ describe('rebindable shortcuts (设置 → 快捷键)', { skip: !ENABLED && 'set
       const problems = await open(page);
       await page.click('.gm__gear');
       await page.waitForSelector('.modal .set-keys');
-      assert.deepEqual(await page.$$eval('.set-key[data-action]', (els) => els.map((el) => el.textContent.trim())), ['R', 'F', 'D', 'Q', 'X', 'Space'],
+      assert.deepEqual(await page.$$eval('.set-key[data-action]', (els) => els.map((el) => el.textContent.trim())), ['R', 'F', 'D', 'Q', 'X', 'B', 'Space'],
         'the defaults are the keys of 0.1.4');
 
       // a swap: 撤退 onto X (出售's key) — 出售 takes the old Q, and the line under the list says so
@@ -129,12 +129,69 @@ describe('rebindable shortcuts (设置 → 快捷键)', { skip: !ENABLED && 'set
         return { scroll: body.scrollWidth, client: body.clientWidth, left: b.left, right: b.right, rows: rows.map((r) => [r.left, r.right, r.width]) };
       });
       assert.ok(box.scroll <= box.client, `no horizontal scroll in the dialog (${box.scroll} > ${box.client})`);
-      assert.equal(box.rows.length, 7, 'six shortcuts and the fixed Esc');
+      assert.equal(box.rows.length, 8, 'seven shortcuts and the fixed Esc');
       for (const [l, r, w] of box.rows) assert.ok(l >= box.left - 0.5 && r <= box.right + 0.5 && w > 0, `a row inside the dialog: ${l}–${r}`);
       assert.equal(new Set(box.rows.map(([l]) => Math.round(l))).size, 1, 'one column at phone width');
       await page.$eval('.set-keys__more', (el) => el.scrollIntoView({ block: 'start' }));
       assert.equal(await page.$eval('.set-keys__more', (el) => el.open), true);
       await page.screenshot({ path: `${OUT}/hotkeys-phone.png` });
+      assert.deepEqual(problems, []);
+    } finally { await page.close(); }
+  });
+
+  test('buy the hovered operator or item once; settings rebind it; rewards and ready state stay protected', async () => {
+    const page = await browser.newPage();
+    try {
+      const problems = await open(page);
+      await page.mouse.move(1, 1);
+      const initial = await mockState(page);
+      await page.keyboard.press('KeyB');
+      assert.deepEqual(await mockState(page), initial, 'no hovered card means no purchase');
+      const first = initial.shop.slots.findIndex((s) => s && !s.sold && s.kind !== 'item');
+      await page.hover(`.scard[data-buy-slot="${first}"]`);
+      await page.keyboard.down('KeyB');
+      await page.waitForFunction((i) => globalThis.__MOCK__.S().priv.shop.slots[i].sold, {}, first);
+      await page.keyboard.down('KeyB'); // repeat while held
+      await page.keyboard.up('KeyB');
+      const bought = await mockState(page);
+      assert.equal(bought.funds, initial.funds - initial.shop.slots[first].price);
+      assert.equal(bought.hand.filter(Boolean).length, initial.hand.filter(Boolean).length + 1);
+
+      await page.click('.gm__gear');
+      await page.waitForSelector('.modal .set-keys');
+      assert.equal(await keyOf(page, 'buy'), 'B');
+      await page.click('.set-key[data-action="buy"]');
+      await page.keyboard.press('KeyG');
+      await keyIs(page, 'buy', 'G');
+      await page.screenshot({ path: `${OUT}/hotkeys-buy-settings.png` });
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.modal', { hidden: true });
+
+      const item = bought.shop.slots.findIndex((s) => s && !s.sold && s.kind === 'item');
+      assert.ok(item >= 0, 'the mock shop contains an item');
+      await page.hover(`.scard[data-buy-slot="${item}"]`);
+      await page.keyboard.press('KeyB');
+      assert.deepEqual(await mockState(page), bought, 'the old binding no longer buys');
+      await page.keyboard.press('KeyG');
+      await page.waitForFunction((i) => globalThis.__MOCK__.S().priv.shop.slots[i].sold, {}, item);
+      assert.equal((await mockState(page)).funds, bought.funds - bought.shop.slots[item].price);
+
+      // Fixture mutations only: exercise guards on the real keyboard handler without clicking a card first.
+      await page.evaluate(() => globalThis.__MOCK__.mutate((s) => { s.priv.ready = true; }));
+      const remaining = (await mockState(page)).shop.slots.findIndex((s) => s && !s.sold && s.kind !== 'item');
+      await page.hover(`.scard[data-buy-slot="${remaining}"]`);
+      const ready = await mockState(page);
+      await page.keyboard.press('KeyG');
+      assert.deepEqual(await mockState(page), ready, 'ready state prevents buying');
+      await page.evaluate(() => globalThis.__MOCK__.mutate((s) => {
+        s.priv.ready = false;
+        s.priv.shop.rewardOffer = { tier: 5, slots: [{ kind: 'chess', id: s.priv.shop.slots[0].id, price: 0, sold: false }] };
+      }));
+      await page.waitForSelector('.shopbar.has-reward');
+      await page.hover('.shopbar.has-reward .scard:not([data-buy-slot])');
+      const reward = await mockState(page);
+      await page.keyboard.press('KeyG');
+      assert.deepEqual(await mockState(page), reward, 'free rewards are not normal purchases');
       assert.deepEqual(problems, []);
     } finally { await page.close(); }
   });
