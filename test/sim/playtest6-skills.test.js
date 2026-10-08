@@ -332,7 +332,7 @@ test('#8 新约能天使 S2 开火成瘾症: the ally is the highest-仇恨值 o
 // =================================================================================================================
 // #3 忍冬: 叙拉古 隐匿 and her S3 迷彩
 
-test('#3 忍冬 with 6 叙拉古: the bond 隐匿 ends at 32 + 0.4 × layers s; her S3 迷彩 is not 隐匿, keeps all but the enemy she blocks off her, until the next cast', () => {
+test('#3 忍冬 with 6 叙拉古: the deployment buff and 隐匿 last 1.3 × (32 + 0.4 × layers) s; her S3 迷彩 is not 隐匿, keeps all but the enemy she blocks off her, until the next cast', () => {
   const id = 'chess_char_3_18_a', L = 20;
   const h = run({
     defs: { enemies: { enemy_f: dummy('enemy_f', { hp: 1 }), enemy_b: dummy('enemy_b'), enemy_r: dummy('enemy_r', { atk: 50, range: 3, applyWay: 'RANGED', bat: 1 }) }, chess: noGarrison(id) },
@@ -348,6 +348,9 @@ test('#3 忍冬 with 6 叙拉古: the bond 隐匿 ends at 32 + 0.4 × layers s; 
   h.runUntil(() => !u.skill.active, 20);
   assert.ok(u.s.flags.camou, '迷彩 after the skill (a kill during it)');
   h.runUntil(() => h.b.time >= 32 + 0.4 * L + 0.1, 60);
+  assert.ok(u.s.flags.stealth && u.hasBuff('bond:siracusa'), 'both deployment effects remain past the original duration');
+  h.runUntil(() => h.b.time >= (32 + 0.4 * L) * 1.3 + 0.1, 60);
+  assert.ok(!u.hasBuff('bond:siracusa'), 'the ASPD buff expires at the extended duration');
   assert.ok(!u.s.flags.stealth, 'the bond 隐匿 is over at its time');
   assert.ok(u.s.flags.camou && !u.blocking.length);
   assert.ok(flagsOf(u) & UF.STEALTH, 'the 迷彩 shows (see-through)');
