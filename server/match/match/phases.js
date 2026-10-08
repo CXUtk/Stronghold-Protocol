@@ -8,7 +8,7 @@ import { PHASE, ERR } from '../../../shared/constants.js';
 import { buildNormalWave, buildBossWave } from '../waves.js';
 import { pairPlayers } from '../finalAssault.js';
 import { botPickBand } from '../bot.js';
-import { OK, fail, DELAYS, BAND_TURN_SECONDS } from './common.js';
+import { OK, fail, DELAYS, BAND_TURN_SECONDS, prioritizeDraftHumans } from './common.js';
 
 export class MatchPhases {
   enterInfoCheck() {
@@ -33,7 +33,8 @@ export class MatchPhases {
   /**
    * The strategy draft (user playtest #4 item 4): ONE countdown — every turn has the same clock, BAND_TURN_SECONDS, and
    * m.public.deadline is the current turn's end (= draft.turnDeadline; the step header and the turn indicator show the
-   * same number). No separate step cap: the turns bound the step (≤ (seats + skips) × turn). AI seats pick at once. A
+   * same number). No separate step cap: the turns bound the step (≤ (seats + skips) × turn). Humans choose before AI,
+   * with random order within each group; AI seats then pick at once. A
    * turn that runs out takes the strategy the player has highlighted (g.bandFocus) while it is free, else the default
    * (timeoutBand). Solo, and any single-human match (soloUntimed): untimed. Solo also keeps seat order and has no skip.
    */
@@ -67,6 +68,7 @@ export class MatchPhases {
     const d = this.draft;
     this.cancel(this._turnTimer);
     this._turnTimer = null;
+    prioritizeDraftHumans(d, this.players);
     while (d.idx < d.order.length && d.picks[d.order[d.idx]]) d.idx++;
     if (d.idx >= d.order.length) {
       d.turnDeadline = 0;
@@ -101,6 +103,8 @@ export class MatchPhases {
       if (this.phase !== PHASE.BAND_DRAFT || token !== this._turnToken) return;
       const ps = this.players.get(this.draftTurn());
       if (!ps || !ps.botControlled) return;
+      // A pending AI seat may have returned to manual control since this callback was scheduled.
+      if (prioritizeDraftHumans(this.draft, this.players)) { this.startDraftTurn(); return; }
       // a strategy a teammate already took is not selectable (队友已选): the bot re-draws, else the first free one
       let id = botPickBand(this, ps);
       for (let k = 0; k < 8 && this.bandTaken(id, ps.playerId); k++) id = botPickBand(this, ps);
@@ -192,6 +196,9 @@ export class MatchPhases {
     if (this.draftTurn() !== ps.playerId) return fail(ERR.NOT_YOUR_TURN);
     if (!(d.skipsLeft[ps.playerId] > 0)) return fail(ERR.ALREADY, 'no skip left');
     if (d.order.length - d.idx <= 1) return fail(ERR.BAD_TARGET, 'nobody to pass to');
+    if (!ps.botControlled && !d.order.slice(d.idx + 1).some((pid) => !d.picks[pid] && !this.players.get(pid)?.botControlled)) {
+      return fail(ERR.BAD_TARGET, 'no human to pass to');
+    }
     d.skipsLeft[ps.playerId]--;
     d.order.splice(d.idx, 1);
     d.order.push(ps.playerId);
