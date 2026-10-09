@@ -1,4 +1,3 @@
-import { finishDisplacement } from '../helpers/displacement.js';
 // Tier-4 operator loadouts (DESIGN §16): every selectable NON-default skill of every visible tier-4 chess has a
 // hand-authored spec in its kit file (server/sim/content/kits/ops/, `skills[skillId]`), proven here by its signature effect for
 // the normal (Lv4) and the elite (Lv7) chess; non-default modules (and 'none') change what their text says. Numbers
@@ -110,6 +109,30 @@ test('信仰搅拌机 S1 铳骑主考官 (自动触发 ⇒ DEFAULT: hurt SP, fir
     for (const c of skillHits) approx(c.amount, u.s.atk * bb.atk_scale, 1e-6, `${id} hit`);
     const shots = h.hooksOf('attack').filter((c) => c.attacker === ins).length;
     assert.equal(ins.skill.ammoLeft, ammo0 - shots + bb.charge, `${id} reloaded ${bb.charge} bullet(s)`);
+    checkInvariants(h.b);
+  }
+});
+
+test('信仰搅拌机 S1 reloads the latest-deployed 拉特兰 ammo user around him, not the nearest (PRTS 备注; GitHub #325, PR #329)', () => {
+  for (const redeploy of [false, true]) {
+    // 隐现 ×2: the orthogonal neighbour deployed first, the diagonal one after it (both on his 8 surrounding tiles)
+    const h = battle([U('chess_char_4_01_a', 10, 5, 0), U('chess_char_1_01_a', 10, 4, null, null, { uid: 2 }), U('chess_char_1_01_a', 9, 4, null, null, { uid: 3 })]);
+    h.step();
+    const u = h.unit('chess_char_4_01_a'), near = h.unit(2), far = h.unit(3);
+    if (redeploy) { // a redeploy is the latest deployment
+      h.b.retreat(near, { reason: 'raid' });
+      assert.ok(h.b._deploy(near));
+    }
+    const latest = redeploy ? near : far, other = redeploy ? far : near;
+    assert.ok(latest.deploySeq > other.deploySeq);
+    for (const a of [near, far]) { assert.ok(a.skill.activate('test', { free: true })); a.skill.ammoLeft = 5; }
+    const e = h.spawn('enemy_dummy', { pos: [10, 6] });
+    assert.ok(u.skill.activate('test', { free: true }));
+    h.b.forceAttack(u, [e]);
+    h.run(0.5);
+    const reloads = h.eventsOf('fx').filter((x) => x[1] === 'reload');
+    assert.ok(reloads.length > 0, 'a reload happened');
+    assert.ok(reloads.every((x) => x[4].id === latest.id), `${redeploy ? 'after a redeploy, the redeployed one' : 'the later-deployed diagonal one'} is reloaded`);
     checkInvariants(h.b);
   }
 });
@@ -511,7 +534,6 @@ test('歌蕾蒂娅 S1 缺水的大洋裂断: charges; next attack atk_scale (×1
     approx(sk[0].amount, u.s.atk * bb.atk_scale * t1.atk_scale, 1e-6, `${id} hit`);
     assert.ok(e.x < x0 - 0.5, `${id}: pulled towards her (${x0} → ${e.x})`);
     // 中力 vs weight 1 (受力等级 0): "必定拉至身前" — to the 急停 radius 0.6708 around her centre (PRTS 推与拉), never past it
-    finishDisplacement(h, e);
     approx(e.x, u.x + 0.6708, 1e-6, `${id}: stops at her front`);
   }
 });
@@ -1092,7 +1114,6 @@ test('百炼嘉维尔 S2 链锯强袭: wider range, ATK/DEF up, unblocked enemie
     assert.ok(u.skill.activate('test', { free: true }));
     approx(u.s.atk, u.base.atk * (1 + bb.atk + D(id, 1).talents[0].bb.atk), 1e-6, 'ATK (+ 战地巨斧)');
     assert.ok(h.runUntil(() => dmgBy(h, u).length > 0, 5), `${id}: reaches 2 tiles ahead`);
-    finishDisplacement(h, e);
     assert.ok(e.x < 6 - 0.4, `pulled (${e.x})`);
   }
 });

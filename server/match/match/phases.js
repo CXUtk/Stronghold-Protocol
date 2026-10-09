@@ -8,7 +8,7 @@ import { PHASE, ERR } from '../../../shared/constants.js';
 import { buildNormalWave, buildBossWave } from '../waves.js';
 import { pairPlayers } from '../finalAssault.js';
 import { botPickBand } from '../bot.js';
-import { OK, fail, DELAYS, BAND_TURN_SECONDS, prioritizeDraftHumans } from './common.js';
+import { OK, fail, DELAYS, BAND_TURN_SECONDS } from './common.js';
 
 export class MatchPhases {
   enterInfoCheck() {
@@ -33,16 +33,16 @@ export class MatchPhases {
   /**
    * The strategy draft (user playtest #4 item 4): ONE countdown — every turn has the same clock, BAND_TURN_SECONDS, and
    * m.public.deadline is the current turn's end (= draft.turnDeadline; the step header and the turn indicator show the
-   * same number). No separate step cap: the turns bound the step (≤ (seats + skips) × turn). Humans choose before AI,
-   * with random order within each group; AI seats then pick at once. A
+   * same number). No separate step cap: the turns bound the step (≤ (seats + skips) × turn). AI seats pick at once. A
    * turn that runs out takes the strategy the player has highlighted (g.bandFocus) while it is free, else the default
    * (timeoutBand). Solo, and any single-human match (soloUntimed): untimed. Solo also keeps seat order and has no skip.
    */
   enterBandDraft() {
     if (this.phase !== PHASE.INFO_CHECK) return;
     this.phase = PHASE.BAND_DRAFT;
-    const order = this.order.map((p) => p.playerId);
+    let order = this.order.map((p) => p.playerId);
     if (!this.isSolo) this.rngDraft.shuffle(order);
+    order = this.humansFirst(order);
     const skips = this.isSolo ? 0 : this.gd.bandDraft.skipsPerPlayer;
     const untimed = this.soloUntimed;
     this.draft = {
@@ -53,6 +53,22 @@ export class MatchPhases {
     this.setDeadline(0);
     this.startDraftTurn();
     this.markPublic();
+  }
+
+  /**
+   * The co-op room option 「AI 队友最后选择」 (this.aiPicksLast, GitHub #338): every human seat before every AI seat, each
+   * group in the order the draft drew (a stable partition applied AFTER the shuffle — no extra random draw: the order
+   * with the option off is unchanged, and with it on every random stream stands where it would without it; only the
+   * picks made in the new order can differ). A human is any seat that is not an AI seat (room.addBot): under AI 托管,
+   * disconnected or departed it still counts as a human. Used by the strategy draft and the 机变 draft
+   * (MatchSpDraft.enterSpDraft).
+   * @param {string[]} order playerIds in drawn order
+   * @returns {string[]}
+   */
+  humansFirst(order) {
+    if (!this.aiPicksLast) return order;
+    const bot = (pid) => !!this.players.get(pid)?.isBot;
+    return [...order.filter((pid) => !bot(pid)), ...order.filter(bot)];
   }
 
   draftTurn() {
@@ -68,7 +84,6 @@ export class MatchPhases {
     const d = this.draft;
     this.cancel(this._turnTimer);
     this._turnTimer = null;
-    prioritizeDraftHumans(d, this.players);
     while (d.idx < d.order.length && d.picks[d.order[d.idx]]) d.idx++;
     if (d.idx >= d.order.length) {
       d.turnDeadline = 0;
@@ -103,8 +118,6 @@ export class MatchPhases {
       if (this.phase !== PHASE.BAND_DRAFT || token !== this._turnToken) return;
       const ps = this.players.get(this.draftTurn());
       if (!ps || !ps.botControlled) return;
-      // A pending AI seat may have returned to manual control since this callback was scheduled.
-      if (prioritizeDraftHumans(this.draft, this.players)) { this.startDraftTurn(); return; }
       // a strategy a teammate already took is not selectable (队友已选): the bot re-draws, else the first free one
       let id = botPickBand(this, ps);
       for (let k = 0; k < 8 && this.bandTaken(id, ps.playerId); k++) id = botPickBand(this, ps);
@@ -196,12 +209,18 @@ export class MatchPhases {
     if (this.draftTurn() !== ps.playerId) return fail(ERR.NOT_YOUR_TURN);
     if (!(d.skipsLeft[ps.playerId] > 0)) return fail(ERR.ALREADY, 'no skip left');
     if (d.order.length - d.idx <= 1) return fail(ERR.BAD_TARGET, 'nobody to pass to');
-    if (!ps.botControlled && !d.order.slice(d.idx + 1).some((pid) => !d.picks[pid] && !this.players.get(pid)?.botControlled)) {
-      return fail(ERR.BAD_TARGET, 'no human to pass to');
-    }
     d.skipsLeft[ps.playerId]--;
     d.order.splice(d.idx, 1);
-    d.order.push(ps.playerId);
+    // the skipper goes to the end; with 「AI 队友最后选择」 to the end of the humans still to pick — behind them, ahead of
+    // the AI seats — and to the very end only when no other human is left to pass to [ASSUMED: the option's intent,
+    // humans before AI, kept through a skip; no source, a remake option]
+    let at = d.order.length;
+    if (this.aiPicksLast) {
+      for (let j = d.order.length - 1; j >= d.idx; j--) {
+        if (!this.players.get(d.order[j])?.isBot) { at = j + 1; break; }
+      }
+    }
+    d.order.splice(at, 0, ps.playerId);
     this.startDraftTurn();
     return OK;
   }

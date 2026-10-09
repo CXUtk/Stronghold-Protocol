@@ -136,7 +136,6 @@ test('a blocker leaving later in the clip leaves only the rest of it; a displace
   untilStrike(h2, e2);
   assert.ok(h2.b.time < e2.atkStandUntil, 'standing');
   assert.ok(h2.b.displace(e2, { x: 1, y: 0 }, 0.3) > 0);
-  assert.ok(h2.runUntil(() => !e2.unbalance, 3), 'continuous push finishes');
   const x1 = e2.x;
   h2.run(0.2);
   assert.ok(e2.x < x1 - 0.02, `after the push it walks on at once (${x1} → ${e2.x})`);

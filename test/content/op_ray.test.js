@@ -1,4 +1,3 @@
-import { finishDisplacement } from '../helpers/displacement.js';
 // test/content/op_ray.test.js — the 自选 operator kit of 莱伊 (char_4117_ray, 6★ 猎手; kit
 // server/sim/content/kits/ops/op-ray.js) and of her summon 沙地兽 (token_10034_ray_sndbst), fielded the production way (a DIY
 // slot + its `diy` pick, simdata getDiy; the 沙地兽 as the placed hand piece of her player) in every form: tiers 5 / 6,
@@ -195,7 +194,6 @@ test('S1 脱身矢 (MANUAL, 2 charges, data DEFAULT): a special bullet at once (
       approx(c.amount, atk * sk.bb.atk_scale * 1.2, `T${tier}: ${sk.bb.atk_scale * 100} % × 1.2`);
       assert.deepEqual([c.type, c.dmg.isSkill, c.dmg.isAttack], ['phys', true, true]);
       assert.equal(ammo0, 7, `T${tier}: the cast's normal attack took one bullet, the special one none`);
-      finishDisplacement(h, e);
       approx(e.x, 5 + PUSH_TILES[1], `T${tier}: pushed ${PUSH_TILES[1]} tiles along her facing`, 0.03);
       approx(e.y, 11, 'no sideways push');
       done(h);

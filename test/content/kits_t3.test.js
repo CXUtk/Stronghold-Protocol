@@ -1,4 +1,3 @@
-import { finishDisplacement } from '../helpers/displacement.js';
 // Tier-3 operator kits (server/sim/content/kits/ops/chess_char_3_*.js): every chess runs a real battle through the harness and
 // its signature skill / talent / module effect is asserted with numbers taken from its own blackboards.
 import { test } from 'node:test';
@@ -249,13 +248,10 @@ test('3_07 见行者: 惊爆射击 pushes enemies forward + stun (wall / collisi
   const a = h.enemy('enemy_a'), c = h.enemy('enemy_c');
   fill(u);
   assert.ok(h.runUntil(() => u.skill.activations === 1, 5));
-  const stun = (x) => h.hooksOf('statusApplied').find((s) => s.target === x && s.status === 'stun');
-  if (a.unbalance) assert.equal(stun(c), undefined, 'the brush stun waits for contact during the slide');
-  finishDisplacement(h, a);
   assert.ok(a.x > 5.9, `pushed forward (${a.x})`);
+  const stun = (x) => h.hooksOf('statusApplied').find((s) => s.target === x && s.status === 'stun');
   approx(stun(a).duration, bb['forcer_s_2[hit_directly].stun']);
   approx(stun(c).duration, bb['forcer_s_2[brush].stun'], 1e-6, 'collided enemy');
-  assert.equal(h.hooksOf('statusApplied').filter((s) => s.target === c && s.status === 'stun').length, 1, 'one brush stun per slide');
   done(h);
 
   const w = makeBattle({
@@ -967,7 +963,6 @@ test('3_07 见行者: 惊爆射击 fires on an enemy inside the skill range only
   assert.equal(h.b.enemiesInKeys(u.baseRangeKeys, u, u.profile).length, 0, 'outside her attack range');
   fill(u);
   assert.ok(h.runUntil(() => u.skill.activations === 1, 2), 'skill range (3 tiles ahead) triggers it');
-  finishDisplacement(h, e);
   assert.ok(e.x > 6.9, `pushed (${e.x})`);
   approx(h.hooksOf('statusApplied').find((s) => s.target === e && s.status === 'stun').duration, bb['forcer_s_2[hit_directly].stun']);
   done(h);
@@ -1224,9 +1219,8 @@ test('every tier-3 variant (normal + 精锐) fights and casts in a real battle w
   assert.equal(ids.length, 42);
   for (const id of ids) {
     const melee = D(id).position === 'MELEE';
-    // Heavy targets let 见行者 exercise melee damage here; sliding collision stuns are covered separately.
     const h = makeBattle({
-      defs: { enemies: { enemy_w: enemyRec({ key: 'enemy_w', hp: 2e4, speed: 1, def: 100, res: 10, atk: 200, bat: 1.5, mass: id.startsWith('chess_char_3_07_') ? 9 : 1 }), enemy_fl: enemyRec({ key: 'enemy_fl', hp: 5000, speed: 1, motion: 'FLY', atk: 50 }) } },
+      defs: { enemies: { enemy_w: enemyRec({ key: 'enemy_w', hp: 2e4, speed: 1, def: 100, res: 10, atk: 200, bat: 1.5 }), enemy_fl: enemyRec({ key: 'enemy_fl', hp: 5000, speed: 1, motion: 'FLY', atk: 50 }) } },
       timeLimit: 25, seed: 11, autoFinish: false,
       units: [{ chessId: id, row: melee ? 9 : 10, col: 6 }],
       enemies: [{ key: 'enemy_w', route: 0, count: 4, interval: 3 }, { key: 'enemy_fl', route: 2, time: 2 }],

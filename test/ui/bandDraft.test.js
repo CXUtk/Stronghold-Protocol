@@ -280,7 +280,7 @@ describe('UI: one countdown and the highlighted band (user playtest #4 item 4)',
     assert.equal(draftTip({ timed: false, autoName: '华法琳' }), '联合模拟在选择策略时可以进行一次跳过；本局不限时');
   });
 
-  test('a single human with AI teammates: the draft is untimed and the human cannot skip behind AI', () => {
+  test('a single human with AI teammates: the draft is untimed (soloUntimed), keeps the co-op order and its skip', () => {
     const h = draftOf({ humans: 1, bots: 3, seed: 4 });
     const m = h.m;
     h.run(() => m.draftTurn() === 'p_0' || m.phase !== PHASE.BAND_DRAFT, { maxTime: 1000 });
@@ -293,8 +293,7 @@ describe('UI: one countdown and the highlighted band (user playtest #4 item 4)',
     h.sched.advance(10 * 60_000);
     assert.equal(m.phase, PHASE.BAND_DRAFT, 'waits for the player');
     assert.equal(m.draftTurn(), 'p_0');
-    assert.equal(m.handle('p_0', { t: 'g.bandSkip' }).error, ERR.BAD_TARGET);
-    assert.equal(m.draft.skipsLeft.p_0, 1, 'a refused skip is not consumed');
+    if (m.draft.order.length - m.draft.idx > 1) assert.deepEqual(m.handle('p_0', { t: 'g.bandSkip' }), { ok: true }, 'the co-op skip stays');
     m.dispose();
   });
 });

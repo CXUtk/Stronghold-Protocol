@@ -3,6 +3,7 @@
 
 import { PUSH_DIRECTIONAL_MIN_DIST } from '../../../constants.js';
 import { num, defOf, talentBb, traitBb, onTiles, gridKeys, fx, copyGrid } from '../shared/tier3.js';
+import { hypot } from '../../../detmath.js';
 
 /** Two enemy bodies touch within this distance (tiles) — 见行者 collision stun. */
 const COLLIDE = 0.6;
@@ -33,32 +34,18 @@ export default {
             // (only the angle: a target nearer than 0.25 tile still turns radial at 受力等级 −2) — by the official
             // 力度 − 重量 distance of a 特效 push (PRTS 推与拉 names 见行者's skills 特效类; Battle.push / pushDistance);
             // stopped short of it ⇒ it hit a wall
-            const near = Math.hypot(e.x - unit.x, e.y - unit.y) < PUSH_DIRECTIONAL_MIN_DIST;
+            const near = hypot(e.x - unit.x, e.y - unit.y) < PUSH_DIRECTIONAL_MIN_DIST;
             const expect = battle.pushDistance(e, near ? force - 2 : force, { effect: true });
             const moved = battle.push(e, force, { from: unit, dir: { x: unit.fwd[1], y: unit.fwd[0] }, fixedAngle: true, effect: true });
             const wall = expect > 0 && moved + 0.05 < expect;
             battle.applyStatus(e, 'stun', { duration: wall ? sWall : sDirect, source: unit });
           }
-          // Brush stun follows the bodies while they slide, as well as an instantaneous displacement.
-          // Read live positions: the spatial index was built before this frame's enemy movement.
-          const brush = (bodies) => {
-            for (const e of bodies) {
-              if (!e.alive || e.hidden) continue;
-              for (const o of battle.enemies) {
-                if (!o.alive || o.hidden || pushed.has(o) || Math.hypot(o.x - e.x, o.y - e.y) > COLLIDE) continue;
-                pushed.add(o);
-                battle.applyStatus(o, 'stun', { duration: sBrush, source: unit });
-              }
+          for (const e of victims) {
+            for (const o of battle.enemiesInRadius(e.x, e.y, COLLIDE)) {
+              if (pushed.has(o)) continue;
+              pushed.add(o);
+              battle.applyStatus(o, 'stun', { duration: sBrush, source: unit });
             }
-          };
-          brush(victims);
-          const motions = new Map(victims.filter((e) => e.unbalance).map((e) => [e, e.unbalance]));
-          if (motions.size) {
-            const hook = battle.on('tick', () => {
-              brush(motions.keys());
-              for (const [e, state] of motions) if (!e.alive || e.unbalance !== state) motions.delete(e);
-              if (!motions.size) battle.off(hook);
-            }, { owner: unit });
           }
           fx(battle, 'push', unit, { skill: 'forcer_2', n: victims.length });
         },

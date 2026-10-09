@@ -1,4 +1,3 @@
-import { finishDisplacement } from '../helpers/displacement.js';
 // test/content/op_lmlee.test.js — the 自选 operator kit of 老鲤 (char_322_lmlee, 6★ 行商; kit
 // server/sim/content/kits/ops/op-lmlee.js), fielded the production way (a DIY slot + its `diy` pick, simdata getDiy) in
 // every form: tiers 5 / 6, normal (E2 Lv1, skill rank 4, no module) and elite (E2 Lv60, rank 7) with no module, MER-X
@@ -208,7 +207,9 @@ test('S2 驱凶辟邪: passive ASPD +15 / +20; cast on his attack, the target is
     approx(h.b.time - t0, sk.bb.paper_duration, `T${tier}: after 5 s`, 0.05);
     const dmg = h.hooksOf('damaged').slice(n0);
     const burst = dmg.filter((c) => c.source === u && c.dmg.tags.includes('lmlee:burst'));
-    const hits = h.hooksOf('damaged').filter((c) => c.target === t && c.source === u && !c.dmg.tags.includes('lmlee:burst') && h.b.time >= t0).length;
+    // his hits on it before the burst (one of his hits in the burst's own tick lands after it and is not counted)
+    const all = h.hooksOf('damaged');
+    const hits = all.slice(0, all.indexOf(burst[0])).filter((c) => c.target === t && c.source === u && !c.dmg.tags.includes('lmlee:burst')).length;
     assert.deepEqual(burst.map((c) => c.target).sort((a, b) => a.id - b.id), [t, near].sort((a, b) => a.id - b.id), `T${tier}: radius ${MARK_RADIUS}, the flyer too, not 2 tiles away`);
     assert.ok(!burst.some((c) => c.target === far));
     for (const c of burst) {
@@ -294,7 +295,6 @@ test('S3 贵客盈门 (AUTO, SP_FULL): range x-4, ATK / DEF +31 % / +37 %, taunt
     const main = h.hooksOf('attack').find((c) => c.attacker === u).targets[0];
     const other = main === a ? b : a;
     assert.ok(Math.hypot(main.x - (main === a ? 6 : 5), main.y - (main === a ? 10 : 11)) < 1e-6, `T${tier}: the target is not pushed`);
-    finishDisplacement(h, other);
     assert.ok(Math.hypot(other.x - (other === a ? 6 : 5), other.y - (other === a ? 10 : 11)) > 1, `T${tier}: the other one is pushed`);
     done(h);
   }

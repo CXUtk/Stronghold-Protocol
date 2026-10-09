@@ -1,4 +1,3 @@
-import { finishDisplacement } from '../helpers/displacement.js';
 // Tier-4 operator kits (server/sim/content/kits/ops/chess_char_4_*.js): one signature test per chess (+ elite checks), real battles
 // through the harness. Numbers are read back from the data blackboards so the tests follow data changes.
 import { test } from 'node:test';
@@ -451,8 +450,28 @@ test('歌蕾蒂娅 S3: binds the farthest target, tornado pulses 85 % ATK arts e
   const pulses = dmgBy(h, u, (c) => c.dmg?.tags?.includes('tornado') && c.target === far);
   assert.equal(pulses.length, Math.floor(D(id).skill.duration / bb.interval + 1e-9), 'one pulse every 1.5 s');
   approx(pulses[0].amount, u.s.atk * bb.atk_scale, 1e-6);
-  finishDisplacement(h, far);
   assert.ok(far.x < x0 - 0.3, 'pulled towards her at the end');
+  checkInvariants(h.b);
+});
+
+test('歌蕾蒂娅 S3: the skill-end 捕网 has radius 1, the tornado 1.5 (PRTS 备注; GitHub #324, PR #329)', () => {
+  const id = 'chess_char_4_12_a';
+  const h = makeBattle({ defs: { enemies: { enemy_dummy: dummy() } }, units: [{ chessId: id, row: 10, col: 3 }], timeLimit: 200, autoFinish: false });
+  h.step();
+  const u = h.unit(id);
+  h.spawn('enemy_dummy', { pos: [10, 6] });   // the farthest enemy: bound, the tornado sits on it
+  h.step();
+  assert.ok(u.skill.activate('test', { free: true }));
+  assert.deepEqual([u.mem.tornado.x, u.mem.tornado.y], [6, 10]);
+  const at = (x, y) => { const e = h.spawn('enemy_dummy', { pos: [10, 6] }); e.x = x; e.y = y; return e; };
+  const inner = at(6, 9.1), outer = at(6, 11.25);   // 0.9 and 1.25 from the centre
+  h.step();
+  for (const e of [inner, outer]) assert.ok(e.findBuff(`glady:slow:${u.id}`), 'both inside the tornado (slowed)');
+  const p0 = [inner.x, inner.y, outer.x, outer.y];
+  u.skill.end('test');
+  h.run(0.6);
+  assert.ok(Math.hypot(inner.x - p0[0], inner.y - p0[1]) > 0.3, 'the net pulls the enemy 0.9 from the centre');
+  assert.deepEqual([outer.x, outer.y], [p0[2], p0[3]], 'the one 1.25 from the centre stays: outside the net');
   checkInvariants(h.b);
 });
 
@@ -1158,7 +1177,7 @@ test('elite (精锐) kits read the Lv7 blackboard: skill magnitudes differ from 
     assert.ok([...waves.values()].every((n) => n === bb.max_target));
   }
   // 歌蕾蒂娅 S3 tornado pulse on a weight-1 enemy √2 from the marked point (PRTS 推与拉): elite 中力 (1) = 受力等级 0 ⇒ all the
-  // way to the point (its 0.05 急停); normal 小力 (0) = −1 ⇒ a shorter pull before its force window ends.
+  // way to the point (its 0.05 急停); normal 小力 (0) = −1 ⇒ 35 % of the starting distance
   {
     const pulled = (id) => {
       const [h, u] = mk(id);
@@ -1168,12 +1187,10 @@ test('elite (精锐) kits read the Lv7 blackboard: skill magnitudes differ from 
       const x0 = side.x, y0 = side.y;
       u.skill.activate('test', { free: true });
       h.run(D(id).skill.bb.interval + 0.1);
-      finishDisplacement(h, side);
       return Math.hypot(side.x - x0, side.y - y0);
     };
-    const strong = pulled('chess_char_4_12_b'), weak = pulled('chess_char_4_12_a');
-    approx(strong, Math.SQRT2 - 0.05, 0.02);
-    assert.ok(weak > 0 && weak < strong, 'lower force moves it towards the point without reaching the stop circle');
+    approx(pulled('chess_char_4_12_b'), Math.SQRT2 - 0.05, 0.02);
+    approx(pulled('chess_char_4_12_a'), 0.35 * Math.SQRT2, 0.02);
   }
 });
 
