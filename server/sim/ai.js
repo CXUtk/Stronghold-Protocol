@@ -556,20 +556,20 @@ export function updateEnemy(b, e, dt) {
   // another one taking it over or one whose capacity frees up blocks it, and the block lifts its 隐匿 (GitHub #232; until
   // 0.2.0 the check waited for the status to end). The contact rule of a moving enemy (Battle._checkBlock, which still
   // refuses 沉睡 / 浮空 / 恐惧 / 不可阻挡): one stunned short of its blocker is blocked once it walks into contact
-  if (stunned && !e.hidden) {
-    e.atkStandUntil = -Infinity;
-    if (e.blockedBy && e.s.flags.sleep) b._unblock(e);
-    b._checkBlock(e);
-    return;
-  }
   if (e.blockedBy) {
     const bl = e.blockedBy;
     // (unblockable/levitate/fear may also arrive through a plain addBuff, which does not unblock by itself; a
-    // stunned/sleeping blocker — noBlock — lets go)
+    // stunned/sleeping blocker — noBlock — lets go). Check before the stunned return: 重生 can carry both
+    // stun and unblockable, and releasing a 隐匿 enemy starts its restore timer even while it cannot act.
     const ef = e.s.flags;
-    if (!bl.alive || !bl.deployed || bl.hidden || bl.s.flags.noBlock || bl.s.flags.sleep || ef.unblockable || ef.levitate || ef.fear) b._unblock(e);
-    else return;
+    if (!bl.alive || !bl.deployed || bl.hidden || bl.s.flags.noBlock || bl.s.flags.sleep || ef.unblockable || ef.levitate || ef.fear || ef.sleep) b._unblock(e);
   }
+  if (stunned && !e.hidden) {
+    e.atkStandUntil = -Infinity;
+    b._checkBlock(e);
+    return;
+  }
+  if (e.blockedBy) return;
   if (!e.hidden && b._checkBlock(e)) return;
   if (b.time < e.pauseUntil) return;
   // standing for an attack clip (attackStand, GitHub #58): only the walking waits — a checkpoint's WAIT keeps running
