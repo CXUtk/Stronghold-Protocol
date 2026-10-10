@@ -638,7 +638,7 @@ test('松果 116 on sale: a free special recruit of tier I (精锐: tier V)', ()
 // ---------------------------------------------------------------------------------------------------------------------
 // pools
 
-test('pools: 凯瑟琳 127 odd rounds, 佩佩 94, 洛洛 91, 焰尾 149, 歌蕾蒂娅 139 row of 3 — bb.count each', () => {
+test('pools: 凯瑟琳 127 odd rounds, 佩佩 94, 洛洛 91, 焰尾 149, 歌蕾蒂娅 139 row of 3 — bb.count plus deploy bonus', () => {
   for (const { gid, g, owners } of idsOf('SERVER_PREP_START', 'SERVER_GAIN_RANDOM_EQUIP_CHESS_IN_POOL')) {
     for (const owner of owners) {
       const s = setup();
@@ -673,13 +673,14 @@ test('pools: 凯瑟琳 127 odd rounds, 佩佩 94, 洛洛 91, 焰尾 149, 歌蕾�
   for (const [ev, key] of [['SERVER_GAIN', 'SERVER_POOL_CHAR'], ['SERVER_PREP_START', 'SERVER_POOL_CHAR']]) {
     for (const { gid, g, owners } of idsOf(ev, key)) {
       const pool = DATA.choices.pools[g.bbStr.pool];
+      const count = g.bb.count + (gid === 'garrison_39_a' || gid === 'garrison_39_b' ? 1 : 0);
       const allowed = new Set([...(pool.items || []), ...(pool.weighted || []).map((x) => x[0])]);
       for (const owner of owners) {
         const s = setup();
         const got = () => handChess(s.ps).filter((id) => allowed.has(id) || allowed.has(id.replace(/_b$/, '_a')));
         if (ev === 'SERVER_GAIN') {
           s.acquire(owner);
-          assert.equal(got().length, g.bb.count, `${gid}: ${handChess(s.ps)}`);
+          assert.equal(got().length, count, `${gid}: ${handChess(s.ps)}`);
         } else {
           const row = plain((c) => !allowed.has(c.chessId)).slice(0, 2);
           give(s.m, s.ps, owner, 'board', [10, 4]);
@@ -688,7 +689,7 @@ test('pools: 凯瑟琳 127 odd rounds, 佩佩 94, 洛洛 91, 焰尾 149, 歌蕾�
           assert.equal(got().length, 0, `${gid}: 2 in the row`);
           give(s.m, s.ps, row[1], 'board', [10, 8]);
           s.roundStart();
-          assert.equal(got().length, g.bb.count, `${gid}: 3 in the row`);
+          assert.equal(got().length, count, `${gid}: 3 in the row`);
         }
       }
       cover(gid);

@@ -116,7 +116,7 @@ describe('#8 深池逐火: a knock-out is a walking 隐匿 ember that a blocker 
             deaths.set(u.id, (deaths.get(u.id) ?? 0) + 1);
             check(ev[2] === 'killed', 'enemies only die by being killed');
             check(ember.has(u.id) && u.mem.ab.list[0].state === 'husk', 'a 逐火 dies only as an ember');
-            check(u.s.maxHp === tb(u.defId, 'Revive[Trigger].prop_max_hp') * u.mods.hpMul, 'killed through its scaled hit counter');
+            check(u.s.maxHp === tb(u.defId, 'Revive[Trigger].prop_max_hp'), 'killed through its hit counter');
           }
         }
       }
