@@ -291,7 +291,7 @@ export function TitleScreen() {
       <${ResumeMatchButton} />
       <${PwaInstallButton} />
       <span>${t('非官方同人复刻 · 游戏素材版权归 上海鹰角网络 / Yostar 所有')}</span>
-      <${MicroLabel}>${t('卫戍协议')} · v${APP_VERSION}<//>
+      <${MicroLabel}>v${APP_VERSION} · WEB SIMULATION<//>
       ${DEV_BUILD ? html`<span class="title-dev" role="note">${t('开发版 · 不稳定，请勿用于公开服务器')}</span>` : null}
     </footer>
   </div>`;
