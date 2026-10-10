@@ -2364,15 +2364,36 @@ test(`${nm('enemy_10144_xdelk_2')}: 角力对决 — blocked ⇒ ${skb('enemy_10
 // ---------------------------------------------------------------------------------------------------------------
 // leaders: shared rules
 
-test('最终攻势: leaders take no 侵蚀 (erosion) damage; other enemies do', () => {
-  const h = bossArena();
-  h.step();
-  const e = put(h, 'enemy_9021_acduml', [3, 10], { tag: 'boss' });
-  const o = put(h, 'enemy_1007_slime', [3, 8]);
-  assert.equal(h.b.dealDamage(null, e, { type: 'element', element: 'erosion', amount: 5000 }), 0);
-  assert.equal(e.elem.erosion, 0);
-  assert.ok(h.b.dealDamage(null, e, { type: 'element', element: 'burn', amount: 100 }) > 0);
-  assert.ok(h.b.dealDamage(null, o, { type: 'element', element: 'erosion', amount: 100 }) > 0);
+test('deploy: all Final Assault / Hidden Core leaders accumulate 侵蚀, burst into the pool and can burst again after 8 s', () => {
+  const leaders = new Map();
+  for (const [id, tpl] of Object.entries(W)) for (const s of tpl.spawns ?? []) {
+    if (s.tag === 'boss') leaders.set(s.key, id.includes('_h08_') ? 'hidden' : 'boss');
+  }
+  assert.equal(leaders.size, 10);
+  for (const [key, kind] of leaders) {
+    const h = bossArena({ kind }); h.step();
+    const e = put(h, key, [3, 10], { tag: 'boss' });
+    const o = put(h, 'enemy_1007_slime', [3, 8]);
+    const def = e.s.def, hp = h.b.sharedBoss.hp;
+    assert.equal(e.gaugeMax, 2000, key);
+    assert.equal(h.b.dealDamage(null, e, { type: 'element', element: 'erosion', amount: 1999 }), 1999, key);
+    assert.equal(e.elem.erosion, 1999, key);
+    assert.equal(h.b.sharedBoss.hp, hp, key);
+    assert.equal(h.b.dealDamage(null, e, { type: 'element', element: 'erosion', amount: 1 }), 1, key);
+    approx(hp - h.b.sharedBoss.hp, 5000, 1e-6, key);
+    approx(e.s.def, def - 120, 1e-6, key);
+    assert.equal(e.findBuff('erosionBurst').duration, 8, key);
+    assert.equal(h.b.dealDamage(null, e, { type: 'element', element: 'erosion', amount: 2000 }), 0, key);
+    assert.equal(h.b.dealDamage(null, e, { type: 'element', element: 'burn', amount: 100 }), 0, key);
+    assert.equal(h.b.dealDamage(null, o, { type: 'element', element: 'erosion', amount: 100 }), 100, key);
+    h.run(8.1);
+    assert.equal(e.elem.erosion, 0, key);
+    const hp2 = h.b.sharedBoss.hp;
+    h.b.dealDamage(null, e, { type: 'element', element: 'erosion', amount: 2000 });
+    approx(hp2 - h.b.sharedBoss.hp, 5000, 1e-6, key);
+    approx(e.s.def, def - 240, 1e-6, key);
+    checkInvariants(h.b); assert.deepEqual(h.b.errors, [], key);
+  }
 });
 
 test('template overrides of talents/skills are honoured (卢西恩 evade 0.2 in act2autochess_h07_05)', () => {

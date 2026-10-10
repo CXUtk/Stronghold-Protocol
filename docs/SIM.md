@@ -731,6 +731,11 @@ the source's side):
 | `erosion` 侵蚀 | permanent DEF −100 (stacking `erosionDown`) then 800 phys, 10 s lock | permanent DEF −120 then 5000 元素伤害, 8 s lock |
 | `necrosis` (legacy spare gauge) | 12 s: 100 true/s, ATK −20 % | same |
 
+**Deploy override (user decision, 2026-10-10):** leaders in Final Assault and Hidden Core accept `erosion` gauge fills
+and the enemy-side burst above. Their capacity stays 2000; burst damage reaches the shared boss HP pool and is credited
+to the operator that filled the gauge. The 8 s lock and permanent, stacking DEF cut also apply to leaders. This is a
+deployment-branch deviation from upstream's mode-wide leader immunity; see [DEPLOY-OVERRIDES.md](DEPLOY-OVERRIDES.md).
+
 The lock (`<el>Burst` buff, flag `burstLock`) is the official **爆发冷却**: while it runs NO element of the unit fills or
 can be recovered (`battle.reduceElement(unit, amount, el?)` removes nothing) and the bursting gauge shows full; when it
 ends EVERY gauge of the unit resets to 0. A burst that is still resolving counts as locked too (`unit.burstPending[el]`,
