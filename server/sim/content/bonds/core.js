@@ -362,6 +362,7 @@ function egirStart(battle) {
 /**
  * 联防: an operator forced out at the deployment (carry.down, Battle.start, before battleStart) still stands on its
  * deploy position for the devour (PRTS 盟约记录 最先部署). The forced exit is not a knock-out, so it takes no 5-tier slot.
+ * deploy's active 阿戈尔 members start standing instead (installEgir below); this helper still covers other down food.
  */
 function egirDownAtStart(battle, u) {
   return S.isOp(u) && !u.alive && u.removeReason === FORCED_EXIT && !!u.carry && u.carry.down === true
@@ -466,6 +467,12 @@ function devour(battle, pid, bb, members) {
 }
 
 function installEgir(battle, pid, bb, members) {
+  // deploy rule (owner confirmed 2026-10-10): down members of active 阿戈尔 start 联防 standing,
+  // before the new battle's devour. Do not import their previous forced-exit state; their HP / SP use
+  // a fresh deployment. The new Battle already owns fresh knock-out and revive counters below.
+  if (battle.kind === 'unite') {
+    for (const u of members) if (S.isOp(u) && u.carry?.down === true) u.carry = null;
+  }
   // HP (every tier): a match-long buff put on the members when the battle is built, so each one is deployed with it
   // (Battle._deploy: full HP of the raised max HP) and the battle-start devour finds it — the community report's step 1,
   // 「第一步给所有鱼加盟约的血量」 (DESIGN §25.22.5: an elite 深巡, 2904 HP and DEF 655, loses 5000 − 655 = 4345 to a mark and

@@ -747,6 +747,10 @@ at once, it lies on its tile with the redeploy ring and redeploys like after any
 playtest #5 item 2 — it used to stay out and vanish); its timer is its full redeploy time (the official setup carries
 only hp / tech per operator; confirmed by the user), with the redeploy-time effects that start with the battle (机变 征召); summons are
 fielded as the board has them (their SP carried); `flags.layerGainsEnabled = false`; time limit = the round's combat limit.
+**deploy exception (owner confirmed 2026-10-10):** down operators receiving active 阿戈尔 start standing on their prep
+tiles with fresh HP and initial SP, and take part in the new devour. Standing members retain HP ratio / SP carry;
+other down operators keep the forced-exit rule. Each new battle has fresh knock-out and revive counters (阿戈尔,
+埃芒加德). This requested deployment rule is recorded in [DEPLOY-OVERRIDES.md](DEPLOY-OVERRIDES.md).
 Every enemy still alive at the end (leaked again, or never spawned before the limit) costs its **source** player 1 LP.
 A client-run 联防 result may bill a survivor only to a leaker who sent that enemy in — a split / summon only to a leaker
 who sent in its parent, ≤ the parents' data offspring count (磨砻 2, 烹泉 4 …; fields.js offspringPerParent).
@@ -821,7 +825,8 @@ is called without protocol validation); 1 per second per player (`RATE`).
 
 Tickers (`m.ticker { text, id, type, priority, playerId }`) from `config.broadcasts`: SHOP_LEVEL, GOLDEN_CHAR,
 CHAR_DAMAGE (per board unit per battle, highest threshold; summons created in battle once per unit type — a client
-result may only name the unit types its lineup can field, fields.js validateClientResult), BOSS_HIT (20/50/80 % of the
+result may only name the unit types its lineup can field; board-unit names come from that player's battle input,
+including its 自选 pick or 补位 stand-in, never the client's reported name — fields.js validateClientResult), BOSS_HIT (20/50/80 % of the
 current leader per player, each threshold once per boss round: the player's damage to that round's shared pool,
 `SharedBossPool.byPlayer`, over its size — the Final Assault and the Hidden Core count apart, while `stats.bossDamage`,
 the result's 领袖伤害, adds both up; the browser's strip, which plays its queue 5.2 s per line, drops a BOSS_HIT line

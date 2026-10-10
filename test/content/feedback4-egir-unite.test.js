@@ -5,7 +5,8 @@
 // and block count exactly as in a solo battle. 联防 still adds no layers ("该阶段不能叠加层数"). The remake's two 联防
 // helpers stand on board cols 3–9 and 11–17 (colOffset 8) with the road column 10 between them, so these fields put the
 // teammate's operator on col 10 (a LOW tile the sim deploys on) to be in front. The last test runs the own-board case
-// through unite.js's carry: a chain whose food is down since the own combat gives 联防 the gains of the own combat.
+// through unite.js's carry: previously down active 阿戈尔 members deploy fresh (deploy rule, 2026-10-10),
+// while other down food still gives its stats and stays forced out.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -134,7 +135,7 @@ test('联防: a member a teammate\'s devour knocks out waits for every devour pa
 let gdCache = null;
 const gd = () => (gdCache ??= makeMatch({ mode: 'coop', humans: 3, seed: 1, fake: true }).start().m.gd);
 
-test('联防 through unite.js: food knocked out by the own combat\'s devour enters down, and 乌尔比安 gets exactly the own combat\'s base ATK and block count', () => {
+test('联防 through unite.js: previously down 阿戈尔 deploy fresh for the new devour; other food stays forced out', () => {
   // 乌尔比安 → 幽灵鲨 → 歌蕾蒂娅 → fodder on row 10 (3 阿戈尔: no revive), 30 s own combat
   const ids = [ULPIA, GHOST, GLADY, FODDER];
   const units = ids.map((chessId, i) => ({ uid: i + 1, kind: 'chess', chessId, row: 10, col: 3 + i, dir: 'RIGHT', items: [] }));
@@ -161,7 +162,8 @@ test('联防 through unite.js: food knocked out by the own combat\'s devour ente
   assert.deepEqual(buffOf(ulpia, 'bond:egir:devour')?.mods, gain, 'the own combat\'s gains');
   close(gain.atkFinal, [2, 3, 4].reduce((s, uid) => s + u.unit(uid).base.atk, 0), 1e-9, '幽灵鲨 + 歌蕾蒂娅 + fodder base ATK');
   assert.equal(gain.blockCnt, [2, 3, 4].reduce((s, uid) => s + u.unit(uid).base.blockCnt, 0));
-  for (const uid of [2, 3, 4]) assert.ok(!u.unit(uid).alive && u.unit(uid).removeReason === FORCED_EXIT, `${uid} forced out`);
+  for (const uid of [2, 3]) assert.ok(!u.unit(uid).alive && u.unit(uid).removeReason === 'killed', `${uid} falls to the new devour`);
+  assert.ok(!u.unit(4).alive && u.unit(4).removeReason === FORCED_EXIT, 'non-member food stays forced out');
   assert.equal(u.b.getPlayer('p1').bonds.egirShip.layers, 10, 'no layers in 联防');
   checkInvariants(u.b);
 });

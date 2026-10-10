@@ -76,7 +76,8 @@ scan down each column — the 阿戈尔 devour's "更靠左和靠上"; row-major
 summon piece content flags `deferDeploy` (one its owner's loadout does not make, e.g. 赫默 on S1; with
 `SKILL_SUMMON_START_DEPLOY` off also a skill's summon, which then waits on its reserved tile until the skill gives
 one) — firing `deploy {initial:true}` for
-each, forces out the operators that enter knocked out (`carryState.down`, 联防 — §1.1), then fires `battleStart`. Every
+each, forces out the operators that enter knocked out (`carryState.down`, 联防 — §1.1, with deploy's active 阿戈尔
+exception below), then fires `battleStart`. Every
 summon that came in during the initial deployment (also one an operator's deploy brought along) then ranks after all
 the operators in the aggro order (`unit.aggroSeq`, §1.2). On a shared field (联防, the boss field)
 the players' fields deploy side by side: the i-th operators of all players come in together (in `players` order), then
@@ -179,6 +180,13 @@ they do not resume the previous skill state.
 effects such as 深海 / 不屈 revives or 崇高牺牲 layers fired in its own combat), no `deaths` count. Right after `battleStart`
 its timer is re-read (`deathAt + respawnTime × persist.redeployMul × s.redeployMul`), so a redeploy-time effect switched on
 by a `battleStart` handler covers it like a later knock-out (机变 征召 −50 %; 征召's row check does not count it [ASSUMED]).
+
+**deploy exception (owner confirmed 2026-10-10):** `content/bonds/core.js installEgir` clears the carried down state of
+operators receiving active 阿戈尔 before initial deployment. They stand on their prep tiles with fresh deployment HP
+and initial SP, then participate in the new battle-start devour. Standing members retain the usual carried HP ratio
+and SP; other down operators retain the forced-exit rule above. The new `Battle` has fresh first-knock-out records and
+revive budgets (阿戈尔, 埃芒加德), without importing the previous battle's counts; 联防 still adds no layers.
+This is the requested deployment rule, not a claim about the official mode; see [DEPLOY-OVERRIDES.md](DEPLOY-OVERRIDES.md).
 
 ### 1.2 Enemies, routes, ownership
 
