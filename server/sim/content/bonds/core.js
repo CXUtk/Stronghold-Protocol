@@ -582,8 +582,8 @@ function installSiracusa(battle, pid, bb, members) {
   battle.on('deploy', ({ unit }) => {
     if (!memberSet.has(unit)) return;
     const L = S.bondLayers(battle, pid, 'siracusaShip');
-    // Deploy balance override; keep the displayed bond parameters unchanged.
-    const dur = (num(bb.base_duration, 0) + num(bb.duration_per_stack, 0) * L) * 1.3;
+    // Deploy balance override (owner confirmed 2026-10-11): 90% of the original duration, displayed parameters unchanged.
+    const dur = (num(bb.base_duration, 0) + num(bb.duration_per_stack, 0) * L) * 0.9;
     if (!(dur > 0)) return;
     battle.addBuff(unit, { key: 'bond:siracusa', duration: dur, mods: { aspd: num(bb.base_attack_speed, 0) + num(bb.attack_speed_per_stack, 0) * L } });
     if (!six) return;

@@ -818,7 +818,7 @@ test('阿戈尔 5 (community report, 2026-10-07): the slots the devour leaves go
 // ---------------------------------------------------------------------------------------------------------------------
 // 叙拉古
 
-test('叙拉古: after each deployment ASPD +(25+0.8L) for 32+0.4L s; 3 members: no stealth', () => {
+test('叙拉古 deploy: after each deployment ASPD +(25+0.8L) for (32+0.4L) ×0.9 s; 3 members: no stealth', () => {
   const list = [['r0_a', ['siracusaShip']], ['r1_a', ['siracusaShip']], ['r2_a', ['siracusaShip']], ['none_a', ['preciShip']]];
   const L = 10;
   const h = makeBattle({ defs: defsOf(list), units: lineup(list.map((x) => x[0])), bonds: { siracusaShip: bondOn(3, L, null, [3, 6]) } });
@@ -827,7 +827,7 @@ test('叙拉古: after each deployment ASPD +(25+0.8L) for 32+0.4L s; 3 members:
   assert.equal(a.s.aspd, 100 + 25 + 0.8 * L);
   assert.equal(h.unit('none_a').s.aspd, 100);
   assert.ok(!a.s.flags.stealth);
-  h.run(32 + 0.4 * L - h.b.time - 0.1);
+  h.run((32 + 0.4 * L) * 0.9 - h.b.time - 0.1);
   assert.equal(a.s.aspd, 100 + 25 + 0.8 * L);
   h.run(0.3);
   assert.equal(a.s.aspd, 100);
@@ -839,7 +839,7 @@ test('叙拉古: after each deployment ASPD +(25+0.8L) for 32+0.4L s; 3 members:
   checkInvariants(h.b);
 });
 
-test('叙拉古 6: 隐匿 for the same time; attacks while hidden / ≤ 10 s after proc (PRD) 5000+50L true damage + fear 3 s', () => {
+test('叙拉古 6 deploy: 隐匿 for the same ×0.9 duration; attacks while hidden / ≤ 10 s after proc (PRD) 5000+50L true damage + fear 3 s', () => {
   close(prdConstant(0.03), 0.00139, 2e-5);
   const list = [];
   for (let i = 0; i < 6; i++) list.push([`r${i}_a`, ['siracusaShip']]);
@@ -858,7 +858,7 @@ test('叙拉古 6: 隐匿 for the same time; attacks while hidden / ≤ 10 s aft
   assert.ok(procs.length >= 1 && procs.length < 60, `procs ${procs.length}`);
   for (const p of procs) close(p.amount, 5000 + 50 * L);
   assert.ok(h.hooksOf('statusApplied').some((c) => c.status === 'fear' && c.target === e && Math.abs(c.duration - 3) < 1e-9));
-  const dur = 32 + 0.4 * L;
+  const dur = (32 + 0.4 * L) * 0.9;
   h.run(dur + 5 - h.b.time);
   assert.ok(!a.s.flags.stealth, 'stealth over');
   const before = tagged(h, 'bond:siracusa').length;

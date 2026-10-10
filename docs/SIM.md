@@ -188,6 +188,10 @@ and SP; other down operators retain the forced-exit rule above. The new `Battle`
 revive budgets (阿戈尔, 埃芒加德), without importing the previous battle's counts; 联防 still adds no layers.
 This is the requested deployment rule, not a claim about the official mode; see [DEPLOY-OVERRIDES.md](DEPLOY-OVERRIDES.md).
 
+**deploy's 叙拉古 timing (owner confirmed 2026-10-11):** each deployment's ASPD buff and tier-6 stealth last
+`(base_duration + duration_per_stack × layers) × 0.9` seconds, replacing the former ×1.3 override. The extra proc
+window after stealth remains `end_duration` (10 s), and displayed bond data remains unchanged; see the same overrides record.
+
 ### 1.2 Enemies, routes, ownership
 
 `SpawnSpec = { time, enemyKey, routeIndex, count=1, interval=0, mods:{hpMul,atkMul,defMul,resMul,speedMul}, sourcePlayerId?,
