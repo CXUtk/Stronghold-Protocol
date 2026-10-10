@@ -5,7 +5,7 @@
 //   #43 follow-up — PRTS 作战机制 §隐匿 "对于绝大部分可隐匿的敌人而言，在被我方单位阻挡后会解除隐匿，不被阻挡的3秒后重新进入隐匿"
 //       (and the enemy pages' "（解除阻挡N秒后恢复）"): v0.1.1 hid an enemy again 1 tick after its block ended. Our operators'
 //       隐匿 is never lifted by blocking. A 深池逐火 ember gains a new 隐匿 source after its warrior's block ends;
-//       only blocking the ember itself can start that source's 3 s restore window (DESIGN §28.28).
+//       only blocking the ember itself can start that source's 3 s restore window (PRTS 深池逐火战士 天赋).
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

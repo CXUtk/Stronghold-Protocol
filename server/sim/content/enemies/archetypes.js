@@ -650,7 +650,7 @@ const kitSelfFear = (ab) => [selfFear(ab)];
  *  (PRTS 深池逐火战士 天赋: "基础最大生命值临时变为5…具有特殊生命值机制，不进行攻击，获得隐匿、缴械，10s后若未被击倒则变回战士形态并恢复所有
  *  生命"); blocking it lifts the 隐匿, so its blocker (and every operator in range) can beat it — also during the 3 s
  *  after the ember's own block ends (Battle._stealthSwitch). The warrior's former block ends before this new
- *  隐匿 source is added, so an unblocked fresh ember starts hidden (DESIGN §28.28). */
+ *  隐匿 source is added, so an unblocked fresh ember starts hidden (phase-order sources in docs/SIM.md). */
 const kitEmber = (ab) => [husk({ hits: T(ab, 'Revive[Trigger].prop_max_hp'), delay: T(ab, 'Revive[Trigger].interval') })];
 
 /**

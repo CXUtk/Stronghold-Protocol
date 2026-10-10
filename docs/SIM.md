@@ -403,7 +403,9 @@ immobile statue → a flyer with ranged arts attacks that skip flyers; forms 'st
 Revive[Trigger], every knock-out: 1 s 重生 — 无敌, 无法阻挡, immobile — then a hit-count husk that
 walks its route on: the 深池逐火 余烬 / 火灰 are 隐匿 and disarmed, so only a blocked or revealed one — or one within 3 s
 of its own block's end — can be targeted or struck by operators. The warrior's block ends before the husk gains its
-new 隐匿 source; an unblocked fresh husk starts hidden (§28.28, superseding §22.8's assumed order). This applies to
+new 隐匿 source; an unblocked fresh husk starts hidden. [ASSUMED] The helper models the phase order inferred from
+[PRTS 深池逐火战士](https://prts.wiki/w/深池逐火战士) and [特殊机制 · 重生](https://prts.wiki/w/特殊机制#额外术语)
+by releasing the old block before adding the new source, superseding §22.8's assumed order. This applies to
 radius area damage too (`Battle.foesInRadius`, PRTS 作战机制 §AOE伤害判定 — until 0.1.1 it reached an unblocked
 one); 假想敌：再生's 傀儡 is unblockable and, as it begins, shields the other enemies within 1.8; a husk
 still standing after `Revive[Trigger].interval` s stands up again with full HP),
