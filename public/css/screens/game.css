@@ -19,14 +19,15 @@
 .gm__loading { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; pointer-events: none; }
 .gm__hud { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .gm__hud > * { pointer-events: auto; }
-.damage-panel { position: absolute; right: .3rem; top: 1.35rem; z-index: 5; max-width: calc(100% - .6rem); }
+.damage-panel { position: relative; z-index: 5; display: flex; flex-direction: column; min-height: 0;
+  max-width: calc(100vw - .6rem - .5rem - max(.12rem, 8px)); }
 .damage-panel__toggle { display: flex; align-items: center; gap: .08rem; min-height: 40px; padding: .08rem .14rem;
-  margin-left: auto; color: var(--mint-400); background: rgba(10, 17, 15, .94); border: 1px solid var(--mint-700);
-  font-size: max(.17rem, 12px); cursor: pointer; }
+  flex: none; align-self: flex-end; margin-left: auto; color: var(--mint-400); background: rgba(10, 17, 15, .94); border: 1px solid var(--mint-700);
+  font-size: max(.17rem, 12px); white-space: nowrap; cursor: pointer; }
 .damage-panel__toggle .icon { width: max(.19rem, 16px); height: max(.19rem, 16px); }
 .damage-panel__toggle:hover, .damage-panel__toggle:focus-visible { border-color: var(--mint-400); background: #172e28; }
 .damage-panel__body { width: max(3.5rem, 270px); max-width: 100%; box-sizing: border-box; padding: .14rem;
-  max-height: calc(100vh - 1.35rem - 60px); overflow-y: auto; overscroll-behavior: contain;
+  min-height: 0; overflow-y: auto; overscroll-behavior: contain;
   background: rgba(10, 17, 15, .96); border: 1px solid var(--mint-700); box-shadow: 0 .1rem .28rem rgba(0, 0, 0, .5);
   color: var(--text-hi); font-size: max(.16rem, 12px); }
 .damage-panel__meta, .damage-panel__line, .damage-panel__caption, .damage-panel__total { display: flex; justify-content: space-between; gap: .12rem; }
@@ -105,7 +106,15 @@
 .gtop__iconbtn:hover, .gtop__iconbtn.is-on { background: var(--mint-a20); color: var(--mint-400); border-color: var(--mint-500); }
 .gtop__iconbtn.is-on:not(.has-sprite) { opacity: .6; }
 .gtop__iconbtn .enemybtn__chev { color: #fff; }
-.gtop__right { display: flex; flex-direction: column; align-items: flex-end; gap: .1rem; justify-self: end; }
+.gtop__right { display: flex; flex-direction: column; align-items: flex-end; gap: .1rem; justify-self: end;
+  position: relative; z-index: 6; max-height: calc(100vh - .4rem); max-height: calc(100dvh - .4rem); pointer-events: none; }
+.gtop__right > * { pointer-events: auto; }
+.gtop__right > :not(.gtop__extras) { flex: none; }
+/* Flow below the clock and the entire ready block, including its count/refusal reason. The damage body
+   shrinks to the remaining viewport height; only actual controls intercept board clicks. */
+.gtop__right > .gtop__extras { display: flex; align-items: stretch; gap: max(.12rem, 8px); min-height: 0;
+  width: max-content; max-width: calc(100vw - .6rem); pointer-events: none; }
+.gtop__extras > * { pointer-events: auto; }
 .gtop__right .countdown { --cd-h: .7rem; filter: drop-shadow(0 0 .12rem rgba(0, 0, 0, .8)); }
 .gtop__clock { display: flex; align-items: flex-start; gap: .14rem; }
 
@@ -396,10 +405,7 @@
 .pavatar__x .icon, .pavatar__door .icon { width: 60%; height: 60%; filter: drop-shadow(0 0 4px #000); }
 
 /* ---- effects ---------------------------------------------------------------------------------------------- */
-.gm__effects { position: absolute; right: .3rem; top: 2.4rem; }
-/* 准备就绪 refused (the temp row holds pieces): its reason shows under the button and pushes the ready count down —
-   the effects column follows, or the count runs into it on phones */
-.gm.has-readywhy .gm__effects { top: calc(2.4rem + max(.3rem, 16px)); }
+.gm__effects { flex: none; align-self: flex-start; }
 .effects { display: flex; flex-direction: column; align-items: flex-end; gap: .08rem; }
 .effect {
   position: relative; width: .5rem; height: .5rem; display: grid; place-items: center;

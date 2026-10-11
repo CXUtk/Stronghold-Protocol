@@ -168,6 +168,63 @@ describe('live round damage panel', { skip: !ENABLED && 'set SP_E2E=1 and CHROME
     } finally { await page.close(); }
   });
 
+  test('previous-round damage leaves prep controls visible and clickable across sizes, text scales and ready states', async () => {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    const sizes = [[1920, 1080], [1280, 720], [1024, 768], [844, 390], [667, 375], [568, 320], [390, 844], [320, 568]];
+    const assertLayout = async (width, height) => {
+      const layout = await page.evaluate(() => {
+        const rect = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
+        const ready = document.querySelector('.readybtn');
+        const r = ready.getBoundingClientRect();
+        const controls = [...document.querySelectorAll('.readywrap > *')].map(rect);
+        const panels = [...document.querySelectorAll('.damage-panel__toggle, .damage-panel__body')].map(rect);
+        const hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+        return { controls, panels, clickable: ready.contains(hit), hit: hit?.outerHTML.slice(0, 200) };
+      });
+      if (!layout.clickable) await page.screenshot({ path: `${OUT}/previous-damage-overlap-${width}.png` });
+      assert.equal(layout.clickable, true, JSON.stringify({ width, height, layout }));
+      for (const r of [...layout.controls, ...layout.panels]) {
+        assert.ok(r.left >= -1 && r.right <= width + 1 && r.top >= 0 && r.bottom <= height + 1, JSON.stringify({ width, height, r }));
+      }
+      const end = Math.max(...layout.controls.map((r) => r.bottom));
+      assert.ok(layout.panels.every((r) => r.top >= end), 'both folded and expanded damage stay below the entire ready block');
+    };
+    try {
+      for (const [width, height] of sizes) {
+        await page.setViewport({ width, height });
+        await page.goto(`${srv.url}/dev/game-mock.html?shot=1&render=fallback&phase=PREP`, { waitUntil: 'domcontentloaded' });
+        await page.waitForSelector('.readybtn');
+        await page.evaluate(() => globalThis.__MOCK__.mutate((s) => { s.priv.funds = 0; }));
+        for (const scale of ['md', 'xl']) {
+          await page.evaluate((value) => { document.documentElement.dataset.text = value; }, scale);
+          await assertLayout(width, height);
+          await page.click('.damage-panel__toggle');
+          await page.waitForSelector('.damage-panel__body');
+          await assertLayout(width, height);
+          await page.click('.readybtn');
+          await page.waitForFunction(() => document.querySelector('.readybtn')?.getAttribute('aria-pressed') === 'true');
+          await assertLayout(width, height);
+          await page.click('.readybtn');
+          await page.waitForFunction(() => document.querySelector('.readybtn')?.getAttribute('aria-pressed') === 'false');
+          if (scale === 'xl' && [1920, 844, 390, 320].includes(width)) {
+            await pause(1700); // capture the settled HUD after the phase banner and ready-request feedback leave
+            await page.screenshot({ path: `${OUT}/previous-damage-prep-${width}.png` });
+          }
+          await page.click('.damage-panel__toggle');
+        }
+        await page.goto(`${srv.url}/dev/game-mock.html?shot=1&render=fallback&phase=PREP&variant=temp`, { waitUntil: 'domcontentloaded' });
+        await page.waitForSelector('.readywrap__why');
+        await page.click('.damage-panel__toggle');
+        await page.waitForSelector('.damage-panel__body');
+        await assertLayout(width, height);
+        assert.equal(await page.$eval('.readybtn', (el) => el.disabled), true, 'overflow still refuses ready');
+      }
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
   test('desktop and narrow-screen layout: scrolling stays in the panel and text/numbers remain visible', async () => {
     const page = await browser.newPage();
     try {

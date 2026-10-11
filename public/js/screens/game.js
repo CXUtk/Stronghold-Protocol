@@ -1463,7 +1463,13 @@ function MatchScreen() {
         pen=${pen} penAvail=${penAvail} onPen=${togglePen} config=${gd.config} frozenAt=${frozenAt}
         pause=${canPause || paused ? { show: canPause, paused, busy: pauseBusy, onToggle: () => togglePause(!paused) } : null}
         live=${liveLpNow} spectator=${spectator}
-        spectators=${specFacts.list} myId=${myId} isHost=${specFacts.isHost} onRemoveSpectator=${removeSpectator} />
+        spectators=${specFacts.list} myId=${myId} isHost=${specFacts.isHost} onRemoveSpectator=${removeSpectator}
+        rightExtra=${html`<div class="gtop__extras">
+          ${combat || mode === 'settle' || previousDamage ? html`<${DamagePanel} key=${pub?.round} fieldId=${shownField?.fieldId} round=${pub?.round}
+            previous=${previousDamage} players=${players} myId=${myId}
+            getStats=${() => cc ? previousDamage ? battleRunner?.previousDamageStats() : battleRunner?.damageStats(shownField?.fieldId) : damageRef.current} />` : null}
+          <div class="gm__effects"><${EffectsList} effects=${watchingOther && field ? (field.effects ?? null) : priv?.effects} /></div>
+        </div>`} />
 
       <div class="gm__bonds">
         <button type="button" class="bonds-toggle" aria-expanded=${!bondsCollapsed} aria-controls="match-bond-strip"
@@ -1486,8 +1492,6 @@ function MatchScreen() {
         self=${Number.isFinite(priv?.lp) ? { lp: priv.lp, pending: liveLpNow.pending, unite: liveLpNow.unite, left: liveLpNow.left } : null}
         observe=${cc ? { canObserve: (p) => observeTarget(p, pub, myId, { observing: watchingOther, ownDone: localDone }), observing: watchingOther, onBack: backHome } : null} />
 
-      <div class="gm__effects"><${EffectsList} effects=${watchingOther && field ? (field.effects ?? null) : priv?.effects} /></div>
-
       ${watchingOther && !combat ? html`<div class="gm__watching" role="status">
         <${GIcon} name="eye" /><span>${tParts('正在查看 {name} 的阵地（只读）', { name: html`<b>${watchedName}</b>` })}</span>
         ${spectator ? null : html`<${Button} size="sm" variant="primary" icon="back" onClick=${() => watchPlayer({ playerId: myId })}>${t('返回自己')}<//>`}
@@ -1508,10 +1512,6 @@ function MatchScreen() {
       ${combat || mode === 'settle' ? html`<${CombatHud} pub=${pub} myId=${myId} watching=${watchingNow} hud=${hud} myDone=${!!myDone && alive}
         spectating=${!alive} spectator=${spectator} onWatch=${watchField}
         client=${cc ? { progress, observing: observingName ? { name: observingName } : null, onBack: alive ? backHome : null, layers, layer, onLayer: setLayer } : null} />` : null}
-
-      ${combat || mode === 'settle' || previousDamage ? html`<${DamagePanel} key=${pub?.round} fieldId=${shownField?.fieldId} round=${pub?.round}
-        previous=${previousDamage} players=${players} myId=${myId}
-        getStats=${() => cc ? previousDamage ? battleRunner?.previousDamageStats() : battleRunner?.damageStats(shownField?.fieldId) : damageRef.current} />` : null}
 
       ${showDeadPill(alive, phase) ? (spectator
         ? html`<div class="gm__dead gm__dead--spectator" role="status"><${GIcon} name="eye" />${t('观战中 · 点击左侧成员头像切换查看')}</div>`

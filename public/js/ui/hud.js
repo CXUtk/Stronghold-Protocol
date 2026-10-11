@@ -349,7 +349,8 @@ export function PauseButton({ paused, busy = false, onToggle }) {
  *   pen?:boolean, penAvail?:boolean, onPen?:(on:boolean)=>void, config?: any, frozenAt?: number|null,
  *   pause?: { show: boolean, paused: boolean, busy?: boolean, onToggle: () => void } | null,
  *   live?: { pending: number, unite: boolean, left?: number|null } | null,
- *   spectators?: any[]|null, myId?: any, isHost?: boolean, onRemoveSpectator?: ((playerId: any) => any)|null }} props
+ *   spectators?: any[]|null, myId?: any, isHost?: boolean, onRemoveSpectator?: ((playerId: any) => any)|null,
+ *   rightExtra?: any }} props
  *   spectators: the room's spectator seats (room.state) — the 观战席 capsule beside the latency (SpectatorPill; the host removes)
  *   frozenAt: the server time every clock shows while the solo match is paused (null = live)
  *   live: the own battle's pending LP loss (liveLp): the tower shows lp − pending in red with a −N tick, 联防中 during 联防;
@@ -357,7 +358,7 @@ export function PauseButton({ paused, busy = false, onToggle }) {
  */
 export function TopBar({ pub, priv, conn, hud, total, drawer, onExit, onDrawer, onReady, readyBusy, readyCount, playerCount, pen = false, penAvail = false, onPen = () => {},
   config = null, frozenAt = null, pause = null, live = null, spectator = false,
-  spectators = null, myId = null, isHost = false, onRemoveSpectator = null }) {
+  spectators = null, myId = null, isHost = false, onRemoveSpectator = null, rightExtra = null }) {
   const phase = pub?.phase;
   const boss = isBossPhase(phase);
   const lp = boss && Number.isFinite(pub?.teamLp) ? pub.teamLp : Number.isFinite(priv?.lp) ? priv.lp : null;
@@ -418,6 +419,7 @@ export function TopBar({ pub, priv, conn, hud, total, drawer, onExit, onDrawer, 
       </div>
       <${OvertimeWarning} ot=${ot} />
       ${showReady ? html`<${ReadyToggle} priv=${priv} onToggle=${onReady} busy=${readyBusy} readyCount=${readyCount} total=${playerCount} />` : null}
+      ${rightExtra}
     </div>
   </header>`;
 }
