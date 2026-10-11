@@ -1,12 +1,13 @@
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import { POLICIES, runSupportPolicy, policyMetrics } from './botbench/support-policy.mjs';
 import { SUPPORT_MAPS } from './botbench/support-runner.mjs';
 import { hashTree } from './botbench-support.mjs';
+import { registerExperiment, saveSourceSnapshot } from './botbench/experiment-store.mjs';
 
 if (!isMainThread && workerData?.policySearch) {
   parentPort.on('message', ({ index, task }) => {
@@ -35,7 +36,7 @@ export function aggregatePolicies(results) {
 export async function main(argv) {
   const opt = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!['--seed', '--seeds', '--policies', '--maps', '--jobs', '--out', '--label'].includes(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option ${argv[i]}`);
+    if (!['--seed', '--seeds', '--policies', '--maps', '--jobs', '--out', '--label', '--atlas'].includes(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option ${argv[i]}`);
     opt[argv[i].slice(2)] = argv[i + 1];
   }
   const seed = Number(opt.seed || 11), count = Number(opt.seeds || 8), jobs = Number(opt.jobs || 8);
@@ -47,16 +48,26 @@ export async function main(argv) {
   const tasks = [];
   for (let s = seed; s < seed + count; s++) for (const band of ['band_amiya', 'band_ioleta']) for (const stageId of maps || [SUPPORT_MAPS[(s - 1) % SUPPORT_MAPS.length]]) {
     tasks.push({ policies, config: { seed: s, humans: 2, band, rounds: 11, stageId,
-      leakCount: 1 + (s - 1) % 3, sourceMode: Math.floor((s - 1) / 3) % 2 ? 'all' : 'single' } });
+      leakCount: 1 + (s - 1) % 3, sourceMode: Math.floor((s - 1) / 3) % 2 ? 'all' : 'single', atlasPath: opt.atlas ? resolve(opt.atlas) : null } });
   }
   const root = fileURLToPath(new URL('../', import.meta.url));
   const git = (...args) => execFileSync('git', ['-c', `safe.directory=${root.replaceAll('\\', '/')}`, '-C', root, ...args], { encoding: 'utf8' }).trim();
   const manifest = { schemaVersion: 2, fixedHumanFixtures: true, seed, count, jobs, policies, maps: maps || 'balanced', label: opt.label || 'development',
     gitHead: git('rev-parse', 'HEAD'), gitStatus: git('status', '--short'),
     sourceHash: hashTree(root, ['server', 'shared', 'tools/botbench', 'tools/botbench-policy-search.mjs']),
-    dataHash: hashTree(root, ['data']), node: process.version, createdAt: new Date().toISOString() };
+    dataHash: hashTree(root, ['data']), atlasHash: opt.atlas ? hashTree(dirname(resolve(opt.atlas)), [resolve(opt.atlas)]) : null,
+    node: process.version, createdAt: new Date().toISOString() };
   const prefix = resolve(opt.out);
   mkdirSync(dirname(prefix), { recursive: true });
+  if (['.json', '.jsonl', '.source.json'].some((ext) => existsSync(prefix + ext))) throw new Error('Output already exists; use a new experiment name');
+  if (policies.some((p) => POLICIES[p].build)) {
+    if (!opt.atlas) throw new Error('Build policies require --atlas');
+    const atlas = JSON.parse(readFileSync(resolve(opt.atlas), 'utf8'));
+    if (atlas.manifest?.dataHash !== manifest.dataHash) throw new Error('Atlas data version differs; regenerate capabilities');
+    if (policies.some((p) => ['sustain', 'resilient'].includes(POLICIES[p].build)) && !atlas.mapMedics) throw new Error('Policy requires map-medic probes');
+  }
+  manifest.sourceSnapshot = basename(prefix + '.source.json');
+  saveSourceSnapshot(root, prefix + '.source.json', manifest);
   writeFileSync(`${prefix}.jsonl`, JSON.stringify({ manifest }) + '\n', { flag: 'wx' });
   const total = tasks.length * policies.length;
   const results = new Array(total), workers = [];
@@ -87,6 +98,7 @@ export async function main(argv) {
   manifest.elapsedMs = performance.now() - started;
   const summary = aggregatePolicies(results);
   writeFileSync(`${prefix}.json`, JSON.stringify({ manifest, summary, results }));
+  registerExperiment(`${prefix}.json`);
   console.log(JSON.stringify({ elapsedMs: manifest.elapsedMs, summary }));
 }
 if (isMainThread && process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main(process.argv.slice(2));

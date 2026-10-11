@@ -1,6 +1,10 @@
 // Offline policy experiments: keep the real shops, prices, stock, actions, economy and combat rules.
 // Limiting upgrades is a bot's decision to skip an action, never a change to the game-wide level limit.
 import { runSupportMatch } from './support-runner.mjs';
+import { readFileSync } from 'node:fs';
+import { buildContext, combatValue } from '../../server/match/bot-build.js';
+import { fieldModel } from '../../server/match/bot.js';
+const atlases = new Map();
 
 export const POLICIES = Object.freeze({
   baseline: { rehearsal: 3 },
@@ -19,15 +23,60 @@ export const POLICIES = Object.freeze({
   'paired-fallback': { rehearsal: 3, partnerBand: 'other-anchor' },
   'team-medic': { rehearsal: 3, partnerBand: 'band_amedic' },
   'team-medic-core': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor' },
+  'medical-buy': { rehearsal: 3, medical: 'buy' },
+  'medical-buy-keep': { rehearsal: 3, medical: 'buy-keep' },
+  'medical-lineup': { rehearsal: 3, medical: 'lineup' },
+  'medical-complete': { rehearsal: 3, medical: 'complete' },
+  'medical-strong': { rehearsal: 3, medical: 'complete-strong' },
+  'medical-small': { rehearsal: 3, medical: 'lineup-small' },
+  'medical-medium': { rehearsal: 3, medical: 'lineup-medium' },
+  'medical-late': { rehearsal: 3, medical: 'lineup-late' },
+  'build-output': { rehearsal: 3, build: 'output' },
+  'build-matchup': { rehearsal: 3, build: 'matchup' },
+  'build-conservative': { rehearsal: 3, build: 'conservative' },
+  'build-team-core': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'matchup' },
+  'build-team-tanks': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'tanks' },
+  'build-team-sustain': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'sustain' },
+  'build-team-resilient': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'resilient' },
 });
 
 export function runSupportPolicy(config, policyId = 'baseline') {
   const policy = POLICIES[policyId];
   if (!policy || config.humans !== 2) throw new Error('Unknown policy or non-2H2AI configuration');
   const skipped = [], preparation = [], rehearsalLayers = [];
+  const economy = new Map();
   const partnerBand = policy.partnerBand === 'other-anchor' ? (config.band === 'band_amiya' ? 'band_ioleta' : 'band_amiya') : policy.partnerBand;
   const result = runSupportMatch({ ...config, rehearsal: policy.rehearsal, partnerBand }, {
     configure(m, rec) {
+      m.botMedicalPolicy = policy.medical || '';
+      m.botBuildPolicy = policy.build || '';
+      if (policy.build) {
+        if (!config.atlasPath) throw new Error('Build policy requires --atlas');
+        if (!atlases.has(config.atlasPath)) atlases.set(config.atlasPath, JSON.parse(readFileSync(config.atlasPath, 'utf8')));
+        m.botCombatAtlas = atlases.get(config.atlasPath);
+      }
+      for (const p of m.order.filter((p) => p.isBot)) {
+        const healer = (id) => { const c = p.gd.chess(id); return c?.attackKind === 'heal' || c?.dmgType === 'heal'; };
+        const counts = () => {
+          const key = `${m.round}:${p.playerId}`;
+          if (!economy.has(key)) economy.set(key, { medicalBought: 0, medicalSold: 0, affordableMedicalPassed: 0 });
+          return economy.get(key);
+        };
+        const buy = p.buy.bind(p), sell = p.sell.bind(p), refresh = p.refresh.bind(p);
+        p.buy = (slot) => {
+          const s = p.shop.slots[slot], isHeal = s?.kind === 'chess' && healer(s.id);
+          const r = buy(slot); if (r.ok && isHeal) counts().medicalBought++; return r;
+        };
+        p.sell = (uid) => {
+          const owned = p.allChess().find((x) => x.uid === uid), isHeal = owned && healer(owned.id);
+          const r = sell(uid); if (r.ok && isHeal) counts().medicalSold++; return r;
+        };
+        p.refresh = (...args) => {
+          const passed = !p.allChess().some((u) => healer(u.id))
+            && p.shop.slots.some((s) => s && !s.sold && s.kind === 'chess' && healer(s.id) && p.priceOf(s) <= p.funds);
+          const r = refresh(...args); if (r.ok && passed) counts().affordableMedicalPassed++; return r;
+        };
+      }
       if (policy.rehearsalLayers) {
         const original = m.newBattle.bind(m);
         m.newBattle = (opts) => {
@@ -65,6 +114,20 @@ export function runSupportPolicy(config, policyId = 'baseline') {
       preparation.push({ round: m.round, players: m.order.filter((p) => p.isBot && p.alive).map((p) => ({
         pid: p.playerId, level: p.shop.level, funds: p.funds, stats: structuredClone(p.stats),
         layers: { ...p.layers }, bonds: structuredClone(p.bonds),
+        ...(policy.build ? { build: (() => {
+          const ctx = buildContext(m, p, fieldModel(m, p));
+          return { reflection: ctx?.reflection, dot: ctx?.dot, infection: ctx?.infection,
+            units: [...p.board.values()].filter((u) => u.kind === 'chess').map((u) => {
+              const v = combatValue(ctx, p.gd.chess(u.id));
+              return { id: u.id, dps: v?.dps, hps: v?.hps, silence: v?.silence, shred: v?.shred };
+            }) };
+        })() } : {}),
+        medical: {
+          ...economy.get(`${m.round}:${p.playerId}`),
+          owned: p.allChess().filter((u) => { const c = p.gd.chess(u.id); return c?.attackKind === 'heal' || c?.dmgType === 'heal'; }).length,
+          deployed: [...p.board.values()].filter((u) => u.kind === 'chess' && (p.gd.chess(u.id)?.attackKind === 'heal' || p.gd.chess(u.id)?.dmgType === 'heal')).length,
+          mapMedic: m.order.some((mate) => mate.alive && mate.bandId === 'band_amedic'),
+        },
         board: [...p.board].map(([tile, u]) => ({ tile, uid: u.uid, id: u.id, kind: u.kind, dir: u.dir, golden: p.gd.isGolden(u.id) })),
       })) });
     },

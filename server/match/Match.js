@@ -178,6 +178,7 @@ import { DataSource } from '../sim/simdata.js';
 import { createRng, deriveSeed } from '../sim/rng.js';
 import { GameData } from './gamedata.js';
 import { SUPPORT_POLICIES } from './bot-support.js';
+import { MEDICAL_POLICIES } from './bot-medical.js';
 import { RealScheduler } from './scheduler.js';
 import { SharedPool, SharedItemPool, drawDisabledBonds } from './pool.js';
 import { PlayerState } from './PlayerState.js';
@@ -261,6 +262,9 @@ export class Match {
     /** opt-in 2H2AI ABYSS support experiment; empty by default */
     this.botSupportPolicy = opts.botSupportPolicy ?? env('SP_BOT_SUPPORT_POLICY') ?? '';
     if (!SUPPORT_POLICIES.includes(this.botSupportPolicy)) throw new Error('Unknown bot support policy');
+    /** separate opt-in buying / lineup experiment; no draft or shop-level change */
+    this.botMedicalPolicy = opts.botMedicalPolicy ?? '';
+    if (!Object.hasOwn(MEDICAL_POLICIES, this.botMedicalPolicy)) throw new Error('Unknown bot medical policy');
     /** wall-clock budget of one rehearsal slice (scheduleBotPrep) */
     this.botSliceMs = Number.isFinite(opts.botSliceMs) && opts.botSliceMs > 0 ? opts.botSliceMs : this.sched.virtual ? Infinity : BOT_SLICE_MS;
     this.ds = dataSourceFor(this.data);

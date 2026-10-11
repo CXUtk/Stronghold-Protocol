@@ -85,6 +85,8 @@ import { rotateOffset, normDir, mirrorDir, oppositeDir } from '../sim/dir.js';
 import { itemKey } from './gamedata.js';
 import { computeBonds } from './bondsMeta.js';
 import { supportDraftBand, supportLevelCap, supportRehearsals } from './bot-support.js';
+import { medicalPolicy } from './bot-medical.js';
+import { buildContext, buildUnitBonus, buildLineupBonus, buildItemBonus, combatValue } from './bot-build.js';
 import { withBounties, isFlyKey } from './waves.js';
 import { mitigate } from '../sim/damage.js';
 import { HOVER_KEYS } from '../sim/content/enemies.js';
@@ -493,6 +495,7 @@ function unitBase(m, piece, ctx) {
   if (c.attackKind === 'none' && !isHealer(c)) v -= 6;
   if (ctx.fly > 0 && hitsFly(c)) v += 2;
   if (ctx.model && !isHealer(c)) v += ARMOR_WEIGHT * (armorFit(ctx.model, c) - 0.6);
+  v += buildUnitBonus(ctx.build, c);
   return v;
 }
 
@@ -535,6 +538,9 @@ function lineupScore(m, ps, set, ctx) {
   v -= Math.max(0, Math.min(2, ctx.roles.blockers) - blockers) * 15;
   if (ctx.fly > 0 && ctx.roles.antiAir > 0 && air === 0) v -= 12;
   v -= Math.max(0, healers - 2) * 10;
+  // A once-per-lineup soft value: it can admit the FIRST medic through lineupGain's full-board purchase gate.
+  if (healers > 0) v += ctx.medical?.lineup || 0;
+  v += buildLineupBonus(ctx.build, set.map((p) => chessRec(m, p.id, ps)));
   return v;
 }
 
@@ -602,6 +608,8 @@ function buyScore(m, ps, id, ctx) {
   if (isBlocker(c) && ctx.roles.blockers < 2) s += 10;
   if (hitsFly(c) && ctx.fly > 0 && ctx.roles.antiAir < 2) s += 8;
   if (isHealer(c)) s += ctx.roles.healers === 0 && m.round >= 3 ? 6 : ctx.roles.healers >= 2 ? -14 : -3;
+  if (isHealer(c) && ctx.roles.healers === 0) s += ctx.medical?.buy || 0;
+  s += buildUnitBonus(ctx.build, c) * 0.6;
   if (c.attackKind === 'none' && !isHealer(c)) s -= 4;
   if (ctx.model && !isHealer(c)) s += ARMOR_WEIGHT * 0.6 * (armorFit(ctx.model, c) - 0.6);
   // the player's own 自选 piece (a slotted slot: its composed record carries diyFor) — AI 托管 of a human with picks
@@ -1199,7 +1207,7 @@ function context(m, ps) {
   const copies = copyCounts(m, ps);
   let pairs = 0;
   for (const [b, k] of copies) if (k + 1 >= mergeNeed(m, b)) pairs++;
-  return { ps, owned, focus: plan.focus, second: plan.second, keep: keeperBases(m, ps, plan), copies, pairs, roles: roles(m, ps), fly: model.flyTotal, model };
+  return { ps, owned, focus: plan.focus, second: plan.second, keep: keeperBases(m, ps, plan), copies, pairs, roles: roles(m, ps), fly: model.flyTotal, model, medical: medicalPolicy(m, ps), build: buildContext(m, ps, model) };
 }
 
 /** Normal copies owned per base (board, hand, temp). */
@@ -1249,6 +1257,7 @@ function sellWeakestHand(m, ps, { keepPairs = true, below = Infinity, handOnly =
   let worstV = Infinity;
   for (const p of handOnly ? ps.hand : [...ps.temp, ...ps.hand]) {
     if (!p || p.kind !== 'chess' || (p.items || []).some((it) => isMutationCell(m.gd, it.id))) continue;
+    if (keepLastMedic(m, ps, p, ctx)) continue;
     const base = m.gd.baseIdOf(p.id);
     if (keepPairs && !m.gd.isGolden(p.id) && (ctx.copies.get(base) || 0) >= 2) continue;
     if (keepFresh && (p.boughtRound === m.round || unseen(ps, p))) continue;
@@ -1269,6 +1278,11 @@ function rememberOwned(ps) {
   ps._botSeenUids = new Set(ps.allChess().map((p) => p.uid));
 }
 const unseen = (ps, p) => !!ps._botSeenUids && !ps._botSeenUids.has(p.uid);
+
+function keepLastMedic(m, ps, piece, ctx) {
+  return !!ctx.medical?.keep && isHealer(chessRec(m, piece.id, ps))
+    && ps.allChess().filter((p) => isHealer(chessRec(m, p.id, ps))).length === 1;
+}
 
 /** Lineup gain of one copy of chess `id` (full board): best single swap into the current best lineup `cur`. */
 function lineupGain(m, ps, id, ctx, cur) {
@@ -1303,8 +1317,8 @@ function sellJunk(m, ps) {
   }
   // bench budget: at most BENCH_BUDGET spare units beyond the lineup (pairs first)
   const all = keep.concat(junk).sort((a, b) => b.v - a.v);
-  for (const { p } of all.slice(BENCH_BUDGET)) tryDo(() => ps.sell(p.uid));
-  for (const { p } of junk.slice(0, 4)) if (m.round >= 5 && ps.find(p.uid)) tryDo(() => ps.sell(p.uid));
+  for (const { p } of all.slice(BENCH_BUDGET)) if (!keepLastMedic(m, ps, p, ctx)) tryDo(() => ps.sell(p.uid));
+  for (const { p } of junk.slice(0, 4)) if (m.round >= 5 && ps.find(p.uid) && !keepLastMedic(m, ps, p, ctx)) tryDo(() => ps.sell(p.uid));
 }
 
 /** Take the queued pick-one offers (merge rewards, special refreshes — free; they expire at prep end). */
@@ -1529,6 +1543,7 @@ function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0 } = {}) {
         const carriers = [...ps.board.values()].filter((p) => p.kind === 'chess' && (p.items || []).length < gd.equipPerChess).length;
         if (!carriers) return;
         sc = 6 + (gd.tierOf(s.id) || 1) * 3 - price + (ps.completesItemMerge(s.id) ? 10 : 0);
+        sc += buildItemBonus(ctx.build, gd.item(s.id), [...ps.hand, ...ps.temp, ...[...ps.board.values()].flatMap((u) => u.items || [])].filter(Boolean).map((u) => gd.item(u.id)));
       }
       if (sc > bestS) { bestS = sc; best = i; bestMerges = s.kind === 'chess' && ps.completesChessMerge(s.id); }
     });
@@ -1814,6 +1829,14 @@ export function itemTarget(m, ps, item, ctx = context(m, ps)) {
   }
   // damage dealers carry equipment first (healers / non-attackers last); survival items on blockers first
   const dealer = (p) => { const c = chessRec(m, p.id, ps); return c && !isHealer(c) && c.attackKind !== 'none'; };
+  if (ctx.build?.policy.team && rec.params?.silence > 0) {
+    const candidates = list.filter((p) => free(p) && dealer(p));
+    // A frequent attacker spreads reliable silence; already-silencing carriers waste this utility.
+    const uptime = (p) => { const c = chessRec(m, p.id, ps), v = combatValue(ctx.build, c);
+      return (1 - (v?.silence || 0)) * Math.min(1, rec.params.silence / Math.max(0.2, c.stats.bat)) + (c.canHitFly ? 0.1 : 0); };
+    candidates.sort((a, b) => uptime(b) - uptime(a) || a.uid - b.uid);
+    if (candidates.length) return candidates[0];
+  }
   const blocker = (p) => isBlocker(chessRec(m, p.id, ps));
   const order = rec.category === 'SURVIVAL'
     ? [...list.filter(blocker), ...list.filter((p) => !blocker(p) && dealer(p)), ...list.filter((p) => !blocker(p) && !dealer(p))]

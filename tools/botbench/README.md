@@ -184,3 +184,56 @@ disables rehearsal. From round 12 its economy/rehearsal restrictions cease, but 
 obviously persist. No effectiveness beyond round 11 is claimed. Offline `nativePolicy` allows the ordinary AI path
 to be checked against the experimental intervention; the benchmark explicitly disables the environment's policy
 unless `nativePolicy` is provided. No new or existing local/remote server is automatically restarted by these tools.
+
+### Capability-driven build experiments
+
+`combat-atlas.mjs OUTPUT_PREFIX` measures ordinary and elite operator records with real kits/default skills against
+eight synthetic target profiles, using two fixed probe seeds. It retains first-20-second and 60-second DPS,
+saturated HPS, physical hit strength, silence uptime and observed DEF/RES reductions. Raw per-probe JSONL is preserved.
+These are stationary-target capabilities, not match win rates: no bonds/layers, route coverage or economy are present;
+on-hurt skills and manually deployed summons are underestimated. The recorded damage includes 卫戍协议特质, including
+weakness damage. Normal and elite entries must not be ranked by equal acquisition cost.
+
+```sh
+node tools/botbench/combat-atlas.mjs /path/to/output/atlas
+node tools/botbench-policy-search.mjs --seed 11 --seeds 20 --policies baseline,team-medic-core,build-output,build-matchup,build-conservative,build-team-core --jobs 8 --atlas /path/to/output/atlas.json --out /path/to/output/build-development
+```
+
+`build-output` adds measured damage fit to purchases, bench values and lineup admission. `build-matchup` also values
+usable healing under estimated incoming damage, debuff benefits to other damage dealers, and a silence item/carrier
+against 折射. It mixes the current preview with 20% of the publicly known faction pools; it never reads hidden future
+wave picks. `build-conservative` halves those heuristic weights. `build-team-core` combines matchup scoring with the
+existing Touch/core policy. No build policy is enabled by default: the offline caller injects `botBuildPolicy` and
+`botCombatAtlas`; no new server environment setting is exposed. The atlas file hash is retained in each batch.
+Interpolation, healing coverage (65%), debuff coverage and crowd weights are experimental estimates, not official
+mechanics or learned probabilities. The original bond/merge/layer/economy scores remain active. DEF extrapolation
+is clamped at 1400; special hit-count defenses, summon placement and accumulated bond power need separate probes.
+Only full matches can validate whether a candidate actually helps cooperative defense.
+
+The second iteration retains `build-team-tanks` (no extra low-DPS penalty for defensive melee units),
+`build-team-sustain` (map-medic capacity and the two-elite Touch upgrade threshold), and `build-team-resilient` (both).
+`node tools/botbench/map-medic-probe.mjs INPUT_ATLAS OUTPUT_ATLAS` extends the atlas using real map-character kits.
+These are separate candidates: adding two individually plausible rules need not improve their combined result.
+The CLI rejects an atlas generated from different game data or one missing the map-medic measurements a policy needs.
+
+Medical-only ablations (`medical-buy`, `medical-buy-keep`, `medical-lineup`, `medical-complete`, `medical-strong`,
+`medical-small`, `medical-medium`, `medical-late`) remain available as rejected development comparisons. A healer
+buy bonus alone may not pass the full-board lineup-gain gate. They use the explicit `Match.botMedicalPolicy` option,
+default empty, and only run in rounds 3–11 of 2H2AI ABYSS without a living Touch teammate. Diagnostics retain affordable
+healers passed, purchased/sold, owned/deployed counts; those proxies cannot substitute for actual human LP outcomes.
+
+### Persistent experiment index
+
+Completed policy batches automatically append to `ai-experiment-index.jsonl` beside the output. Import older runs
+with `node tools/botbench/experiment-store.mjs RESULT.json [RESULT.json ...]`. Content hashes make re-registration
+idempotent; original JSON and JSONL are not rewritten. The index stores parameters, baseline cases, seeds, maps,
+code/data/atlas fingerprints, totals and paths. Incomplete runs retain their journal but are not marked completed.
+Keep rejected candidates as well as winners, and clearly label development, unseen validation and timing repeats.
+Before simulation, the CLI also writes a non-overwriting `.source.json` with the source files, base Git revision and
+data fingerprint, so an interrupted run still retains its research code. Aggregates list their component batches;
+do not add aggregate counts to their components as if they were additional simulated matches.
+
+Use `comparisonCompatibility(a, b)` before comparing totals across batches: data, cases, fixed incoming human leaks
+and complete baseline results must agree. Different seeds are not a paired comparison. Every new development and
+validation batch should include `baseline` and the current best policy, not just a favorable comparison to an old
+baseline. Archive the matching source revision and atlas alongside the raw results for future reproduction.

@@ -290,6 +290,11 @@ rounds: the player's boss-field template (`Match.bossWaves`) is mapped onto the 
 of a pair mirrored, only the routes that end on its half) and the leader counts as 10 tough enemies with a 30 s dwell
 on its first tiles, so the damage dealers reach stationary leaders.
 **Experimental cooperative support:** `opts.botSupportPolicy` / `SP_BOT_SUPPORT_POLICY` is empty by default.
+Offline build experiments can additionally inject `botBuildPolicy` and `botCombatAtlas` to use real-kit capability
+measurements in buy/bench/lineup/item scoring; `opts.botMedicalPolicy` is a separate, default-empty medical ablation.
+Both are restricted to actual 2H2AI ABYSS through round 11 (medical starts at round 3). They are decision heuristics,
+not game rules, and are not enabled by normal matches. Definitions, limitations and paired validation are in
+[`tools/botbench/README.md`](../tools/botbench/README.md#capability-driven-build-experiments).
 In four-seat ABYSS with exactly two actual AI seats, `team-medic` prefers an available 阿米娅 (otherwise 罗素) + Touch
 pair, falling back to the original picker when the required bands are taken. `team-medic-core` also keeps the anchor
 AI at shop level 3 through round 11 and tries 5 layouts for both AI seats when rehearsal is enabled and the pair was
