@@ -59,6 +59,52 @@ function fakeNet() {
   return n;
 }
 
+test('prep retains a detached Unite damage summary without keeping battles or mixing the next round', async () => {
+  const start = realStart(7314);
+  const r = rig();
+  const firstPlayer = start.spec.players[0];
+  const unite = { ...start, battleId: `${start.battleId}-u`, kind: 'unite', fieldId: 'u',
+    spec: { ...start.spec, kind: 'unite', fieldId: 'u' },
+    roundDamageBase: [{ id: 999, uid: 999, ownerId: firstPlayer.playerId, kind: 'op', defId: 'previous', name: 'previous', dmg: 100,
+      damageTypes: { phys: 60, true: 40 }, bondDamage: { siracusaShip: 40 }, bondDamageTypes: { siracusaShip: { true: 40 } } }] };
+  try {
+    assert.equal(r.runner.previousDamageStats(), null, 'no history in a fresh match');
+    r.store.patch('match', { public: { phase: PHASE.UNITE, round: start.spec.round } });
+    r.net.emit('b.start', unite);
+    await r.settle();
+    r.advance(1000);
+    r.net.emit('b.end', { battleId: unite.battleId, fieldId: unite.fieldId, reason: 'forced' });
+    const ended = r.runner.damageStats('u');
+    const entry = r.runner._entries.get(unite.battleId);
+    const round = start.spec.round + 1;
+    r.store.patch('match', { public: { phase: PHASE.ROUND_START, round } });
+    assert.equal(r.runner._entries.size, 0, 'Battle instances are still released before prep');
+    assert.equal(r.runner.damageStats(), null);
+    const previous = r.runner.previousDamageStats();
+    assert.deepEqual(previous, ended, 'summary exists even when the UI never opened its panel');
+    assert.ok(Object.isFrozen(previous.units[0].damageTypes));
+    const base = previous.units.find((u) => u.uid === 999);
+    assert.equal(base.dmg, 100);
+    assert.deepEqual(base.bondDamageTypes, { siracusaShip: { true: 40 } });
+    entry.battle.players[0].units[0].stats.dmg += 777;
+    assert.deepEqual(r.runner.previousDamageStats(), ended, 'released units cannot change the retained summary');
+    for (const phase of [PHASE.SP_DRAFT, PHASE.PREP]) {
+      r.store.patch('match', { public: { phase, round } });
+      assert.equal(r.runner.previousDamageStats(), previous);
+    }
+    r.store.patch('match', { public: { phase: PHASE.COMBAT, round } });
+    r.net.emit('b.start', { ...start, battleId: `${start.battleId}-next`, spec: { ...start.spec, round } });
+    await r.settle();
+    const live = r.runner.damageStats(start.fieldId);
+    assert.equal(live.round, round);
+    assert.ok(!live.units.some((u) => u.uid === 999), 'the previous Unite baseline is not carried into a new round');
+    r.store.patch('match', { public: { phase: PHASE.PREP, round: round + 1 } });
+    assert.equal(r.runner.previousDamageStats().round, round, 'the new summary replaces the old one');
+    r.store.patch('match', { public: null });
+    assert.equal(r.runner.previousDamageStats(), null, 'leaving resets history even after entries were already dropped');
+  } finally { r.runner.dispose(); }
+});
+
 function rig({ hidden = false } = {}) {
   let t = 1000;
   const frames = [];

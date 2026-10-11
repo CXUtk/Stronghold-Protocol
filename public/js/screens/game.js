@@ -212,6 +212,7 @@ function MatchScreen() {
   const phase = pub?.phase;
   const mode = phaseMode(phase);
   const combat = isCombatPhase(phase);
+  const previousDamage = mode === 'prep';
   const solo = roomSolo || String(pub?.modeId || '').includes('single');
   const players = sortedPlayers(pub);
   const meP = players.find((p) => p.playerId === myId) || null;
@@ -369,6 +370,7 @@ function MatchScreen() {
   // for the tap on a device (gameLogic.deviceTipAt); the renderer's pick skips devices, a tap on one lands in tileClick
   const deviceUnitsRef = useRef(new Map());
   const hudRef = useRef(null);
+  const damageRef = useRef(null); // last selected-field report, retained independently of renderer entry / HUD resets
   // b.ev / b.snap that arrive before the UI entered their field (the battle's first ticks race the m.public /
   // m.field re-render): kept per fieldId and replayed on enter so no unit's 'spawn' UnitInfo is ever lost.
   const evBufRef = useRef(new Map());   // fieldId → ev tuples since that field's m.field
@@ -509,6 +511,7 @@ function MatchScreen() {
         snapUnitsRef.current = new Map(earlySnap.units.filter(Array.isArray).map((t) => [t[0], t]));
       }
       hudRef.current = snapHud(earlySnap);
+      if (earlySnap.damage?.round === pub?.round) damageRef.current = earlySnap.damage;
       setHud(hudRef.current);
     }
   }, [view, showPrep, priv, editable, field, combat, mode, watchingOther, watching, holdSeq]);
@@ -531,6 +534,11 @@ function MatchScreen() {
     const onSnap = (snap) => {
       const cur = shownId();
       if (!snap || typeof snap !== 'object') return;
+      // The final report may arrive while the renderer is still re-entering the field. Keep it even when its visual
+      // frame goes into the buffer; prep releases that view and never replays it. Ignore late frames after combat.
+      const match = store.get().match;
+      if (snap.damage?.round === match.public?.round && snap.fieldId === match.field?.fieldId
+        && (isCombatPhase(match.public?.phase) || match.public?.phase === PHASE.SETTLE)) damageRef.current = snap.damage;
       if (!cur || (snap.fieldId && snap.fieldId !== cur)) {
         if (typeof snap.fieldId === 'string') snapBufRef.current.set(snap.fieldId, snap);
         return;
@@ -1501,8 +1509,9 @@ function MatchScreen() {
         spectating=${!alive} spectator=${spectator} onWatch=${watchField}
         client=${cc ? { progress, observing: observingName ? { name: observingName } : null, onBack: alive ? backHome : null, layers, layer, onLayer: setLayer } : null} />` : null}
 
-      ${combat || mode === 'settle' ? html`<${DamagePanel} key=${pub?.round} fieldId=${shownField?.fieldId} round=${pub?.round}
-        players=${players} myId=${myId} getStats=${() => cc ? battleRunner?.damageStats(shownField?.fieldId) : hudRef.current?.damage} />` : null}
+      ${combat || mode === 'settle' || previousDamage ? html`<${DamagePanel} key=${pub?.round} fieldId=${shownField?.fieldId} round=${pub?.round}
+        previous=${previousDamage} players=${players} myId=${myId}
+        getStats=${() => cc ? previousDamage ? battleRunner?.previousDamageStats() : battleRunner?.damageStats(shownField?.fieldId) : damageRef.current} />` : null}
 
       ${showDeadPill(alive, phase) ? (spectator
         ? html`<div class="gm__dead gm__dead--spectator" role="status"><${GIcon} name="eye" />${t('观战中 · 点击左侧成员头像切换查看')}</div>`

@@ -1,4 +1,5 @@
-// Current-round actual damage (normal battle + Unite). The local runner / streamed snapshot owns the numbers;
+// Actual damage (normal battle + Unite); prep shows the previous round's retained summary.
+// The local runner / streamed snapshot owns the numbers;
 // this panel only projects them, with a 250 ms refresh while open. No event-based damage reconstruction.
 import { useState } from '../../vendor/hooks.module.js';
 import { html, Icon, useTicker } from './components.js';
@@ -54,28 +55,29 @@ function DamageBar({ values, total, scale = 1, scope, fmt }) {
   </div>`;
 }
 
-export function DamagePanel({ fieldId, round, getStats, players = [], myId }) {
+export function DamagePanel({ fieldId, round, previous = false, getStats, players = [], myId }) {
   const [open, setOpen] = useState(false);
   const [owner, setOwner] = useState('');
   useTicker(open ? 250 : 0);
   const report = open && typeof getStats === 'function' ? getStats() : null;
-  const ready = !!report && report.fieldId === fieldId && report.round === round;
+  const ready = !!report && (previous ? Number.isInteger(report.round) && report.round <= round : report.fieldId === fieldId && report.round === round);
   const owners = new Set(ready ? report.units.map((u) => u.ownerId) : []);
   const selected = owners.has(owner) ? owner : '';
   const view = damagePanelView(ready ? report : null, selected);
   const fmt = (n) => new Intl.NumberFormat(langInfo()?.locale || 'zh-CN', { maximumFractionDigits: 0 }).format(n);
   const playerName = (id) => players.find((p) => p.playerId === id)?.name || id;
-  return html`<section class=${`damage-panel${open ? ' is-open' : ''}`} aria-label=${t('本回合伤害')}>
+  const title = previous ? t('上一回合伤害') : t('本回合伤害');
+  return html`<section class=${`damage-panel${open ? ' is-open' : ''}`} aria-label=${title}>
     <button type="button" class="damage-panel__toggle" aria-expanded=${open} aria-controls="round-damage-body"
       onKeyDown=${(e) => { if (e.key === ' ') e.stopPropagation(); }}
-      onClick=${() => setOpen(!open)}><${Icon} name="chart" /><span>${t('本回合伤害')}</span>
+      onClick=${() => setOpen(!open)}><${Icon} name="chart" /><span>${title}</span>
       <${Icon} name=${open ? 'chevronRight' : 'chevronLeft'} /></button>
     ${open ? html`<div id="round-damage-body" class="damage-panel__body">
-      <div class="damage-panel__meta"><span>${t('第 {r} 回合', { r: round })}</span>
-        <span>${ready && report.finished ? t('作战结束') : t('实时')}</span></div>
+      <div class="damage-panel__meta"><span>${previous && !ready ? title : t('第 {r} 回合', { r: ready ? report.round : round })}</span>
+        <span>${ready && (report.finished || previous) ? t('作战结束') : previous ? '' : t('实时')}</span></div>
       <label class="damage-panel__filter"><span>${t('玩家')}</span><select aria-label=${t('伤害统计玩家')}
         value=${selected} onChange=${(e) => setOwner(e.currentTarget.value)}>
-        <option value="">${t('当前战场全员')}</option>
+        <option value="">${previous ? t('该战场全员') : t('当前战场全员')}</option>
         ${[...owners].map((id) => html`<option key=${id} value=${id}>${id === myId ? t('{name}（自己）', { name: playerName(id) }) : playerName(id)}</option>`)}
       </select></label>
       <div class="damage-panel__total"><span>${t('总伤害')}</span><b class="num">${fmt(view.total)}</b></div>
@@ -100,11 +102,11 @@ export function DamagePanel({ fieldId, round, getStats, players = [], myId }) {
           <${DamageBar} values=${u.damageTypes} total=${u.dmg} scale=${u.bar} scope=${u.id} fmt=${fmt} />
         </li>`)}
       </ol>
-      ${!view.rows.length ? html`<p class="damage-panel__empty">${ready ? t('本场没有干员伤害数据') : t('等待战斗数据')}</p>` : null}
+      ${!view.rows.length ? html`<p class="damage-panel__empty">${ready ? t('本场没有干员伤害数据') : previous ? t('暂无上一回合伤害数据') : t('等待战斗数据')}</p>` : null}
       <p class="damage-panel__note">${t('统计实际扣除的敌方生命；召唤物单独列出。')}
         ${t('仅单列盟约直接伤害；属性增益仍计入干员伤害。')}
         ${t('元素损伤积累不计入伤害。')}
-        ${ready && report.kind === 'unite' ? t('含本回合普通作战与联防。') : ''}</p>
+        ${ready && report.kind === 'unite' ? previous ? t('含上一回合普通作战与联防。') : t('含本回合普通作战与联防。') : ''}</p>
     </div>` : null}
   </section>`;
 }

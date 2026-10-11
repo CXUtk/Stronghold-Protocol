@@ -54,6 +54,7 @@
 //                              uniteLeft, bondLayers } | null
 //   battleRunner.stats()  → { ticks, stepMs, avgTickMs, maxFrameMs, catchups, errors, battles }
 //   battleRunner.damageStats(fieldId?) → current-round damage on the shown field (normal + Unite), read-only | null
+//   battleRunner.previousDamageStats() → detached summary of the last shown battle, kept during prep | null
 //   battleRunner.unitStats(unitId, fieldId?) → the live stats of a unit of the battle on screen (shared/protocol.js
 //                           unitStatsEntry: current HP, effective max HP / ATK / DEF / RES / interval / block / move
 //                           speed next to its base; an ally also its live attack range `range` — unit.liveRangeGrid,
@@ -209,6 +210,7 @@ export function createBattleRunner(deps) {
   /** @type {Map<string, any>} battleId → entry of a b.start still being prepared (prepare(); `battle` null until built) */
   const pending = new Map();
   let cur = null;              // entry on screen
+  let previousDamage = null;   // display-only summary; no Battle or unit references survive prep
   let simP = null;
   let startSeq = 0;            // counts the b.starts: the latest one is the view asked for
   let loading = null;          // the pending entry of the latest b.start (shown when prepared)
@@ -778,7 +780,8 @@ export function createBattleRunner(deps) {
   }
 
   /** Drop every battle (a new round's prep, the match ended, the player left). */
-  function clear() {
+  function clear({ keepDamage = false } = {}) {
+    previousDamage = keepDamage ? (cur?.battle ? deepFreeze({ ...battleDamageStats(cur.battle, cur.damageBase), finished: true }) : previousDamage) : null;
     ++startSeq;
     loading = null;
     for (const e of entries.values()) {
@@ -814,7 +817,8 @@ export function createBattleRunner(deps) {
       if (phase === lastPhase) return;
       lastPhase = phase;
       if (!phase || ['PREP', 'ROUND_START', 'SP_DRAFT', 'RESULT', 'LOBBY', 'INFO_CHECK', 'BAND_DRAFT', 'BATTLE_CHECK'].includes(phase)) {
-        if (entries.size || pending.size) clear();
+        const keepDamage = ['PREP', 'ROUND_START', 'SP_DRAFT'].includes(phase);
+        if (entries.size || pending.size || (previousDamage && !keepDamage)) clear({ keepDamage });
       }
       // warm the simulation up as soon as a match runs (the first b.start then starts at once)
       if (phase && phase !== 'LOBBY' && !simP) ensureSim().catch(() => {});
@@ -851,6 +855,8 @@ export function createBattleRunner(deps) {
       if (!e || !e.battle || (fieldId != null && e.fieldId !== fieldId)) return null;
       return battleDamageStats(e.battle, e.damageBase);
     },
+    /** Frozen last-field summary, retained when prep drops the simulation; reset when leaving the match. */
+    previousDamageStats() { return previousDamage; },
     /**
      * Live stats of unit `unitId` of the battle on screen (null: no such battle / unit, or `fieldId` names another
      * field). Reads the sim's last computed stats (`unit._s`, falling back to the base) — never `unit.s`, whose lazy

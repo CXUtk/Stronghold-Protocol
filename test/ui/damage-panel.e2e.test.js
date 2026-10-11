@@ -120,6 +120,54 @@ describe('live round damage panel', { skip: !ENABLED && 'set SP_E2E=1 and CHROME
     } finally { await page.close(); }
   });
 
+  test('prep keeps the last closed-panel report, including Unite/Alliance/types, and combat resets the displayed round', async () => {
+    const page = await browser.newPage();
+    try {
+      const errors = await open(page);
+      await page.click('.damage-panel__toggle');
+      await page.waitForSelector('.damage-panel__body', { hidden: true });
+      await page.evaluate(async () => {
+        const m = globalThis.__MOCK__;
+        m.S().pub.paused = true;
+        const { net } = await import('/js/net.js');
+        const fieldId = m.store.get().match.field.fieldId;
+        net._emit('b.snap', { t: 'b.snap', fieldId, gt: 20, units: [], dp: 10, killed: 1, total: 1,
+          damage: { fieldId, round: 6, kind: 'unite', finished: true, units: [
+            { id: 'p1:op:1', ownerId: 'p1', name: '深靛', kind: 'op', dmg: 120,
+              damageTypes: { phys: 40, arts: 20, true: 30, elemental: 30 },
+              bondDamage: { siracusaShip: 30 }, bondDamageTypes: { siracusaShip: { true: 30 } } },
+          ] } });
+        clearInterval(m.S().battle.timer); // stop the fixture clock without showing the pause overlay
+        m.S().pub.paused = false;
+        m.S().pub.phase = 'SETTLE'; m.pushPublic();
+      });
+      await page.evaluate(() => { const m = globalThis.__MOCK__; m.S().pub.round = 7; m.S().pub.phase = 'ROUND_START'; m.pushPublic(); });
+      await page.waitForFunction(() => document.querySelector('.damage-panel__toggle')?.textContent.includes('上一回合伤害'));
+      await page.evaluate(() => { const m = globalThis.__MOCK__; m.S().pub.phase = 'PREP'; m.pushPublic(); });
+      await page.click('.damage-panel__toggle');
+      await page.waitForFunction(() => document.querySelector('.damage-panel__total b')?.textContent === '120', { timeout: 3000 })
+        .catch(async (err) => { throw new Error(`${err.message}: ${await page.$eval('.damage-panel', (el) => el.textContent)}`); });
+      assert.equal(await page.$eval('.damage-panel__meta span', (el) => el.textContent), '第 6 回合');
+      assert.equal(await page.$eval('.damage-panel__meta span:last-child', (el) => el.textContent), '作战结束');
+      assert.equal(await page.$eval('[data-type-scope="total"] [data-damage-type="elemental"] b', (el) => el.textContent), '30');
+      assert.equal(await page.$eval('[data-damage-bond="siracusaShip"] b', (el) => el.textContent), '30');
+      assert.ok(await page.$eval('.damage-panel__body > .damage-panel__note', (el) => el.textContent.includes('含上一回合普通作战与联防')));
+      await page.select('.damage-panel__filter select', 'p1');
+      assert.equal(await page.$eval('.damage-panel__total b', (el) => el.textContent), '120');
+      await pause(1700);
+      await (await page.$('.damage-panel')).screenshot({ path: `${OUT}/previous-round-damage.png` });
+      await page.evaluate(() => { const m = globalThis.__MOCK__; m.S().pub.phase = 'COMBAT'; m.pushPublic(); });
+      await page.waitForFunction(() => document.querySelector('.damage-panel__toggle')?.textContent.includes('本回合伤害'));
+      await page.waitForFunction(() => document.querySelector('.damage-panel__total b')?.textContent === '0');
+      assert.equal(await page.$('[data-stat-id="p1:op:1"]'), null, 'old round data cannot masquerade as live combat damage');
+      await page.goto(`${srv.url}/dev/game-mock.html?shot=1&render=fallback&phase=PREP`, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('.damage-panel__toggle');
+      await page.click('.damage-panel__toggle');
+      await page.waitForFunction(() => document.querySelector('.damage-panel__empty')?.textContent === '暂无上一回合伤害数据');
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+
   test('desktop and narrow-screen layout: scrolling stays in the panel and text/numbers remain visible', async () => {
     const page = await browser.newPage();
     try {

@@ -45,10 +45,15 @@ reads cumulative actual enemy HP removed at 250 ms intervals, ranks separate ope
 shares/total, with a player filter for the displayed field. Dead/redeploying operators retain their counters;
 summons of one definition are aggregated per player in separate rows. Unite carries the current round's completed
 normal-battle unit statistics, keyed by player + board uid, so the stage transition does not reset damage or mix two
-copies of one operator. Watching another field changes the report; a new round resets it. Client mode reads the
+copies of one operator. Watching another field changes the report; a new combat round resets the live display. Client mode reads the
 runner's Battle directly; legacy server mode appends display-only `damage` to wire snapshots. Reading never computes
 Unit.s, builds a BattleResult, consumes events, or changes gameplay. The panel is a local UI addition, not a rule of
 the official game.
+During ROUND_START, SP_DRAFT and PREP, the same panel is titled "previous round damage" and shows the final summary
+of the last displayed battle, with its actual round number and the same player/Alliance/type breakdown. Before the
+runner drops its Battles it retains one detached, frozen report (including the Unite baseline); legacy server mode
+uses the last displayed snapshot's report. No battle instance is retained. The first prep or a refreshed page has no
+previous report; leaving the match clears history. Old summaries never pass the current-round/field gate in combat.
 The separate Alliance-damage section aggregates direct 坚守, 叙拉古, 卡西米尔 and 炎佑 damage, with the same player
 filter. Operator/summon rows show their included Alliance portion. These are subsets of the displayed total, not
 additional damage; Alliance stat bonuses remain in operator damage. The entire body scrolls on short screens.
