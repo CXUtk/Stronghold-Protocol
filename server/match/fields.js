@@ -35,6 +35,7 @@ import { TICK, SNAPSHOT_EVERY } from '../sim/constants.js';
 import { layerGainRoom } from '../../shared/constants.js';
 import { uniteLeft } from '../sim/spec.js';
 import { diyTokenOwner, diyRecordOf } from '../../shared/diy.js';
+import { battleDamageStats, completedDamageStats } from '../../shared/combatStats.js';
 
 export const MAX_TICKS_PER_INTERVAL = 8;
 export const INTERVAL_MS = 1000 / 30;
@@ -207,7 +208,10 @@ export class FieldRunner {
     const watchers = this.m.watchersOf(f.fieldId);
     if (!watchers.length) return;
     let snapMsg = null;
-    try { snapMsg = snapFrame(f.fieldId, f.battle.snapshot()); } catch (e) { this.m.reportError(`field ${f.fieldId} snapshot`, e); }
+    try {
+      snapMsg = snapFrame(f.fieldId, { ...f.battle.snapshot(), damage: battleDamageStats(f.battle,
+        f.kind === 'unite' ? completedDamageStats(this.m.lastResults, f.players) : []) });
+    } catch (e) { this.m.reportError(`field ${f.fieldId} snapshot`, e); }
     const time = Number(f.battle.time);
     const gt = snapMsg ? snapMsg.gt : Number.isFinite(time) ? time : 0;
     const evMsg = ev.length ? { t: 'b.ev', fieldId: f.fieldId, gt, ev } : null;

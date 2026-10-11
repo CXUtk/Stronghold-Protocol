@@ -358,6 +358,12 @@ test('联防 under client-side combat: helpers\' reported end state (HP%, SP) ca
   assert.deepEqual(carried.carryState, { hpPct: reported.hpPct, sp: reported.sp });
   const got = h.sent.filter(([, x]) => x.t === 'b.start' && x.fieldId === 'u').map(([pid, x]) => `${pid}:${x.authoritative ? 'A' : x.watch ? 'w' : 'r'}`).sort();
   assert.deepEqual(got, ['p_0:w', 'p_1:A', 'p_2:r']);
+  for (const [, start] of h.sent.filter(([, x]) => x.t === 'b.start' && x.fieldId === 'u')) {
+    const base = start.roundDamageBase.find((u) => u.ownerId === 'p_1' && u.uid === unit.uid);
+    assert.equal(base.dmg, m.lastResults.get('p_1').unitStats.find((u) => u.uid === unit.uid).dmg,
+      'authority, teammate and observer receive the same completed normal-battle damage');
+    assert.ok(start.roundDamageBase.every((u) => f.players.includes(u.ownerId)), 'absent leakers are not mixed into helper totals');
+  }
   h.drive(() => m.phase === PHASE.SETTLE);
   assert.ok(f.result && f.resultSource === 'client');
   m.dispose();

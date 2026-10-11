@@ -1212,5 +1212,16 @@
   "{names}只能部署在召唤者相邻四格，已退回整备区": "{names} can only be deployed on the four tiles adjacent to the summoner and returned to the Bench",
   "{names}只能部署在召唤者相邻四格，整备区已满，下回合返还": "{names} can only be deployed on the four tiles adjacent to the summoner; the Bench is full, so they come back next round",
   "装备库存不足，未获得该装备": "Equipment stock is insufficient; no equipment was received",
-  "库存不足": "Out of stock"
+  "库存不足": "Out of stock",
+  "本回合伤害": "Round damage",
+  "玩家": "Player",
+  "伤害统计玩家": "Player damage filter",
+  "当前战场全员": "Everyone on this field",
+  "{name}（自己）": "{name} (you)",
+  "总伤害": "Total damage",
+  "干员伤害排名": "Operator damage ranking",
+  "本场没有干员伤害数据": "No operator damage data on this field",
+  "等待战斗数据": "Waiting for battle data",
+  "统计实际扣除的敌方生命；召唤物单独列出。": "Counts actual enemy HP removed; summons are listed separately.",
+  "含本回合普通作战与联防。": "Includes this round’s normal battle and Unite."
 }

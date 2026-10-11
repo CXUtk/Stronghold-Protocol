@@ -7,6 +7,7 @@
 import { PHASE } from '../../../shared/constants.js';
 import { DeadBattle, syntheticResult, RESULT_GRACE_MS, HARD_CAP_SECONDS, HeadlessJob } from '../fields.js';
 import { buildBattleSpec, createBattleFromSpec } from '../../sim/spec.js';
+import { completedDamageStats } from '../../../shared/combatStats.js';
 
 export class MatchClientCombat {
   /** Stop every client-combat timer and the headless pacer (phase end, finish, dispose). */
@@ -94,6 +95,7 @@ export class MatchClientCombat {
       authoritative: !!(!f.done && !f.verifyJob && f.mode === 'client' && f.authority === pid && !watch),
       startAt: f.startAt, serverNow: this.sched.now(), elapsed: Math.round(this._fieldElapsed(f) * 1000) / 1000,
       speed: this.gameSpeed, watch: !!watch, done: !!f.done,
+      ...(f.kind === 'unite' ? { roundDamageBase: completedDamageStats(this.lastResults, f.players) } : {}),
     };
   }
 
