@@ -38,3 +38,33 @@ test('confidence intervals cluster the two bands from a seed and are reproducibl
   assert.deepEqual(r.meanDelta95CI, [-2, -2]);
   assert.deepEqual(comparePolicies({ results }, 'candidate'), r);
 });
+
+test('wave 11 discount can reverse ranking without changing actual loss or source records', () => {
+  const b = record('baseline', [10, ...Array(9).fill(0), 2]);
+  const c = record('candidate', [7, ...Array(9).fill(0), 6]);
+  const data = { results: [b, c] }, original = structuredClone(data);
+  const unweighted = comparePolicies(data, 'candidate');
+  const r = comparePolicies(data, 'candidate', 'baseline', { roundWeights: { 11: 0.5 } });
+  assert.equal(unweighted.weightedLossBefore, unweighted.lossBefore);
+  assert.deepEqual(unweighted.weightedMeanDelta95CI, unweighted.meanDelta95CI);
+  assert.equal(r.lossBefore, 12);
+  assert.equal(r.lossAfter, 13);
+  assert.equal(r.weightedLossBefore, 11);
+  assert.equal(r.weightedLossAfter, 10);
+  assert.equal(r.worse, 1);
+  assert.equal(r.weightedBetter, 1);
+  assert.deepEqual(r.weightedMeanDelta95CI, [-1, -1]);
+  assert.deepEqual(r.meanDelta95CI, unweighted.meanDelta95CI);
+  assert.deepEqual(r.byRound, unweighted.byRound);
+  assert.deepEqual(data, original);
+});
+
+test('weighted comparisons preserve failure guard and reject invalid objective definitions', () => {
+  const data = { results: [record('baseline', [4]), record('candidate', [1], { allHumansSurvived: false })] };
+  const r = comparePolicies(data, 'candidate', 'baseline', { roundWeights: { 11: 0.5 } });
+  assert.equal(r.failedAfter, 1);
+  assert.equal(r.objective.selection, 'failures-first-then-weighted-loss');
+  for (const roundWeights of [null, [], { 0: 1 }, { 12: 1 }, { 11: -1 }, { 11: NaN }, { 11: Infinity }, { 11: '0.5' }, Object.fromEntries(Array.from({ length: 11 }, (_, i) => [i + 1, 0]))]) {
+    assert.throws(() => comparePolicies(data, 'candidate', 'baseline', { roundWeights }), /Invalid round weights/);
+  }
+});

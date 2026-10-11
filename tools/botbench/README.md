@@ -129,6 +129,15 @@ node tools/botbench/compare-policies.mjs /path/to/output/validation.json anchor3
 node --test test/botbench-support-policy.test.js test/botbench-policy-comparison.test.js
 ```
 
+The comparison command accepts an optional fourth argument for round 11's weight (for example `0.5`);
+rounds 1–10 retain weight 1. Without it all rounds remain equally weighted for historical replay.
+The API also accepts `{ roundWeights: { 11: 0.5 } }` as its fourth argument. Reports keep actual LP,
+per-round totals and the original intervals, and add explicitly named weighted scores and seed-clustered intervals.
+Survival failures take priority over either score. Output files cannot overwrite existing records.
+Freeze the objective before future evaluation; changing weights after inspecting results is post-hoc analysis,
+not new held-out evidence. The batch's original summary still ranks unweighted LP: use the weighted comparison
+report when evaluating a weighted objective.
+
 Run every policy continuously from round 1 through 11, always with 2 human + 2 AI and four-seat ABYSS values.
 Cross each seed with both anchor bands (阿米娅 / 罗素); maps rotate across all seven by seed, or use `--maps all`.
 The other AI drafts normally. Human placeholders never buy or deploy: inject 1–3 controlled leaks from one or both
