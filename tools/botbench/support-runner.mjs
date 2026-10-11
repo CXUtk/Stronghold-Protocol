@@ -29,7 +29,7 @@ function groups(leaks) {
   return out;
 }
 
-export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rounds = 11, rehearsal = 3, stageId, leakCount = 2, sourceMode = 'single', scenario = 'small' } = {}) {
+export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rounds = 11, rehearsal = 3, stageId, leakCount = 2, sourceMode = 'single', scenario = 'small' } = {}, { beforeEndPrep = null, beforeDispose = null, battleSeed = null } = {}) {
   if (!Number.isInteger(humans) || humans < 1 || humans > 3) throw new Error('humans must be 1..3');
   if (!Number.isInteger(rounds) || rounds < 1 || rounds > 11) throw new Error('rounds must be 1..11');
   if (!ANCHOR_BANDS.includes(band)) throw new Error(`Unsupported anchor band: ${band}`);
@@ -56,6 +56,10 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
   };
   const startRound = m.startRound.bind(m);
   m.startRound = (round) => { rec.startedRounds.push(round); return startRound(round); };
+  // Offline branch point, after the original bots finish their prep but BEFORE prep-end effects / funds reset.
+  // Each candidate gets a fresh Match replay; no live match or callback queue is cloned.
+  const endPrep = m.endPrep.bind(m);
+  m.endPrep = () => { if (m.phase === 'PREP') beforeEndPrep?.(m, rec); return endPrep(); };
   const afterCombat = m._afterCombat.bind(m);
   m._afterCombat = () => {
     if (m.phase === 'COMBAT') rec.fixtureInputs.push({ round: m.round, inputs: injectLeaks(m, { seed, leakCount, sourceMode }) });
@@ -65,6 +69,7 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
   const normalInputs = new Map();
   const newBattle = m.newBattle.bind(m);
   m.newBattle = (opts) => {
+    if (battleSeed) opts = { ...opts, seed: battleSeed(opts, m) };
     if (opts.kind === 'normal' && opts.fieldId?.startsWith('n:')) {
       const scheduledGroups = {};
       for (const s of opts.spawns || []) {
@@ -173,5 +178,5 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
       lp: p.lp, alive: p.alive, lpLost: p.stats.lpLost, eliminatedRound: p.eliminatedRound }));
     rec.elapsedMs = performance.now() - t0;
     return rec;
-  } finally { m.dispose(); sched.dispose(); }
+  } finally { try { beforeDispose?.(m, rec); } finally { m.dispose(); sched.dispose(); } }
 }

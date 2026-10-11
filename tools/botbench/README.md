@@ -74,3 +74,47 @@ network delay or browser performance. Stage 2 must measure and budget those sepa
 The manifest records Git HEAD/status, code/data hashes, runtime and fixture version. Keep JSON records for A/B
 comparison. Seeds 1–30 are development baselines, not a held-out test set. This stage neither trains a neural
 network nor changes the AI policy; it makes the next policy change measurable.
+
+## Stage 2: isolated cooperative candidate evaluation
+
+```sh
+node tools/botbench-evaluate-support.mjs --seeds 5,6,7,8,9,10 --rounds 4,7,9,11 --jobs 8 --out /path/to/output/evaluation
+node --test test/botbench-support.test.js test/botbench-support-evaluator.test.js
+```
+
+This tool always uses **2 human + 2 AI, four-seat ABYSS stats**, crossing the specified seeds, anchor bands and
+rounds with 活性源石 / 排气格栅. Each target prep is reconstructed from the match seed in a separate `Match` and virtual
+scheduler. All earlier rounds use the original bot. Branch immediately before prep-end effects, after the bots have
+bought and arranged; do not copy function closures or callback queues. Candidate application uses validated
+`PlayerState.move` / Ready operations. Tokens and their owners stay fixed; inventory, funds and pool are not invented.
+
+The diagnostic checkpoint hashes inventories, shop, bonds/layers/effects, pool, six RNG states, wave, time and timer
+metadata. It is **not** a general save/restore format: effect callbacks and their closures are reconstructed by replay.
+Every candidate must reach the same checkpoint and prefix-results hash. Separate match instances isolate callbacks,
+caches, resources and timers; tests also check game data remains unchanged and evaluation order gives identical results.
+The no-op formal-seed result must equal the ordinary runner's normal → unite → actual settlement result.
+
+Candidates are `baseline` (unchanged), `terrain` (healing / environmental attrition / smog exposure), `balanced`
+(also rewards the weakest material route, weighted by enemy count and HP), `sustain` (tries an already-owned reserve
+medic when none is deployed), and `guarded` (at most four moves, only for existing infection/smog hazards, with an
+estimated route-coverage floor). These are experimental offline proposals, not production rules. They use rough
+attack/healing and range estimates; skills, taunt, item stealth and bond effects are not all represented by the
+heuristic. The actual simulator remains authoritative. Hidden blockers are penalized only when there are exposed
+backliners potentially reachable by ranged enemies; it is not a blanket ban on blocking on smog.
+
+Generate labels on two trial battle seeds (101, 202). Choose by mean human LP loss, eligible AI count, own leaks,
+then carried HP; freeze the choice and validate on unseen trial seed 303. Trial seeds only change target-round normal
+and unite RNG; shopping, prior rounds and bot rehearsal RNG are unchanged. All candidates get the same human-origin
+leak fixture within each trial. The held-out seed cannot affect candidate selection. These are exploratory checkpoint
+comparisons on development match seeds, **not** the plan's final held-out whole-match acceptance test.
+
+JSON/JSONL records preserve the code/data fingerprint, checkpoint checksums, actions/refusals, before/after features,
+helper selection, HP/SP/down carry, layers/gains, human source attribution and real LP charge. Markdown reports held-out
+paired totals and regressions, never just the best training result. A worker error prevents a completed success report.
+All target rounds, including 11, stop after settlement without advancing to round 12.
+
+Full-prefix replay is intentionally a correctness-first offline implementation. Prefix, candidate generation and total
+cost are recorded separately. It does not meet an online decision budget yet and does not install a neural network.
+No reserve medic means layout search cannot solve missing sustain: earlier purchasing / lineup and bond-threshold
+preservation belong to the next economic-candidate step. A single changed checkpoint also cannot demonstrate improved
+continuous development through eleven rounds. Production bot, deployment branches and version history stay unchanged.

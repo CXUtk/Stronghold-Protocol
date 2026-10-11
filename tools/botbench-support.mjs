@@ -42,7 +42,7 @@ export function parseSupportArgs(argv) {
   return config;
 }
 
-function hashTree(root, dirs) {
+export function hashTree(root, dirs) {
   const hash = createHash('sha256');
   const visit = (p) => {
     if (statSync(p).isFile()) { hash.update(relative(root, p).replaceAll('\\', '/')); hash.update('\0'); hash.update(readFileSync(p)); hash.update('\0'); return; }
