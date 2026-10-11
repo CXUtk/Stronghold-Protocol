@@ -35,6 +35,12 @@ import * as bot from '../server/match/bot.js';
 import { VirtualScheduler } from '../server/match/scheduler.js';
 import { getData } from '../server/data.js';
 
+if (isMainThread && process.argv.includes('--support')) {
+  const { runSupportCLI } = await import('./botbench-support.mjs');
+  await runSupportCLI(process.argv.slice(2));
+  process.exit(0);
+}
+
 const argv = isMainThread ? process.argv.slice(2) : workerData.argv;
 const opt = {};
 for (let i = 0; i < argv.length; i++) {
