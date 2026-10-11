@@ -32,13 +32,25 @@ export function damagePanelView(report, ownerId = '') {
     rows: rows.map((u) => ({ ...u, share: total > 0 ? u.dmg / total : 0, bar: rows[0]?.dmg > 0 ? u.dmg / rows[0].dmg : 0 })) };
 }
 
+const damageTypeLabel = (type) => type === 'phys' ? t('物理伤害') : type === 'arts' ? t('法术伤害') : type === 'true' ? t('真实伤害') : t('元素伤害');
+
 function DamageTypes({ values = {}, all = false, scope, fmt }) {
-  const label = (type) => type === 'phys' ? t('物理伤害') : type === 'arts' ? t('法术伤害') : type === 'true' ? t('真实伤害') : t('元素伤害');
   const types = DAMAGE_TYPES.filter((type) => all || values[type] > 0);
   if (!types.length) return null;
   return html`<div class="damage-panel__types" data-type-scope=${scope} aria-label=${t('伤害构成')}>
     ${types.map((type) => html`<div key=${type} class="damage-panel__type" data-damage-type=${type}>
-      <span>${label(type)}</span><b class="num">${fmt(values[type] || 0)}</b></div>`)}
+      <span>${damageTypeLabel(type)}</span><b class="num">${fmt(values[type] || 0)}</b></div>`)}
+  </div>`;
+}
+
+function DamageBar({ values, total, scale = 1, scope, fmt }) {
+  const types = damageTypeStats(values, total);
+  return html`<div class="damage-panel__bar" data-bar-scope=${scope} aria-hidden="true">
+    <div class="damage-panel__bar-fill" style=${{ width: `${total > 0 ? scale * 100 : 0}%` }}>
+      ${DAMAGE_TYPES.filter((type) => types[type] > 0).map((type) => html`<i key=${type}
+        class="damage-panel__segment" data-damage-type=${type} style=${{ width: `${types[type] / total * 100}%` }}
+        title=${`${damageTypeLabel(type)} ${fmt(types[type])} (${(types[type] / total * 100).toFixed(1)}%)`}></i>`)}
+    </div>
   </div>`;
 }
 
@@ -68,12 +80,14 @@ export function DamagePanel({ fieldId, round, getStats, players = [], myId }) {
       </select></label>
       <div class="damage-panel__total"><span>${t('总伤害')}</span><b class="num">${fmt(view.total)}</b></div>
       <${DamageTypes} values=${view.damageTypes} all=${true} scope="total" fmt=${fmt} />
+      <${DamageBar} values=${view.damageTypes} total=${view.total} scope="total" fmt=${fmt} />
       <section class="damage-panel__bonds" aria-label=${t('盟约伤害')}>
         <div class="damage-panel__line"><strong>${t('盟约伤害')}</strong><b class="num">${fmt(view.bondTotal)}</b></div>
         <p class="damage-panel__note">${t('已包含在总伤害中')}</p>
         <ul class="damage-panel__bond-list">${view.bonds.map((b) => html`<li key=${b.id} data-damage-bond=${b.id}>
           <div class="damage-panel__line"><span>${tName(getBond(b.id)?.name || b.id)}</span><b class="num">${fmt(b.dmg)}</b></div>
-          <${DamageTypes} values=${b.damageTypes} scope=${`bond:${b.id}`} fmt=${fmt} /></li>`)}</ul>
+          <${DamageTypes} values=${b.damageTypes} scope=${`bond:${b.id}`} fmt=${fmt} />
+          <${DamageBar} values=${b.damageTypes} total=${b.dmg} scope=${`bond:${b.id}`} fmt=${fmt} /></li>`)}</ul>
       </section>
       <ol class="damage-panel__list" aria-label=${t('干员伤害排名')}>
         ${view.rows.map((u) => html`<li key=${u.id} class="damage-panel__row" data-stat-id=${u.id}>
@@ -83,7 +97,7 @@ export function DamagePanel({ fieldId, round, getStats, players = [], myId }) {
             <span class="num">${(u.share * 100).toFixed(1)}%</span></div>
           ${u.bondTotal > 0 ? html`<div class="damage-panel__caption">${t('其中盟约伤害 {n}', { n: fmt(u.bondTotal) })}</div>` : null}
           <${DamageTypes} values=${u.damageTypes} scope=${u.id} fmt=${fmt} />
-          <div class="damage-panel__bar" aria-hidden="true"><i style=${{ width: `${u.bar * 100}%` }}></i></div>
+          <${DamageBar} values=${u.damageTypes} total=${u.dmg} scale=${u.bar} scope=${u.id} fmt=${fmt} />
         </li>`)}
       </ol>
       ${!view.rows.length ? html`<p class="damage-panel__empty">${ready ? t('本场没有干员伤害数据') : t('等待战斗数据')}</p>` : null}

@@ -55,6 +55,9 @@ additional damage; Alliance stat bonuses remain in operator damage. The entire b
 The total, operator and Alliance entries break actual HP damage down into physical, Arts, true and elemental types,
 with text labels as well as distinct colors. Elemental buildup is excluded. Unknown types in older reports are not
 guessed; classified values are rounded together without creating or losing damage between the four types.
+Stacked bars use the same gray-white (physical), blue (Arts), gold (true) and purple (elemental) colors as the labels;
+each segment's hover text gives its value and share of that entry. Total/Alliance bars fill their width, while operator
+bar lengths compare damage to the highest row in the current filter. Unclassified legacy damage stays dark gray.
 
 Look & feel: research 06 §11–§12 (near-black green-grey panels, mint `#4ed8af` accents, gold prices, bracket frames, hexagon badges, bond discs, 7-segment countdown). Fonts: Noto Sans SC (Google Fonts with local fallback), Bender/Novecento self-hosted for numerals and Latin micro-labels.
 

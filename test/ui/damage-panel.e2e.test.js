@@ -75,6 +75,23 @@ describe('live round damage panel', { skip: !ENABLED && 'set SP_E2E=1 and CHROME
       for (const [type, n] of Object.entries({ phys: 130, arts: 40, true: 220, elemental: 10 })) {
         assert.equal(await page.$eval(`[data-type-scope="total"] [data-damage-type="${type}"] b`, (el) => Number(el.textContent)), n);
       }
+      const bars = await page.$$eval('.damage-panel__bar', (els) => Object.fromEntries(els.map((el) => [el.dataset.barScope, {
+        width: parseFloat(el.querySelector('.damage-panel__bar-fill').style.width),
+        segments: [...el.querySelectorAll('.damage-panel__segment')].map((s) => ({ type: s.dataset.damageType,
+          width: parseFloat(s.style.width), color: getComputedStyle(s).backgroundColor, title: s.title })),
+      }])));
+      assert.deepEqual(bars.total.segments.map((s) => [s.type, s.width]), [['phys', 32.5], ['arts', 10], ['true', 55], ['elemental', 2.5]]);
+      assert.equal(new Set(bars.total.segments.map((s) => s.color)).size, 4, 'four distinct segment colors');
+      for (const s of bars.total.segments) {
+        const labelColor = await page.$eval(`[data-type-scope="total"] [data-damage-type="${s.type}"] span`, (el) => getComputedStyle(el).color);
+        assert.equal(s.color, labelColor, 'segments match the labeled color key');
+      }
+      assert.ok(Math.abs(bars['p1:op:1'].width - 100 / 3) < 0.001, 'operator bar still compares damage to the highest row');
+      assert.deepEqual(bars['p1:op:1'].segments.map((s) => s.width), [30, 40, 20, 10]);
+      assert.equal(bars['p1:op:1'].segments[0].title, '物理伤害 30 (30.0%)');
+      assert.deepEqual(bars['bond:siracusaShip'].segments.map((s) => [s.type, s.width]), [['true', 100]]);
+      assert.equal(bars['p1:op:2'].width, 0, 'zero damage has no filled bar');
+      assert.deepEqual(bars['p1:op:2'].segments, []);
       assert.equal(await page.$eval('[data-type-scope="bond:steadShip"] [data-damage-type="arts"] b', (el) => el.textContent), '40');
       assert.equal(await page.$eval('[data-type-scope="bond:siracusaShip"] [data-damage-type="true"] b', (el) => el.textContent), '200');
       assert.equal(await page.$eval('.damage-panel__bonds > .damage-panel__line b', (el) => el.textContent), '240');
@@ -93,6 +110,7 @@ describe('live round damage panel', { skip: !ENABLED && 'set SP_E2E=1 and CHROME
       assert.ok(await page.$eval('[data-stat-id="p1:op:1"]', (el) => el.textContent.includes('其中盟约伤害 40')));
       assert.equal(await page.$$eval('.damage-panel__row', (els) => els.length), 2);
       assert.equal(await page.$eval('.damage-panel__row .damage-panel__caption span:last-child', (el) => el.textContent), '100.0%');
+      assert.equal(await page.$eval('[data-bar-scope="p1:op:1"] .damage-panel__bar-fill', (el) => el.style.width), '100%', 'filter rescales operator bar');
       await page.evaluate(() => globalThis.__MOCK__.setPhase('UNITE'));
       await page.waitForFunction(() => !document.querySelector('[data-stat-id="p1:op:1"]'));
       await page.waitForFunction(() => document.querySelector('.damage-panel__body > .damage-panel__note')?.textContent.includes('含本回合普通作战与联防'));
