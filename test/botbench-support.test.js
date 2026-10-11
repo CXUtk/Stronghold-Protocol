@@ -5,6 +5,7 @@ import { parseSupportArgs } from '../tools/botbench-support.mjs';
 import { summarize, percentile, supportReport } from '../tools/botbench/support-report.mjs';
 import { uniteSurvivors } from '../server/match/unite.js';
 import { selectLeaks } from '../tools/botbench/support-fixture.mjs';
+import { breakdown } from '../tools/botbench/analyze-support.mjs';
 
 test('support metrics use actual capped loss, not raw killed enemies; allow negative savings', () => {
   const r = supportMetrics({ beforeLP: 5, afterLP: 2, rawLeaks: 25, actualLoss: 3, cap: 10, uniteRan: true });
@@ -30,6 +31,8 @@ test('support attribution includes not-reentered, unborn and counted offspring b
 
 test('strict CLI options avoid silently running a different benchmark', () => {
   assert.equal(parseSupportArgs(['--support', '--out', 'result']).rounds, 11);
+  assert.deepEqual(parseSupportArgs(['--out', 'result', '--maps', 'all']).maps, SUPPORT_MAPS);
+  assert.throws(() => parseSupportArgs(['--out', 'result', '--maps', 'unknown']));
   for (const args of [['--rounds', '12'], ['--humans', '4'], ['--humans', '1,1'], ['--seeds', 'x'], ['--band', 'band_amiya']]) {
     assert.throws(() => parseSupportArgs(['--out', 'result', ...args]));
   }
@@ -41,6 +44,11 @@ test('a controlled match stops after settlement, preserves human seats, legal st
   assert.equal(r.stopReason, 'round-cutoff');
   assert.deepEqual(r.rounds.map((x) => x.round), [1, 2]);
   assert.equal(r.players.filter((p) => !p.isBot).length, 2);
+  assert.equal(r.modeId, 'mode_multi_abyss');
+  assert.equal(r.seats.length, 4);
+  assert.equal(r.seats.filter((p) => p.isBot).length, 2);
+  assert.deepEqual(r.rounds[0].wave.enemyScale, { hpMul: 1.2, atkMul: 1.1, speedMul: 1 });
+  assert.ok(r.rounds[0].players.every((p) => Object.keys(p.scheduledGroups).length > 0));
   assert.ok(r.players.every((p) => !p.autoplay));
   assert.equal(new Set(r.players.map((p) => p.band)).size, 4);
   assert.equal(r.players.find((p) => p.pid === r.anchorPid).band, 'band_ioleta');
@@ -97,4 +105,25 @@ test('empty denominators are absent measurements, not perfect or zero-cost resul
   assert.equal(summarize([]).meanHumanLoss, null);
   assert.equal(percentile([], 0.95), null);
   assert.equal(percentile([5, 1, 2], 0.5), 2);
+});
+
+test('map analysis keeps eliminated AI in the clearance denominator and separates bounty leaks', () => {
+  const rows = [
+    { seed: 1, uniteRan: true, players: [
+      { isBot: true, ownPerfect: false, leakGroups: { 'wave:main': 3, 'bounty:extra': 2 } },
+      { isBot: true, ownPerfect: true, leakGroups: {} },
+      { isBot: false, weak: true, weakZeroLoss: true, actualLoss: 0 },
+    ] },
+    { seed: 1, uniteRan: false, players: [{ isBot: false, weak: true, weakZeroLoss: false, actualLoss: 3 }] },
+  ];
+  const r = breakdown(rows);
+  assert.equal(r.expectedSlots, 4);
+  assert.equal(r.aiBattles, 2);
+  assert.equal(r.aiPerfect, 1);
+  assert.equal(r.baseLeaks, 3);
+  assert.equal(r.bountyLeaks, 2);
+  assert.equal(r.noHelp, 1);
+  assert.equal(r.helpedZero, 1);
+  assert.equal(r.humanLoss, 3);
+  assert.equal(r.seeds, 1);
 });

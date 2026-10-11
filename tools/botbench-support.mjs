@@ -20,7 +20,7 @@ export function parseSupportArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--support') continue;
     const k = argv[i].replace(/^--/, '');
-    if (!['seeds', 'seed', 'humans', 'bands', 'rounds', 'rehearsal', 'jobs', 'out', 'scenario'].includes(k)) throw new Error(`Unknown option ${argv[i]}`);
+    if (!['seeds', 'seed', 'humans', 'bands', 'rounds', 'rehearsal', 'jobs', 'out', 'scenario', 'maps'].includes(k)) throw new Error(`Unknown option ${argv[i]}`);
     if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Missing value for ${argv[i]}`);
     opt[k] = argv[++i];
   }
@@ -32,11 +32,13 @@ export function parseSupportArgs(argv) {
   const config = { seeds: integer('seeds', 30, 1, 10000), seed: integer('seed', 1, 1, 1e9),
     rounds: integer('rounds', 11, 1, 11), rehearsal: integer('rehearsal', 3, 0, 8), jobs: integer('jobs', 1, 1, 32),
     humans: (opt.humans || '1,2,3').split(',').map(Number), bands: (opt.bands || ANCHOR_BANDS.join(',')).split(','), out: opt.out, scenario: opt.scenario || 'small',
+    maps: opt.maps === 'all' ? [...SUPPORT_MAPS] : opt.maps ? opt.maps.split(',') : null,
   };
   if (!config.humans.length || config.humans.some((n) => ![1, 2, 3].includes(n)) || new Set(config.humans).size !== config.humans.length) throw new Error('Invalid humans');
   if (!config.bands.length || config.bands.some((n) => !ANCHOR_BANDS.includes(n)) || new Set(config.bands).size !== config.bands.length) throw new Error('Invalid bands');
   if (!config.out) throw new Error('--out is required (file prefix for JSON, JSONL and Markdown)');
   if (!['small', 'pressure'].includes(config.scenario)) throw new Error('scenario must be small or pressure');
+  if (config.maps && (config.maps.some((id) => !SUPPORT_MAPS.includes(id)) || new Set(config.maps).size !== config.maps.length)) throw new Error('Invalid maps');
   return config;
 }
 
@@ -60,16 +62,16 @@ export async function runSupportCLI(argv) {
   const prefix = resolve(config.out);
   mkdirSync(dirname(prefix), { recursive: true });
   const git = (...args) => execFileSync('git', ['-c', `safe.directory=${root.replaceAll('\\', '/')}`, '-C', root, ...args], { encoding: 'utf8' }).trim();
-  const manifest = { schemaVersion: 2, fixtureVersion: FIXTURE_VERSION, ...config,
+  const manifest = { schemaVersion: 3, fixtureVersion: FIXTURE_VERSION, ...config,
     gitHead: git('rev-parse', 'HEAD'), gitStatus: git('status', '--short'),
     sourceHash: hashTree(root, ['server', 'shared', 'tools/botbench', 'tools/botbench.mjs', 'tools/botbench-support.mjs']), dataHash: hashTree(root, ['data']),
-    node: process.version, createdAt: new Date().toISOString(), mapAssignment: 'balanced-by-absolute-seed',
+    node: process.version, createdAt: new Date().toISOString(), mapAssignment: config.maps ? 'crossed-with-seeds' : 'balanced-by-absolute-seed',
   };
   const tasks = [];
   for (const band of config.bands) for (const humans of config.humans) for (let i = 0; i < config.seeds; i++) {
     const fixtureIndex = config.seed + i - 1;
-    tasks.push({ seed: config.seed + i, humans, band, rounds: config.rounds, rehearsal: config.rehearsal,
-      stageId: SUPPORT_MAPS[fixtureIndex % SUPPORT_MAPS.length], scenario: config.scenario,
+    for (const stageId of config.maps || [SUPPORT_MAPS[fixtureIndex % SUPPORT_MAPS.length]]) tasks.push({ seed: config.seed + i, humans, band, rounds: config.rounds, rehearsal: config.rehearsal,
+      stageId, scenario: config.scenario,
       leakCount: config.scenario === 'small' ? 1 + (fixtureIndex % 3) : [5, 10][fixtureIndex % 2], sourceMode: Math.floor(fixtureIndex / 3) % 2 ? 'all' : 'single' });
   }
   writeFileSync(`${prefix}.jsonl`, `${JSON.stringify({ manifest })}\n`, { flag: 'wx' });

@@ -50,6 +50,7 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
     for (const ps of m.order) ps.invalidateDeployMap();
   }
   const rec = { seed, humans, band, targetRound: rounds, rehearsal, fixtureVersion: FIXTURE_VERSION, leakCount, sourceMode, scenario,
+    modeId: m.modeId, seats: seats.map(({ playerId, isBot }) => ({ playerId, isBot })),
     stageId: m.stageId, factions: [...m.factions], bossId: m.bossId, anchorPid: null,
     rounds: [], preps: [], fixtureInputs: [], startedRounds: [], errors, warnings,
   };
@@ -61,8 +62,18 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
     return afterCombat();
   };
   let rehearsalMs = 0;
+  const normalInputs = new Map();
   const newBattle = m.newBattle.bind(m);
   m.newBattle = (opts) => {
+    if (opts.kind === 'normal' && opts.fieldId?.startsWith('n:')) {
+      const scheduledGroups = {};
+      for (const s of opts.spawns || []) {
+        if (s.countInTotal === false) continue;
+        const key = `${s.tag === 'bounty' ? 'bounty' : 'wave'}:${s.enemyKey}`;
+        scheduledGroups[key] = (scheduledGroups[key] || 0) + (s.count ?? 1);
+      }
+      normalInputs.set(`${m.round}:${opts.fieldId.slice(2)}`, scheduledGroups);
+    }
     const battle = newBattle(opts);
     if (opts.fieldId?.startsWith('r:')) {
       const step = battle.step.bind(battle);
@@ -87,6 +98,7 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
     const remaining = ran ? uniteSurvivors(plan, result) : null;
     const helpers = (plan?.helpers || []).map((p) => p.playerId);
     const row = { round: m.round, uniteRan: ran, helpers,
+      wave: { templateId: m.wave?.templateId, pick: m.wave?.pick, enemyScale: m.gd.enemyScale(m.round) },
       uniteSources: ran ? {
         notReentered: Object.fromEntries(plan.notReentered),
         unspawned: (result.unspawned || []).map((u) => ({ sourcePlayerId: u.sourcePlayerId, enemyKey: u.enemyKey, tag: u.tag })),
@@ -98,6 +110,7 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
       const rawLeaks = (own.leaked || []).filter((l) => l && l.counted !== false).length;
       return { pid: p.playerId, isBot: p.isBot, band: p.bandId,
         beforeLP: p.lp, lpLostBefore: p.stats.lpLost, rawLeaks, leakGroups: groups(own.leaked),
+        scheduledGroups: normalInputs.get(`${m.round}:${p.playerId}`) || {},
         ownPerfect: own.perfect !== false && rawLeaks === 0, helper: ran && helpers.includes(p.playerId),
         remaining: ran && plan.leakers.includes(p) ? (remaining.get(p.playerId) || 0) : rawLeaks,
         board: [...p.board].map(([tile, u]) => ({ tile, id: u.id, uid: u.uid, kind: u.kind, dir: u.dir })),

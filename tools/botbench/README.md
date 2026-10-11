@@ -10,6 +10,10 @@ node tools/botbench.mjs --support --seeds 30 --jobs 8 --out /path/to/output/smal
 # Larger leaks, reported separately, not weighted into the small-leak baseline.
 node tools/botbench.mjs --support --scenario pressure --seeds 30 --jobs 8 --out /path/to/output/pressure
 
+# Paired maps: 2 human + 2 AI; the same 30 seeds on all 7 maps, both anchor bands (420 matches).
+node tools/botbench.mjs --support --humans 2 --maps all --seeds 30 --jobs 8 --out /path/to/output/paired-maps
+node tools/botbench/analyze-support.mjs /path/to/output/paired-maps.json /path/to/output/map-analysis
+
 # Serial timing and an exact single-case replay (map/leak settings depend on absolute seed).
 node tools/botbench.mjs --support --seed 17 --seeds 1 --humans 2 --bands band_ioleta --jobs 1 --out /path/to/output/replay
 
@@ -41,6 +45,9 @@ Legacy botbench flags and all-bot benchmarks still work without `--support`.
   modifiers. It does not claim to reproduce which enemies real humans are most likely to leak.
 - Seven multiplayer maps rotate by seed. These are balanced map fixtures, not natural map probability. Each band
   uses the same seed/map/input policy for comparison; shared resources and later state may still diverge.
+  `--maps all` crosses every seed with all seven maps; `--maps ID,ID` selects an explicit subset. Records include
+  mode ID, all four seat flags, wave type/entry, round multipliers and scheduled main/bounty counts per AI field.
+  Scheduled counts exclude later summons/children and are not a denominator for exact per-enemy escape probability.
 - End immediately after round 11 settlement, or once all original humans are eliminated. No round 12 is started,
   no fake victory is emitted. Fewer rounds due to death never count as lower-loss success. `--rounds 1..11` supports
   short smoke runs; reports always state their actual cutoff.
