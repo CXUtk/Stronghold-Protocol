@@ -31,7 +31,7 @@ export function selectLeaks(leaks, count, offset) {
 }
 
 /** Replace only the human source results, immediately before the real planUnite. AI results stay untouched. */
-export function injectLeaks(m, { seed, leakCount, sourceMode }) {
+export function injectLeaks(m, { seed, leakCount, sourceMode, fixedInputs = null }) {
   const people = m.order.filter((p) => !p.isBot && p.alive);
   const selectedPid = people.length ? people[(seed + m.round) % people.length].playerId : null;
   const inputs = [];
@@ -39,13 +39,15 @@ export function injectLeaks(m, { seed, leakCount, sourceMode }) {
     const raw = m.lastResults.get(p.playerId);
     if (!raw) throw new Error(`Missing human input result: ${p.playerId}`);
     const requested = sourceMode === 'all' || p.playerId === selectedPid ? leakCount : 0;
-    const leaked = selectLeaks(raw.leaked, requested, seed + m.round * 13 + p.seat * 7);
+    const fixed = fixedInputs?.find((x) => x.pid === p.playerId);
+    if (fixedInputs && (!fixed || fixed.requested !== requested)) throw new Error('Missing or incompatible fixed human leak input');
+    const leaked = fixed ? structuredClone(fixed.leaks) : selectLeaks(raw.leaked, requested, seed + m.round * 13 + p.seat * 7);
     // Non-leaking fixture seats cannot rescue others: there is no invented human army to help the AI.
     m.lastResults.set(p.playerId, { ...raw, leaked, perfect: false, killed: 0, coins: 0,
       damageDealt: 0, healingDone: 0, layerGains: {}, unitsEnd: [], unitStats: [] });
     p.pendingLayerGains = null;
     inputs.push({ pid: p.playerId, requested, actual: leaked.length,
-      leaks: leaked.map((l) => ({ enemyKey: l.enemyKey, mods: l.mods, tag: l.tag, counted: l.counted })) });
+      leaks: leaked.map((l) => ({ enemyKey: l.enemyKey, mods: l.mods, tag: l.tag, counted: l.counted, lpr: l.lpr ?? 1 })) });
   }
   return inputs;
 }

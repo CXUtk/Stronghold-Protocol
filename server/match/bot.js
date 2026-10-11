@@ -84,6 +84,7 @@ import { freeSlot, countFree, legalTiles, canPlace, positionClass, placeClass, b
 import { rotateOffset, normDir, mirrorDir, oppositeDir } from '../sim/dir.js';
 import { itemKey } from './gamedata.js';
 import { computeBonds } from './bondsMeta.js';
+import { supportDraftBand, supportLevelCap, supportRehearsals } from './bot-support.js';
 import { withBounties, isFlyKey } from './waves.js';
 import { mitigate } from '../sim/damage.js';
 import { HOVER_KEYS } from '../sim/content/enemies.js';
@@ -142,6 +143,8 @@ const DEFAULT_MELEE_RANGE = [[0, 0], [0, 1]];
  * without inactive bonds keep exactly the earlier picks.
  */
 export function botPickBand(m, ps) {
+  const support = supportDraftBand(m, ps);
+  if (support) return support;
   const gd = ps?.gd || m.gd;
   const ids = gd.bandIds();
   if (!ids.length) return gd.defaultBandId;
@@ -1079,7 +1082,7 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
   const wave = m.wave;
   const distinct = distinctPlans(plans);
   if (!wave || distinct.length < 2 || !(m.botRehearsal > 0)) return null;
-  const cands = distinct.slice(0, m.botRehearsal);
+  const cands = distinct.slice(0, supportRehearsals(m, ps));
   const byUid = new Map(chosen.map((p) => [p.uid, p]));
   const battles = [];
   for (const plan of cands) {
@@ -1426,7 +1429,7 @@ export function diyOpensAt(ps, lv) {
 export function levelUp(m, ps, { spare = false } = {}) {
   const gd = ps?.gd || m.gd;
   for (let guard = 0; guard < 6; guard++) {
-    if (ps.shop.level >= gd.maxShopLevel) return;
+    if (ps.shop.level >= Math.min(gd.maxShopLevel, supportLevelCap(m, ps))) return;
     const price = Math.max(0, ps.shop.upgradePrice);
     if (ps.funds < price) return;
     const r = m.round;

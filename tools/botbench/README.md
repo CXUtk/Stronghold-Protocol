@@ -117,4 +117,70 @@ Full-prefix replay is intentionally a correctness-first offline implementation. 
 cost are recorded separately. It does not meet an online decision budget yet and does not install a neural network.
 No reserve medic means layout search cannot solve missing sustain: earlier purchasing / lineup and bond-threshold
 preservation belong to the next economic-candidate step. A single changed checkpoint also cannot demonstrate improved
-continuous development through eleven rounds. Production bot, deployment branches and version history stay unchanged.
+continuous development through eleven rounds. The stage-2 evaluator itself changes neither the production bot nor
+deployment branches or version history; the optional whole-match policy below is a separate experiment.
+
+## Whole-match policy experiments
+
+```sh
+node tools/botbench-policy-search.mjs --seed 11 --seeds 20 --policies baseline,core3-anchor,anchor3-wide --jobs 8 --out /path/to/output/development
+node tools/botbench-policy-search.mjs --seed 201 --seeds 80 --policies baseline,anchor3-wide,live-layers-wide --jobs 8 --label held-out-fixed-inputs --out /path/to/output/validation
+node tools/botbench/compare-policies.mjs /path/to/output/validation.json anchor3-wide /path/to/output/comparison.json
+node --test test/botbench-support-policy.test.js test/botbench-policy-comparison.test.js
+```
+
+Run every policy continuously from round 1 through 11, always with 2 human + 2 AI and four-seat ABYSS values.
+Cross each seed with both anchor bands (阿米娅 / 罗素); maps rotate across all seven by seed, or use `--maps all`.
+The other AI drafts normally. Human placeholders never buy or deploy: inject 1–3 controlled leaks from one or both
+sources. This measures support capacity for those inputs, not human decision-making, human pool competition, natural
+enemy frequencies, or performance after round 11. Neither a high human-survival percentage under these small inputs
+nor lower AI leaks alone establishes better support.
+
+`baseline` is mandatory and runs first within each case. Its full incoming human enemy keys, mods, tags, counted
+flags and LP weights are frozen for every candidate. This is necessary even with the same match seed: different AI
+elimination histories can change subsequent battle RNG allocation, including duck replacements in the empty human
+fields. Fixture collection reaching fewer than 11 rounds fails the batch rather than silently truncating it. Actual
+AI waves/results, helper selection, carry state, RNG and settlement are never replaced. Frozen incoming fixtures are
+an intentional controlled input; later AI histories and random outcomes can still diverge naturally. Records include
+code/data hashes, seed, policy parameters, shop levels, board, layers, skipped upgrades and actual source LP charges.
+
+The experimental policy catalog in `support-policy.mjs` includes:
+
+- `wider-layout`: 5 existing layout rehearsals instead of 3.
+- `core3-both` / `core4-both`: both bots decline upgrades at shop level 3 / 4; ordinary buying spends the remainder.
+- `core3-anchor` / `core3-partner`: only the anchor / partner declines upgrades above level 3.
+- `anchor3-through7` / `anchor3-through9`: the anchor resumes ordinary upgrading after round 7 / 9.
+- `anchor4`: only the anchor stops at level 4.
+- `anchor3-wide` / `core3-wide`: the respective anchor-only / both-bot level-3 restriction plus 5 rehearsals.
+- `live-layers` / `live-layers-wide`: enable real in-battle layer growth inside 3 / 5 isolated layout rehearsals.
+  Those trial results are never settled into the match. Ordinary formal combat and unite flags are unchanged.
+
+These are offline interventions on fresh match instances, with no changes to game rules, prices, pool size or human
+operations. Develop on seeds 1–30, freeze candidate parameters, and test on new seeds. Keep discarded attempts and
+regressions. Do not pick a seed or map subset after seeing held-out results and call it an independent validation.
+The comparison tool checks paired cases and fixture equality, reports human failures first, actual LP, zero-loss
+rescue events, eligible AI, AI eliminations, worst-decile loss, map/band/round breakdowns, and a paired bootstrap
+interval clustered by match seed (the two bands sharing a seed are not two independent samples). An interval cannot
+prove generalization to real player inventories or different fixture distributions. Early elimination must never
+be sold as a lower-loss improvement. Use `--jobs 1` separately for meaningful timing; worker wall times are contended.
+
+The partner-selection candidates `paired-fallback`, `team-medic`, and `team-medic-core` choose the other anchor band,
+Touch, or Touch plus the anchor's level-3/5-rehearsal policy, respectively, through legal draft operations. The fixed
+human incoming leaks exclude Touch's potential benefit to the humans' own clearing. No duplicate band is allowed.
+
+This workflow does not train a neural network. It supplies controlled labels and regression cases before deciding
+whether a small candidate-scoring model would improve on cheap policies. Experiments do not enable a live-server
+policy automatically; a deployment decision needs both held-out support results and a measured online prep budget.
+
+### Opt-in local gameplay
+
+`Match` accepts `botSupportPolicy` (or the server environment variable `SP_BOT_SUPPORT_POLICY`) with an empty default.
+`team-medic` makes two real AI seats in a four-seat ABYSS room prefer an available 阿米娅 (otherwise 罗素) + Touch pair.
+The exact paired setup is experimental; when humans have taken the required bands or a different AI already picked,
+the original band picker handles that turn. Human seats under autoplay and other modes keep the original policy.
+`team-medic-core` additionally keeps only the anchor AI's shop at level 3 through round 11 and rehearses up to 5
+distinct layouts for both AI seats. It requires the actual pair to have been selected; explicit rehearsal=0 still
+disables rehearsal. From round 12 its economy/rehearsal restrictions cease, but previous spending and chosen bands
+obviously persist. No effectiveness beyond round 11 is claimed. Offline `nativePolicy` allows the ordinary AI path
+to be checked against the experimental intervention; the benchmark explicitly disables the environment's policy
+unless `nativePolicy` is provided. No new or existing local/remote server is automatically restarted by these tools.

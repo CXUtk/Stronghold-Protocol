@@ -289,6 +289,14 @@ report #9 after 0.1.0), and a tile the server's `g.move` refuses is skipped for 
 rounds: the player's boss-field template (`Match.bossWaves`) is mapped onto the own board (rows −7, the right player
 of a pair mirrored, only the routes that end on its half) and the leader counts as 10 tough enemies with a 30 s dwell
 on its first tiles, so the damage dealers reach stationary leaders.
+**Experimental cooperative support:** `opts.botSupportPolicy` / `SP_BOT_SUPPORT_POLICY` is empty by default.
+In four-seat ABYSS with exactly two actual AI seats, `team-medic` prefers an available 阿米娅 (otherwise 罗素) + Touch
+pair, falling back to the original picker when the required bands are taken. `team-medic-core` also keeps the anchor
+AI at shop level 3 through round 11 and tries 5 layouts for both AI seats when rehearsal is enabled and the pair was
+actually selected. Ordinary upgrading/rehearsal limits resume in round 12; prior choices persist. Human autoplay,
+other modes and other seat mixes use the original policy. This is an opt-in bot-decision experiment, not a rule
+change or a claim about later rounds. See [the controlled support benchmark](../tools/botbench/README.md).
+
 **Rehearsal:** with `opts.botRehearsal = N` (default 3) the bot simulates the N best
 distinct layout variants once each with the real `Battle` (a rehearsal seed, no meta dispatch, board restored exactly)
 and keeps the one with the fewest leaks; a candidate whose counted leaks already exceed the best finished one's stops
