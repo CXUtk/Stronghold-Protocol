@@ -118,6 +118,12 @@ Official rule (bwiki 盟约, 更新公告 5114): before a match the player canno
 **干员持有 (0.2.0 补位):** the overlay's second tab marks operators as not owned (the 55 NORMAL chess; per-browser `sp.pref.ownership` = `{ v, notOwned }`, synced as `room.ownership { notOwned }` by the same sync engine as the loadout, `ui/loadoutSync.js installPrefSync`; 导出 / 导入 as `{ kind: 'stronghold.ownership', v, exportedAt, count, notOwned }`). A not-owned chess fights as its official stand-in with the backup skill / module — the loadout never applies to it ("对于补位干员其技能不可更改") — and is shown as the stand-in wherever the player's copy appears (shop / reward cards, hand and 临时整备区, board, detail card, result lineup, a teammate's scouting and bond popups: portrait, name, model, with a small 「替补」 mark; the owner's recall of the official mode, 2026-10-06), while its bonds, 特质, tier, price and merge stay the chess's; the 0.2.0 补位 design subsections have the rules and sources.
 **自选编队 (0.2.0):** the overlay's third tab fills the four DIY slots (5阶 ×2, 6阶 ×2) with an owned 6★ outside the chess pool (any of its three skills, any module of its elite form but a 集成战略 one) or a prototype (its locked skill / module); only operators with a kit are offered (`welcome.diyKitted`). Per-browser `sp.pref.diy` = `{ v, picks }`, synced as `room.diy { picks }` by the same sync engine; 导出 / 导入 as `{ kind: 'stronghold.diy', v, exportedAt, count, picks }` (`ui/diyModel.js`, `screens/diy.js`). In the match a slotted piece is the operator for its player (name, art, class, bonds from its factions, no 特质, the pick's skill and module; the slot's tier, price and merge), sold only in that player's shop from the slot's 调度中心 level with its own stock; the shop / reward / detail cards and the own pieces carry a 「自选」 badge (`ui/gameLogic/diy.js`); the 0.2.0 自选编队 design subsection has the rules and sources.
 
+**Deploy's co-op 自选 weight (2026-10-11, user's rule):** private stock remains 8/5 for tiers V/VI, but each remaining
+copy has sampling weight multiplied by the ordinary co-op stock multiplier (currently 2; solo 1). Full-stock initial
+weights are therefore 16/10, equal to ordinary cards of the same tier. Shop, promotion rewards and copy-weighted
+random grants share this rule; real stock gates availability, and identity-only draws keep weight 1 per identity.
+No official probability claim is made; see DEPLOY-OVERRIDES.md and META's 自选编队 notes.
+
 ---
 
 ### Cooperative buying, reactions and opening rerolls (§28.15–16, §28.21)

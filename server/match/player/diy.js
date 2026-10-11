@@ -26,6 +26,10 @@
 //     the 调度中心 has reached the slot's shopLevel (activity_table shopLevelDisplayDataDict lists the tier-5 slots at
 //     level 5 and the tier-6 slots at level 6; PRTS 帮助 "仅在调度中心等级 ≥ 干员所在等阶"). The price is the slot's (any
 //     chess of its tier: 4).
+//     deploy rule requested on 2026-10-11: multiply each private copy's sampling weight by the ordinary co-op stock
+//     multiplier (2), so a full tier-5/6 slot has initial weight 16/10. Its actual private capacity remains 8/5.
+//     The same multiplier follows every copy-weighted grant; identity-only draws still weight each identity once.
+//     This is the user's deployment rule, not a verified official probability rule (docs/DEPLOY-OVERRIDES.md).
 //   * random grants (diyStockEntries, 0.2.0 WE2 #9): an effect, reward or 机变 card that grants this player a random
 //     operator from the pool draws its stock too — 「自选干员放入后模拟中的补给池随机范围也将被相应扩大」 (bilibili), "调度中心
 //     随机资源的范围将被扩大" (PRTS 新手教程) — under the roll's own tier rules (the effect's tier / maxTier: no 调度中心 gate,
@@ -43,11 +47,11 @@ const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * The copies of a player's slotted DIY pieces — the shared pool's copy interface (has / cap / left / take / give) for
- * those base ids only. `entries`: baseId → { cap, left, tier, shopLevel }.
+ * those base ids only. `entries`: baseId → { cap, left, tier, shopLevel, weightMultiplier }.
  */
 export class DiyStock {
   constructor() {
-    /** @type {Map<string, { cap: number, left: number, tier: number, shopLevel: number }>} */
+    /** @type {Map<string, { cap: number, left: number, tier: number, shopLevel: number, weightMultiplier: number }>} */
     this.entries = new Map();
   }
 
@@ -195,7 +199,8 @@ export class PlayerDiy {
       if (bonds.length > 0 && bonds.every((b) => off.has(b))) { banned.push(slotId); continue; }
       const cap = gd.poolCopies(slotId);
       if (!(cap > 0)) continue;
-      stock.entries.set(slotId, { cap, left: cap, tier: gd.tierOf(slotId), shopLevel: slot.shopLevel });
+      const weightMultiplier = gd.isSolo ? 1 : posIntOr(gd.economy.coopPoolMultiplier, 1);
+      stock.entries.set(slotId, { cap, left: cap, tier: gd.tierOf(slotId), shopLevel: slot.shopLevel, weightMultiplier });
     }
     return { stock, banned: Object.freeze(banned) };
   }
@@ -208,7 +213,7 @@ export class PlayerDiy {
   /**
    * The stock entries this player's shop draws from now ([baseId, entry] with copies left and the 调度中心 at the slot's
    * shopLevel), or null (none — the shared pool's roll alone, exactly as without picks).
-   * @returns {Array<[string, { cap: number, left: number, tier: number, shopLevel: number }]> | null}
+   * @returns {Array<[string, { cap: number, left: number, tier: number, shopLevel: number, weightMultiplier: number }]> | null}
    */
   diyRollEntries() {
     if (!this.diyStock || !this.diyStock.entries.size) return null;
@@ -220,7 +225,7 @@ export class PlayerDiy {
   /**
    * The stock entries a random grant of this player draws besides the shared pool (see the header): every slotted piece
    * with copies left, whatever the 调度中心 level (the roll's own tier rules apply), or null (none).
-   * @returns {Array<[string, { cap: number, left: number, tier: number, shopLevel: number }]> | null}
+   * @returns {Array<[string, { cap: number, left: number, tier: number, shopLevel: number, weightMultiplier: number }]> | null}
    */
   diyStockEntries() {
     if (!this.diyStock || !this.diyStock.entries.size) return null;

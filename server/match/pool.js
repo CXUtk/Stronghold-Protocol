@@ -14,8 +14,9 @@
 // Rolls: each chess slot draws ONE copy uniformly from all remaining copies of eligible chess with tier ≤ shop level
 // ("copy-weighted"; duplicates within a roll allowed). The item slot picks a tier with the same tier shares, then a
 // uniform shop-eligible item of that tier (falling back to lower tiers). A roll may add entries outside the pool
-// (`extra`, after its own): one player's 自选 stock (0.2.0, player/diy.js diyRollEntries) — weighted by its copies like
-// any chess, drawn by that player's shop only.
+// (`extra`, after its own): one player's 自选 stock (0.2.0, player/diy.js diyRollEntries), drawn by that player only.
+// deploy rule: its remaining copies carry a separate weightMultiplier in co-op, matching the ordinary tier's initial
+// draw weight without expanding the private stock. Availability and identity-only draws still use the real copies.
 
 /**
  * Per-match disabled bond set D and banned chess (research 01 A2): D = uniform sample of `core` core bonds and `addon`
@@ -94,8 +95,9 @@ export class SharedPool {
   }
 
   /**
-   * Remaining copies of eligible chess (tier ≤ maxTier, or exactly `tier`): the pool's entries, then `extra` ([id, entry]
-   * pairs of the same shape — a player's 自选 stock) under the same filters.
+   * Sampling weights of eligible chess (tier ≤ maxTier, or exactly `tier`): the pool's entries, then `extra` ([id, entry]
+   * pairs of the same shape — a player's 自选 stock) under the same filters. An optional weightMultiplier changes
+   * copy-weighted sampling only, never availability or ignoreCounts identity sampling.
    */
   _eligible({ maxTier = 6, tier = null, filter = null, extra = null, ignoreCounts = false } = {}) {
     const out = [];
@@ -104,7 +106,7 @@ export class SharedPool {
         if (!ignoreCounts && e.left <= 0) continue;
         if (tier != null ? e.tier !== tier : e.tier > maxTier) continue;
         if (filter && !filter(id, e)) continue;
-        out.push([id, ignoreCounts ? 1 : e.left]);
+        out.push([id, ignoreCounts ? 1 : e.left * (e.weightMultiplier ?? 1)]);
       }
     };
     scan(this.entries);
@@ -113,10 +115,10 @@ export class SharedPool {
   }
 
   /**
-   * Copy-weighted roll: one copy uniformly among remaining copies of eligible chess. Returns a base id or null.
+   * Copy-weighted roll over eligible chess, including optional per-copy weight multipliers. Returns a base id or null.
    * @param {Function} rng
    * @param {{ maxTier?: number, tier?: number|null, filter?: (id: string, e: object) => boolean,
-   *   extra?: Iterable<[string, { left: number, tier: number }]>|null }} [opts]
+   *   extra?: Iterable<[string, { left: number, tier: number, weightMultiplier?: number }]>|null }} [opts]
    */
   roll(rng, opts = {}) {
     const el = this._eligible(opts);

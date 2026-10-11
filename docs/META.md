@@ -560,12 +560,18 @@ Any `choice:` handler whose EffectRef reuses its own key must guard like this (o
   off this match; `initDiyStock` once the bans are drawn); `poolOf(baseId)` routes its copy accounting (buy, reward
   picks, merges, promotions, sells, temp, elimination; `invariants.js` checks `left + held = cap` per player). The
   shop's chess slots and the reward offers' temporary refreshes roll it with the shared pool (`pool.roll({ extra })`,
-  copy-weighted like any chess of its tier) once the 调度中心 reaches the slot's `shopLevel` (5 / 6) [ASSUMED for the
+  copy-weighted, with deploy's co-op private-copy weight multiplier described below) once the 调度中心 reaches the slot's `shopLevel` (5 / 6) [ASSUMED for the
   reward offers]; an effect, reward pool or 机变 card that grants the player a random operator draws its stock too
   (effectsMeta `rollChess` / `rollPool`, the 驰援 fallback in choices.js: `ps.diyStockEntries()` — the roll's own tier
   rules, no 调度中心 gate, bonds through the player's view; 「自选干员放入后模拟中的补给池随机范围也将被相应扩大」, 0.2.0), and
   信标 never sends one to a teammate [ASSUMED]. `battleInput` carries `diy` (the pick); `m.private.diy` / `diyBanned`; `prepFieldMeta` and
   `m.result` lineups carry the pick (`diy`) so other players' cards compose the operator.
+  On deploy, the user's rule of 2026-10-11 gives each remaining private copy `weightMultiplier` equal to
+  `coopPoolMultiplier` in co-op (currently 2), or 1 in solo. A full tier-V/VI pick has initial sampling weight 16/10,
+  matching a full ordinary operator of its tier, while its private capacity stays 8/5. Shop, promotion rewards and
+  copy-weighted random grants use the multiplier; exhausted/banned entries remain unavailable and `ignoreCounts`
+  identity draws still give each eligible identity weight 1. Equipment sampling is unchanged. This is a deployment
+  rule, not an experimentally verified official probability rule (DEPLOY-OVERRIDES.md).
 * **Hand**: 10 slots filled right→left, 5 temp slots for passive overflow (merge results, grants, returned equipment);
   a full hand refuses every buy and reward pick — also one whose copy would complete a merge at once (PRTS
   卫戍协议/帮助 §手牌区 "例如招募/购入等通常情况下会增加手牌的操作"; GitHub #82) — and withdrawals unless the withdrawn
