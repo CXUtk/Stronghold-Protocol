@@ -605,7 +605,7 @@ function installSiracusa(battle, pid, bb, members) {
     st.n = 0;
     const amount = num(bb.base_damage, 0) + num(bb.damage_per_stack, 0) * S.bondLayers(battle, pid, 'siracusaShip');
     S.fxOn(battle, 'bondProc', t, 'bond:siracusaShip', 'assassin', { from: u.id, amount });
-    if (amount > 0) battle.dealDamage(u, t, { amount, type: 'true', canDodge: false, tags: ['bond:siracusa'] });
+    if (amount > 0) battle.dealDamage(u, t, { amount, type: 'true', canDodge: false, tags: ['bond:siracusa'], bondId: 'siracusaShip' });
     if (t.alive && num(bb.fear, 0) > 0) battle.applyStatus(t, 'fear', { duration: num(bb.fear, 0), source: u });
   };
   for (const u of members) onUnitDamaged(battle, u, onDmg);
@@ -639,7 +639,7 @@ function installKazimierz(battle, pid, bb, members) {
         const amount = scale * m.s.atk;
         for (const e of hits) {
           if (!e.alive) continue;
-          battle.dealDamage(m, e, { amount, type: 'true', canDodge: false, isSplash: true, tags: ['bond:kazimierz'] });
+          battle.dealDamage(m, e, { amount, type: 'true', canDodge: false, isSplash: true, tags: ['bond:kazimierz'], bondId: 'kazimierzShip' });
           if (e.alive && stun > 0) battle.applyStatus(e, 'stun', { duration: stun, source: m });
         }
         S.fxOn(battle, 'aoe', m, 'bond:kazimierzShip', 'pulse', { radius, dmgType: 'true', n: hits.length });
@@ -652,7 +652,7 @@ function installKazimierz(battle, pid, bb, members) {
     const u = ctx.source, t = ctx.target, dmg = ctx.dmg;
     if (!dmg || !dmg.isAttack || !isEnemyTarget(t) || ownTag(dmg, 'bond:kazimierz')) return;
     if (u.blocking && u.blocking.length) return;
-    battle.dealDamage(u, t, { amount: pure * u.s.atk, type: 'true', canDodge: false, tags: ['bond:kazimierz'] });
+    battle.dealDamage(u, t, { amount: pure * u.s.atk, type: 'true', canDodge: false, tags: ['bond:kazimierz'], bondId: 'kazimierzShip' });
   };
   for (const u of members) onUnitDamaged(battle, u, onDmg);
 }

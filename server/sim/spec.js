@@ -35,6 +35,7 @@ import { Battle } from './Battle.js';
 import { toDataSource, withUnitLoadouts } from './simdata.js';
 import { isPotential, isCultivate } from '../../shared/potential.js';
 import { BOSS_POOL_MIN_HP } from './constants.js';
+import { bondDamageEntry } from '../../shared/damageSources.js';
 
 export const SPEC_VERSION = 1;
 
@@ -407,6 +408,7 @@ export function compactResult(res) {
         uid: uidOr(u.uid), defId: keyOr(u.defId), kind: typeof u.kind === 'string' && u.kind.length <= 16 ? u.kind : 'op',
         dmg: Math.max(0, Math.round(fnum(u.dmg))), kills: Math.max(0, Math.trunc(fnum(u.kills))), heal: Math.max(0, Math.round(fnum(u.heal))),
         taken: Math.max(0, Math.round(fnum(u.taken))), attacks: Math.max(0, Math.trunc(fnum(u.attacks))),
+        ...bondDamageEntry(u.bondDamage, Math.max(0, Math.round(fnum(u.dmg)))),
       })),
     };
     // the HUD capsule's numerator (or absent for a result that has none: the teammate UI falls back to `killed`)

@@ -36,6 +36,7 @@ import { layerGainRoom } from '../../shared/constants.js';
 import { uniteLeft } from '../sim/spec.js';
 import { diyTokenOwner, diyRecordOf } from '../../shared/diy.js';
 import { battleDamageStats, completedDamageStats } from '../../shared/combatStats.js';
+import { bondDamageEntry } from '../../shared/damageSources.js';
 
 export const MAX_TICKS_PER_INTERVAL = 8;
 export const INTERVAL_MS = 1000 / 30;
@@ -888,6 +889,7 @@ export function validateClientResult(spec, raw, { gd = null } = {}) {
           uid: Number.isInteger(u.uid) ? u.uid : null, defId, name: (onBoard && own.names.get(u.uid)) || (typeof rec?.name === 'string' ? rec.name : defId), kind: u.kind === 'token' ? 'token' : 'op',
           dmg: Math.max(0, Number(u.dmg) || 0), kills: Math.max(0, Math.trunc(Number(u.kills) || 0)), heal: Math.max(0, Number(u.heal) || 0),
           taken: Math.max(0, Number(u.taken) || 0), attacks: Math.max(0, Math.trunc(Number(u.attacks) || 0)),
+          ...bondDamageEntry(u.bondDamage, Math.max(0, Number(u.dmg) || 0)),
         });
       }
       const stat = (v) => (finiteIn(v, 0, 1e13) ? v : 0);

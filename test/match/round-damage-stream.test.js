@@ -12,8 +12,8 @@ test('server snapshots and mid-battle resync carry identical cumulative damage w
     enemies: [{ key: 'dummy', pos: [10, 5] }], flags: { startOpCooldown: 99 } });
   h.step();
   const u = h.unit(11), e = h.b.enemies.find((x) => x.alive);
-  h.b.dealDamage(u, e, { amount: 77, type: 'true', canDodge: false });
-  match.m.lastResults.set('p_0', { unitStats: [{ uid: 11, kind: 'op', defId: u.defId, name: u.name, dmg: 123 }] });
+  h.b.dealDamage(u, e, { amount: 77, type: 'true', canDodge: false, bondId: 'siracusaShip' });
+  match.m.lastResults.set('p_0', { unitStats: [{ uid: 11, kind: 'op', defId: u.defId, name: u.name, dmg: 123, bondDamage: { siracusaShip: 100 } }] });
   const field = { fieldId: 'u', kind: 'unite', players: ['p_0'], battle: h.b, live: true };
   match.m.fields = [field];
   match.m.watchers.set('p_0', 'u');
@@ -22,6 +22,7 @@ test('server snapshots and mid-battle resync carry identical cumulative damage w
   runner._emit(field);
   const streamed = match.lastTo('p_0', 'b.snap');
   assert.equal(streamed.damage.units[0].dmg, 200);
+  assert.equal(streamed.damage.units[0].bondDamage.siracusaShip, 177, 'Alliance subtotal is carried through normal + Unite and resync');
   assert.equal(streamed.damage.round, 6);
   assert.equal(streamed.damage.fieldId, 'u');
   match.m._sendField('p_0', 'u');

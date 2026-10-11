@@ -12,8 +12,26 @@ test('damage ranking filters players, retains zero-damage operators and sums the
   const own = damagePanelView(report, 'p1');
   assert.equal(own.total, 40);
   assert.deepEqual(own.rows.map((u) => u.share), [1, 0]);
-  assert.deepEqual(damagePanelView(null), { total: 0, rows: [] });
+  assert.deepEqual(damagePanelView(null), { total: 0, rows: [], bonds: [], bondTotal: 0 });
   assert.deepEqual(report.units.map((u) => u.id), ['b', 'a', 'c'], 'sorting does not mutate transport data');
+});
+
+test('Alliance breakdown follows player filter and stays a subset rather than adding to total', () => {
+  const report = { units: [
+    { id: 'a', ownerId: 'p1', dmg: 100, bondDamage: { steadShip: 40 } },
+    { id: 'b', ownerId: 'p2', dmg: 300, bondDamage: { steadShip: 60, siracusaShip: 200 } },
+  ] };
+  const all = damagePanelView(report);
+  assert.equal(all.total, 400);
+  assert.equal(all.bondTotal, 300);
+  assert.deepEqual(all.bonds, [{ id: 'siracusaShip', dmg: 200 }, { id: 'steadShip', dmg: 100 }]);
+  const own = damagePanelView(report, 'p1');
+  assert.equal(own.total, 100);
+  assert.equal(own.bondTotal, 40);
+  assert.deepEqual(own.bonds, [{ id: 'steadShip', dmg: 40 }]);
+  assert.deepEqual(report.units[0].bondDamage, { steadShip: 40 }, 'reading does not mutate transport data');
+  const bad = damagePanelView({ units: [{ id: 'x', dmg: 10, bondDamage: { steadShip: 50, siracusaShip: NaN, unknown: 999 } }] });
+  assert.equal(bad.bondTotal, 10, 'untrusted subtotals cannot exceed the unit total');
 });
 
 test('no-damage and invalid amounts never render NaN/Infinity percentages', () => {

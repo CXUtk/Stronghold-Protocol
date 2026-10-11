@@ -644,7 +644,7 @@ export function install(battle) {
         // "伤害来源受到(850+10×L)点法术伤害": 无来源 (no attacker multipliers, hooks see no source) but credited to the
         // member hit — its player's stats and shared-pool tally count it, like an element burst (v2.5: no credit at all,
         // up to 19 % of a co-op leader's pool and 88 % of a solo one went unattributed, DESIGN §20.10)
-        const d = battle.makeDamage({ amount: num(bb.base_damage_value) + num(bb.damage_value_per_stack) * L(battle, st, ID.stead), type: 'arts', canDodge: false, sourceless: true });
+        const d = battle.makeDamage({ amount: num(bb.base_damage_value) + num(bb.damage_value_per_stack) * L(battle, st, ID.stead), type: 'arts', canDodge: false, sourceless: true, bondId: ID.stead });
         d.steadThorn = true;
         battle.dealDamage(t, src, d);
         if (src.alive) battle.applyStatus(src, 'fragile', { duration: num(bb['weak[limit]'], 5), value: num(bb.damage_scale, 1) - 1, source: t });

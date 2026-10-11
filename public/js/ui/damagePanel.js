@@ -3,6 +3,8 @@
 import { useState } from '../../vendor/hooks.module.js';
 import { html, Icon, useTicker } from './components.js';
 import { t, tName, langInfo } from '../../../shared/i18n.js';
+import { getBond } from '../data.js';
+import { bondDamageStats } from '../../../shared/damageSources.js';
 
 /** Filter and rank independent operator pieces; the report already combines summon instances and battle stages. */
 export function damagePanelView(report, ownerId = '') {
@@ -10,7 +12,15 @@ export function damagePanelView(report, ownerId = '') {
     .map((u) => ({ ...u, dmg: Math.max(0, Number.isFinite(u.dmg) ? u.dmg : 0) }))
     .sort((a, b) => b.dmg - a.dmg || a.id.localeCompare(b.id));
   const total = rows.reduce((sum, u) => sum + u.dmg, 0);
-  return { total, rows: rows.map((u) => ({ ...u, share: total > 0 ? u.dmg / total : 0, bar: rows[0]?.dmg > 0 ? u.dmg / rows[0].dmg : 0 })) };
+  const byBond = new Map();
+  for (const u of rows) {
+    u.bondDamage = bondDamageStats(u.bondDamage, u.dmg);
+    u.bondTotal = Object.values(u.bondDamage).reduce((sum, n) => sum + n, 0);
+    for (const [id, dmg] of Object.entries(u.bondDamage)) byBond.set(id, (byBond.get(id) || 0) + dmg);
+  }
+  const bonds = [...byBond].map(([id, dmg]) => ({ id, dmg })).sort((a, b) => b.dmg - a.dmg || a.id.localeCompare(b.id));
+  return { total, bonds, bondTotal: bonds.reduce((sum, b) => sum + b.dmg, 0),
+    rows: rows.map((u) => ({ ...u, share: total > 0 ? u.dmg / total : 0, bar: rows[0]?.dmg > 0 ? u.dmg / rows[0].dmg : 0 })) };
 }
 
 export function DamagePanel({ fieldId, round, getStats, players = [], myId }) {
@@ -38,17 +48,25 @@ export function DamagePanel({ fieldId, round, getStats, players = [], myId }) {
         ${[...owners].map((id) => html`<option key=${id} value=${id}>${id === myId ? t('{name}（自己）', { name: playerName(id) }) : playerName(id)}</option>`)}
       </select></label>
       <div class="damage-panel__total"><span>${t('总伤害')}</span><b class="num">${fmt(view.total)}</b></div>
+      <section class="damage-panel__bonds" aria-label=${t('盟约伤害')}>
+        <div class="damage-panel__line"><strong>${t('盟约伤害')}</strong><b class="num">${fmt(view.bondTotal)}</b></div>
+        <p class="damage-panel__note">${t('已包含在总伤害中')}</p>
+        <ul class="damage-panel__bond-list">${view.bonds.map((b) => html`<li key=${b.id} data-damage-bond=${b.id}
+          class="damage-panel__line"><span>${tName(getBond(b.id)?.name || b.id)}</span><b class="num">${fmt(b.dmg)}</b></li>`)}</ul>
+      </section>
       <ol class="damage-panel__list" aria-label=${t('干员伤害排名')}>
         ${view.rows.map((u) => html`<li key=${u.id} class="damage-panel__row" data-stat-id=${u.id}>
           <div class="damage-panel__line"><span class="damage-panel__name" title=${tName(u.name)}>${tName(u.name)}</span>
             <b class="num damage-panel__value">${fmt(u.dmg)}</b></div>
           <div class="damage-panel__caption"><span>${playerName(u.ownerId)}${u.kind === 'token' ? ` · ${t('召唤物')}` : u.golden ? ` · ${t('精锐')}` : ''}</span>
             <span class="num">${(u.share * 100).toFixed(1)}%</span></div>
+          ${u.bondTotal > 0 ? html`<div class="damage-panel__caption">${t('其中盟约伤害 {n}', { n: fmt(u.bondTotal) })}</div>` : null}
           <div class="damage-panel__bar" aria-hidden="true"><i style=${{ width: `${u.bar * 100}%` }}></i></div>
         </li>`)}
       </ol>
       ${!view.rows.length ? html`<p class="damage-panel__empty">${ready ? t('本场没有干员伤害数据') : t('等待战斗数据')}</p>` : null}
       <p class="damage-panel__note">${t('统计实际扣除的敌方生命；召唤物单独列出。')}
+        ${t('仅单列盟约直接伤害；属性增益仍计入干员伤害。')}
         ${ready && report.kind === 'unite' ? t('含本回合普通作战与联防。') : ''}</p>
     </div>` : null}
   </section>`;

@@ -492,7 +492,10 @@ recorded for the player whose half contains the goal it reached, with `sourcePla
 - Read-only live reporting: `shared/combatStats.js battleDamageStats(battle, baseline)` projects the same unit damage
   counters without building a result or reading `Unit.s`. The round damage panel retains downed operators, aggregates
   summons per player/type and adds completed normal-battle statistics when entering Unite. The projection is outside
-  `Battle.snapshot()` and `BattleResult`; it changes neither the sim nor its golden digests.
+  `Battle.snapshot()`; it changes neither gameplay nor its golden digests. Optional `unitStats[].bondDamage` stores a
+  display-only subset of `dmg`, retained by compact results and server validation for the normal → Unite transition.
+  The subset records actual HP removal for 坚守 thorns, 叙拉古 / 卡西米尔 direct damage and 炎佑 output; it never counts
+  friendly sharing/drain or adds to damage totals. Attribute bonuses remain in the operator's ordinary total.
 
 ### 1.4 Robustness
 
