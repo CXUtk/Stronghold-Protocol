@@ -292,6 +292,9 @@ on its first tiles, so the damage dealers reach stationary leaders.
 **Experimental cooperative support:** `opts.botSupportPolicy` / `SP_BOT_SUPPORT_POLICY` is empty by default.
 Offline build experiments can additionally inject `botBuildPolicy` and `botCombatAtlas` to use real-kit capability
 measurements in buy/bench/lineup/item scoring; `opts.botMedicalPolicy` is a separate, default-empty medical ablation.
+Offline tactical experiments can inject `botLayoutAdjustment` / `botRehearsalScore` callbacks to add a terrain proposal
+or compare remaining helper health. Their tool wrapper supplies public teammate context and optional trial-only
+layer growth. These have no server/environment defaults and never settle rehearsal gains into the actual match.
 Both are restricted to actual 2H2AI ABYSS through round 11 (medical starts at round 3). They are decision heuristics,
 not game rules, and are not enabled by normal matches. Definitions, limitations and paired validation are in
 [`tools/botbench/README.md`](../tools/botbench/README.md#capability-driven-build-experiments).

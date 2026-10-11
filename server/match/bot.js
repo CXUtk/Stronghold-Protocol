@@ -1013,7 +1013,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         if (seen.has(sig)) continue;
         seen.add(sig);
         layout.units.push(u);
-        const v = layout.value() + noise;
+        const v = layout.value() + (params.tactical && m.botLayoutAdjustment ? m.botLayoutAdjustment(ps, layout.units, model) : 0) + noise;
         layout.units.pop();
         if (v > bestV) { bestV = v; best = [k, r, c, dir]; }
         // (the best road tile by the same value)
@@ -1155,7 +1155,7 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
             const pp = r && !r.synthetic && r.perPlayer && r.perPlayer[ps.playerId];
             if (pp) {
               const leaks = (pp.leaked || []).filter((l) => l && l.counted !== false).length;
-              const score = -leaks * 1000 + (pp.killed || 0) - i * 0.01;
+              const score = (m.botRehearsalScore ? m.botRehearsalScore(pp) : -leaks * 1000 + (pp.killed || 0)) - i * 0.01;
               if (score > bestScore) { bestScore = score; bestLeaks = leaks; job.best = cands[i]; }
             }
           }
@@ -1596,7 +1596,8 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
   yield;
   const plans = [];
   if (final && m.wave && m.botRehearsal > 0) {
-    for (const v of REHEARSAL_VARIANTS) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));
+    const variants = m.botLayoutAdjustment ? [...REHEARSAL_VARIANTS, { tactical: true }] : REHEARSAL_VARIANTS;
+    for (const v of variants) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));
   } else {
     plans.push(yield* planLayoutSteps(m, ps, chosen));
   }

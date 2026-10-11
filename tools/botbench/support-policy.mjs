@@ -4,6 +4,8 @@ import { runSupportMatch } from './support-runner.mjs';
 import { readFileSync } from 'node:fs';
 import { buildContext, combatValue } from '../../server/match/bot-build.js';
 import { fieldModel } from '../../server/match/bot.js';
+import { observeBattle } from './battle-observer.mjs';
+import { installTacticalPolicy } from './tactical-policy.mjs';
 const atlases = new Map();
 
 export const POLICIES = Object.freeze({
@@ -38,16 +40,32 @@ export const POLICIES = Object.freeze({
   'build-team-tanks': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'tanks' },
   'build-team-sustain': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'sustain' },
   'build-team-resilient': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'resilient' },
+  'build-team-context': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'tanks', tactical: 'context' },
+  'build-team-live': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'tanks', tactical: 'live' },
+  'build-team-carry': { rehearsal: 5, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'tanks', tactical: 'carry' },
+  'build-team-terrain': { rehearsal: 6, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'tanks', tactical: 'terrain' },
+  'build-team-hazard': { rehearsal: 6, partnerBand: 'band_amedic', levelCap: 3, role: 'anchor', build: 'tanks', tactical: 'hazard' },
 });
 
 export function runSupportPolicy(config, policyId = 'baseline') {
   const policy = POLICIES[policyId];
   if (!policy || config.humans !== 2) throw new Error('Unknown policy or non-2H2AI configuration');
-  const skipped = [], preparation = [], rehearsalLayers = [];
+  const skipped = [], preparation = [], rehearsalLayers = [], observations = [], tacticalTrials = [];
   const economy = new Map();
   const partnerBand = policy.partnerBand === 'other-anchor' ? (config.band === 'band_amiya' ? 'band_ioleta' : 'band_amiya') : policy.partnerBand;
   const result = runSupportMatch({ ...config, rehearsal: policy.rehearsal, partnerBand }, {
     configure(m, rec) {
+      installTacticalPolicy(m, policy, tacticalTrials);
+      if (config.observe) {
+        const original = m.newBattle.bind(m);
+        m.newBattle = (opts) => {
+          const b = original(opts);
+          if (!opts.fieldId?.startsWith('r:') && (opts.kind === 'unite' || opts.players.some((p) => m.players.get(p.playerId)?.isBot))) {
+            observations.push({ round: opts.round, kind: opts.kind, fieldId: opts.fieldId, snapshot: observeBattle(b) });
+          }
+          return b;
+        };
+      }
       m.botMedicalPolicy = policy.medical || '';
       m.botBuildPolicy = policy.build || '';
       if (policy.build) {
@@ -132,7 +150,9 @@ export function runSupportPolicy(config, policyId = 'baseline') {
       })) });
     },
   });
-  return { policyId, policy, ...result, policyDiagnostics: { skipped, preparation, rehearsalLayers } };
+  return { policyId, policy, ...result, policyDiagnostics: { skipped, preparation, rehearsalLayers,
+    ...(policy.tactical ? { tacticalTrials } : {}),
+    ...(config.observe ? { observations: observations.map(({ snapshot, ...meta }) => ({ ...meta, ...snapshot() })) } : {}) } };
 }
 
 export function policyMetrics(result) {

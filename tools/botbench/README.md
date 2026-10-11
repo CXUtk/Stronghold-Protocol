@@ -237,3 +237,31 @@ Use `comparisonCompatibility(a, b)` before comparing totals across batches: data
 and complete baseline results must agree. Different seeds are not a paired comparison. Every new development and
 validation batch should include `baseline` and the current best policy, not just a favorable comparison to an old
 baseline. Archive the matching source revision and atlas alongside the raw results for future reproduction.
+
+### Tactical rehearsal ablations
+
+The next offline candidates inherit `build-team-tanks`. `build-team-context` fills the rehearsal's read-only public
+prep facts (`contentInfo`), including alive teammate bands. Without that input, an anchor's isolated rehearsal does
+not see a Touch teammate's map medic. `build-team-live` additionally enables real in-trial layer growth; no trial
+result is settled into the match. `build-team-carry` ranks counted leaks first, then surviving operator proportion
+and remaining HP, with a small kill tie-break. Stack counts of different bonds are not summed into an arbitrary
+reward: their actual combat effects influence the trial. All existing candidate IDs remain frozen comparisons.
+
+`build-team-terrain` adds a sixth layout proposal that shares measured HPS over threatened allies in actual rotated
+healing ranges, includes the stage's map-medic slot, and penalizes uncovered infection damage. It retains ordinary
+route exposure and lets the real battle decide whether the safer plan loses too much damage. `build-team-hazard`
+adds this proposal only on infection stages, with a fourfold deficit penalty. These are experimental coefficients,
+not game rules. The heuristic is approximate (partial greedy lineups, stationary HPS capacity, no full skill healing
+coverage); the true trial includes routes, terrain buffs, skills, bonds and current layers. More layers or less own
+leakage does not necessarily mean less human LP loss. Do not enable a candidate merely because it sounds plausible.
+
+The optional Match-instance callbacks `botLayoutAdjustment` and `botRehearsalScore` are injected by these offline
+tools only; absent callbacks preserve the original path. There is no new environment/server default or network API.
+Public rehearsal context is a prep snapshot, not a full replay of potentially stateful `onBattleStart` meta hooks;
+effects/grants at prep end remain a known approximation. Formal simulation rules are unchanged.
+
+`runSupportPolicy({ ...config, observe: true }, id)` records actual healing amounts/source-target totals, terrain
+damage, knockdowns and half-second samples of injured/infection exposure. Its uncovered time measures ordinary
+healer target-range eligibility, not all skill/bard healing; use actual received healing alongside it. Observation
+is opt-in and tested for complete-match parity. Rehearsal diagnostics include candidate boards, map medics, carry
+state and per-bond gains. All raw batches, including regressions, remain in the experiment archive.
