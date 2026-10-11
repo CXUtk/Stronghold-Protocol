@@ -9,6 +9,7 @@
 
 import { PHASE, ERR } from '../../../shared/constants.js';
 import { snapFrame } from '../fields.js';
+import { battleDamageStats, completedDamageStats } from '../../../shared/combatStats.js';
 import { OK, fail } from './common.js';
 
 export class MatchWatch {
@@ -228,7 +229,10 @@ export class MatchWatch {
       let meta;
       try { meta = f.battle.fieldMeta(); } catch (e) { this.reportError('fieldMeta', e); return; }
       this.sendTo(playerId, { t: 'm.field', ...meta, fieldId: f.fieldId, kind: f.kind, live: !!f.live });
-      try { this.sendTo(playerId, snapFrame(f.fieldId, f.battle.snapshot())); } catch (e) { this.reportError('snapshot', e); }
+      try {
+        this.sendTo(playerId, snapFrame(f.fieldId, { ...f.battle.snapshot(), damage: battleDamageStats(f.battle,
+          f.kind === 'unite' ? completedDamageStats(this.lastResults, f.players) : []) }));
+      } catch (e) { this.reportError('snapshot', e); }
       return;
     }
     if (typeof fieldId === 'string' && fieldId.startsWith('n:')) {

@@ -489,6 +489,10 @@ recorded for the player whose half contains the goal it reached, with `sourcePla
 - `damageDealt` and `unitStats[].dmg` count only HP removed from the other side: a unit's own drain or 流失 (源石溶剂,
   史尔特尔 S3 …) and friendly damage (the drain on 炎佑) count as the target's `taken`, never as damage dealt; the kill
   credit is unchanged (`damage.js applyHpLoss`).
+- Read-only live reporting: `shared/combatStats.js battleDamageStats(battle, baseline)` projects the same unit damage
+  counters without building a result or reading `Unit.s`. The round damage panel retains downed operators, aggregates
+  summons per player/type and adds completed normal-battle statistics when entering Unite. The projection is outside
+  `Battle.snapshot()` and `BattleResult`; it changes neither the sim nor its golden digests.
 
 ### 1.4 Robustness
 

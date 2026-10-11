@@ -33,7 +33,8 @@ export function snapHud(snap) {
   let boss = null;
   if (isObj(snap.boss) && Number.isFinite(snap.boss.hp)) boss = { hp: snap.boss.hp, max: n(snap.boss.max) ?? n(snap.boss.maxHp) };
   const killed = n(snap.killed);
-  return { killed, resolved: n(snap.resolved) ?? killed, total: n(snap.total), dp: n(snap.dp), boss };
+  return { killed, resolved: n(snap.resolved) ?? killed, total: n(snap.total), dp: n(snap.dp), boss,
+    ...(isObj(snap.damage) ? { damage: snap.damage } : {}) };
 }
 
 /** Boss HP fraction 0..1 (null when unknown). */

@@ -19,6 +19,7 @@ import { settingsStore } from '/js/ui/settings.js';
 import { awayStore } from '/js/ui/matchChrome.js';
 import { GAME_FILES } from '/js/ui/gameComponents.js';
 import { PHASE, GEO } from '/shared/constants.js';
+import { battleDamageStats } from '/shared/combatStats.js';
 
 const params = new URLSearchParams(location.search);
 const SHOT = params.get('shot') === '1';
@@ -485,7 +486,7 @@ function startCombat(phase) {
   // every field — 联防 too — is fought on the round's battlefield (server unite.js; 0.2.0's escaped-level map withdrawn)
   const field = { fieldId, kind, rect, stageId: pub.stageId, units: units.map((u) => ({ ...u })) };
   store.patch('match', { field });
-  const allyState = units.map((u) => ({ ...u, hp: u.maxHp * (0.55 + rnd() * 0.45), sp: rnd() * 20, spMax: 20 }));
+  const allyState = units.map((u) => ({ ...u, stats: { dmg: 0 }, hp: u.maxHp * (0.55 + rnd() * 0.45), sp: rnd() * 20, spMax: 20 }));
   const t0 = performance.now();
   const total = enemies.length;
   let killed = phase === PHASE.SETTLE ? total : 0;
@@ -511,6 +512,7 @@ function startCombat(phase) {
       if (!liveEnemies.length || rnd() > 0.2) continue;
       const tgt = liveEnemies[Math.floor(rnd() * liveEnemies.length)];
       const dmg = Math.round(200 + rnd() * 700);
+      a.stats.dmg += Math.min(Math.max(0, tgt.hp), e2boss(tgt) ? dmg * 3 : dmg);
       tgt.hp -= e2boss(tgt) ? dmg * 3 : dmg;
       ev.push(['atk', a.id, tgt.id, 'arrow'], ['dmg', tgt.id, dmg, rnd() < 0.3 ? 'arts' : 'phys']);
       a.sp = (a.sp + 1) % a.spMax;
@@ -524,6 +526,8 @@ function startCombat(phase) {
     ];
     // wire frames exactly like server/match/fields.js: `t` is the frame type, game time travels as `gt`; b.ev first
     const snap = { t: 'b.snap', fieldId: fieldRef.id, gt: t, units: snapUnits, dp: Math.min(99, 10 + Math.floor(t)), killed, total };
+    snap.damage = battleDamageStats({ fieldId: fieldRef.id, round: S.pub.round, kind, time: t, finished: phase === PHASE.SETTLE,
+      players: PLAYERS.map((p) => ({ playerId: p.playerId, units: allyState.filter((u) => u.ownerId === p.playerId) })) });
     if (boss) snap.boss = { hp: S.pub.bossHp.hp, max: S.pub.bossHp.max };
     if (ev.length) net._emit('b.ev', { t: 'b.ev', fieldId: fieldRef.id, gt: t, ev });
     net._emit('b.snap', snap);

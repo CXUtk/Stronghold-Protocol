@@ -16,6 +16,37 @@ import { DATA, makeMatch } from './harness.js';
 
 const DS = new DataSource(DATA, null);
 
+test('round damage follows the shown field, carries the Unite baseline and observing cannot change a result', async () => {
+  const start = realStart(7313);
+  const r = rig();
+  r.net.emit('b.start', start);
+  await r.settle();
+  const e = r.runner._entries.get(start.battleId);
+  const u = e.battle.players.flatMap((p) => p.units).find((x) => x.kind === 'op');
+  assert.ok(u);
+  assert.equal(r.runner.damageStats('unrelated'), null);
+  const reference = specMod.createBattleFromSpec(start.spec, DS, { recordEvents: false }).runToEnd(4000);
+  for (let i = 0; i < 500 && !e.battle.finished; i++) {
+    r.runner.damageStats(start.fieldId);
+    r.advance(1000, 100);
+  }
+  assert.deepEqual(e.battle.result(), reference, 'frequent reads leave the exact battle result intact');
+  const report = r.runner.damageStats(start.fieldId);
+  assert.equal(report.finished, true);
+  const player = reference.perPlayer[u.ownerId];
+  assert.equal(report.units.find((x) => x.uid === u.uid && x.ownerId === u.ownerId).dmg, player.unitStats.find((x) => x.uid === u.uid).dmg);
+  r.runner.clear();
+  const unite = { ...start, battleId: `${start.battleId}-u`, kind: 'unite', fieldId: 'u',
+    spec: { ...start.spec, kind: 'unite', fieldId: 'u' },
+    roundDamageBase: [{ id: u.id, uid: u.uid, ownerId: u.ownerId, kind: 'op', defId: u.defId, name: u.name, dmg: 321 }] };
+  r.net.emit('b.start', unite);
+  await r.settle();
+  assert.equal(r.runner.damageStats('u').units.find((x) => x.uid === u.uid).dmg, 321, 'normal-battle damage is present before Unite starts attacking');
+  r.runner.clear();
+  assert.equal(r.runner.damageStats(), null);
+  r.runner.dispose();
+});
+
 function fakeNet() {
   const handlers = new Map();
   const n = {

@@ -98,6 +98,12 @@ Piece = { uid, kind: 'chess'|'item'|'token', id, golden: bool, tier, items: [ { 
 - `m.public.fields[]` gains `progress: { killed, resolved, total, done }`; `m.public.combatMode`; `m.public.paused: boolean` (always present; solo pause below).
 - `b.snap` / `b.ev` are **not sent for combat** in client mode. `g.watch` rules: see Spectating.
 
+Display-only round damage: Unite `b.start.roundDamageBase` lists the helpers' completed normal-battle unit statistics
+with `ownerId`, taken from the current round's accepted results. It is outside the BattleSpec and never enters the
+simulation or result validation. The runner combines it with live `Unit.stats.dmg`; legacy streaming adds the same
+report to wire `b.snap.damage` (fieldId, round, kind, time, finished, units). Mid-battle watching/resync includes this
+data too. The in-match damage panel reads it at 250 ms intervals while open, scoped to the displayed field/round.
+
 **顶栏胶囊 (the top bar's 击倒 / 漏掉 counter; PR #157, official reading).** The capsule shows `resolved / total`:
 - `total` = the enemies **this field itself scheduled** (`Battle` `total`: the `spawns` the match built, `inTotal`) that count — `countInTotal: false`, `tag: 'boss'` / `'part'` and data `notCountInTotal` entries stay out, like the 领袖 of a boss field.
 - `resolved` = `min(total, killedInTotal + leakedInTotal)` (`Battle.resolved`): that same set's enemies that are 已解决 — knocked down (`killedInTotal`) **or** leaked (`leakedInTotal`). Official: 开局 0/3 → 漏一个 1/3 → 打死一个 2/3 → 打死会分裂的 3/3.

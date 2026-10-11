@@ -53,6 +53,7 @@
 //   battleRunner.state()  → { battleId, fieldId, kind, authoritative, watch, done, own, members, loading, paused, leaks,
 //                              uniteLeft, bondLayers } | null
 //   battleRunner.stats()  → { ticks, stepMs, avgTickMs, maxFrameMs, catchups, errors, battles }
+//   battleRunner.damageStats(fieldId?) → current-round damage on the shown field (normal + Unite), read-only | null
 //   battleRunner.unitStats(unitId, fieldId?) → the live stats of a unit of the battle on screen (shared/protocol.js
 //                           unitStatsEntry: current HP, effective max HP / ATK / DEF / RES / interval / block / move
 //                           speed next to its base; an ally also its live attack range `range` — unit.liveRangeGrid,
@@ -71,6 +72,7 @@
 import { net as appNet } from '../net.js';
 import { store as appStore } from '../store.js';
 import { unitStatsEntry, fxForm } from '../../../shared/protocol.js';
+import { battleDamageStats } from '../../../shared/combatStats.js';
 import { spectateEffects } from './observe.js';
 import { recordError, setBattleSource } from '../diag.js';
 
@@ -655,6 +657,7 @@ export function createBattleRunner(deps) {
     }
     const e = {
       battleId: msg.battleId, fieldId: msg.fieldId || msg.spec.fieldId, kind: msg.kind || msg.spec.kind, spec: msg.spec,
+      damageBase: Array.isArray(msg.roundDamageBase) ? msg.roundDamageBase : [],
       // built by prepare(); `seq` = its latest b.start, `elapsed` = the field clock to start from, `endReason` = the first
       // forced / timeout b.end (applied once the Battle exists), `ready` = the preparation (a promise)
       sim: null, battle: null, meter: null, seq, elapsed: Number(msg.elapsed) || 0, endReason: null, ready: null,
@@ -841,6 +844,12 @@ export function createBattleRunner(deps) {
     },
     stats() {
       return { ...stats, avgTickMs: stats.ticks ? stats.stepMs / stats.ticks : 0, entries: entries.size, loadingSim: !!simP };
+    },
+    /** Actual damage of the field on screen, with completed normal-battle damage carried into Unite. Read-only. */
+    damageStats(fieldId = null) {
+      const e = cur;
+      if (!e || !e.battle || (fieldId != null && e.fieldId !== fieldId)) return null;
+      return battleDamageStats(e.battle, e.damageBase);
     },
     /**
      * Live stats of unit `unitId` of the battle on screen (null: no such battle / unit, or `fieldId` names another
