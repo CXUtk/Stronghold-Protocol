@@ -35,11 +35,11 @@ const FORMS_ALL = [[5, false, null], [6, false, null], ...[5, 6].flatMap((t) => 
 const label = ([tier, elite, mod]) => `T${tier} ${elite ? 'elite' : 'normal'} ${mod ?? 'none'}`;
 
 /** 阿斯卡纶 as uid 1 at (row, col) facing RIGHT, plus `others`. */
-function field({ tier = 5, elite = false, mod = null, skill = 0, row = 10, col = 5, others = [], seed = 5 } = {}) {
+function field({ tier = 5, elite = false, mod = null, skill = 0, row = 10, col = 5, items = [], others = [], seed = 5 } = {}) {
   const h = makeBattle({
     defs: { enemies: ENEMIES }, timeLimit: 900, autoFinish: false, seed,
     flags: { dpPerSec: 0, dpMax: 999 }, hooks: ['damaged', 'skillStart', 'skillEnd', 'statusApplied', 'death', 'attack', 'heal', 'dodge'], captureNoisy: true,
-    units: [{ uid: 1, diy: { slot: SLOT[tier], charId: ASC, skillIndex: skill, uniEquipId: mod }, elite, row, col }, ...others],
+    units: [{ uid: 1, diy: { slot: SLOT[tier], charId: ASC, skillIndex: skill, uniEquipId: mod }, elite, row, col, items }, ...others],
   });
   h.step();
   return { h, u: h.unit(1) };
@@ -156,6 +156,39 @@ test('T1 死亡拘审: every hit of her attacks adds a layer (≤ 3, the duratio
     h.b.retreat(u);
     assert.equal(e.findBuff(key), null, 'ends the moment she leaves');
     done(h);
+  }
+});
+
+test('死亡拘审 ticks proc 谢拉格不融冰 independently of attacks in every 自选 form, with the normal/golden probability and no extra talent layers', () => {
+  for (const f of FORMS_ALL) {
+    const [tier, elite, mod] = f;
+    for (const [item, pr] of [['chess_item_5_02_e_a', 0.12], ['chess_item_5_02_e_b', 0.2]]) {
+      for (const [roll, want] of [[pr - 0.001, true], [pr, false]]) {
+        const { h, u } = field({ tier, elite, mod, skill: 1, items: [item] });
+        noSkill(h, u);
+        let rolls = 0;
+        h.b.rng = Object.assign(() => { rolls++; return roll; }, h.b.rng);
+        const e = h.spawn('enemy_dummy', { pos: [10, 6] });
+        assert.ok(h.runUntil(() => e.findBuff(dreadKey(u)), 6), 'one real attack applies 死亡拘审');
+        assert.equal(!!e.findBuff('cold'), want, `${label(f)} ${item}: ordinary attack control`);
+        const attacks = h.hooksOf('attack').length, damage = h.hooksOf('damaged').length, statuses = h.hooksOf('statusApplied').length;
+        rolls = 0;
+        h.b.removeBuff(e, 'cold');
+        h.b.addBuff(u, { key: 'test:disarm', flags: { disarm: true } });
+        h.run(12);
+        const ticks = h.hooksOf('damaged').slice(damage).filter(c => c.source === u && c.target === e && c.dmg?.tags.includes(DREAD_TAG));
+        const cold = h.hooksOf('statusApplied').slice(statuses).filter(c => c.source === u && c.target === e && (c.status === 'cold' || c.status === 'freeze'));
+        assert.equal(h.hooksOf('attack').length, attacks, 'no further attacks during the isolated talent ticks');
+        assert.equal(ticks.length, 12, `${label(f)} ${item}: 12 actual DoT hits`);
+        assert.ok(ticks.every(c => c.amount > 0 && !c.dmg.isAttack), 'DoT keeps its damage classification');
+        assert.equal(rolls, 12, 'one independent probability roll per talent damage tick');
+        assert.equal(cold.length, want ? 12 : 0, `${label(f)} ${item} roll ${roll}: one roll per talent tick`);
+        assert.ok(cold.every(c => c.duration === 1.5), 'both qualities keep 1.5 s cold');
+        assert.equal(!!e.findBuff('freeze'), want, 'successive cold procs can freeze');
+        assert.equal(e.findBuff(dreadKey(u)).data.n, 1, 'cold procs do not add 死亡拘审 layers');
+        done(h);
+      }
+    }
   }
 });
 

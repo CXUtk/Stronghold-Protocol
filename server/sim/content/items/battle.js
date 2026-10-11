@@ -642,12 +642,17 @@ const BY_ITEM = {
     const pr = p ? num(p.prob) : 0;
     if (pr > 0) onAttackEnemies(S, u, (t) => { if (chance(battle, pr)) battle.applyStatus(t, 'palsy', { value: 1, source: u }); });
   },
-  // 谢拉格不融冰: on attack prob ⇒ 寒冷 `cold` s
+  // 谢拉格不融冰: PRTS 盟约记录 corrects "攻击时" to "造成伤害时" (the game text differs from its behaviour).
+  // Roll on each sourced damage instance, including talent DoT, without making that damage an attack.
   chess_item_5_02_e(battle, u, rec, S) {
     const p = bp(rec, 'act1vautochess_equip_acarm003_global_buff');
     if (!p) return;
     const pr = num(p.prob), d = num(p.cold);
-    if (pr > 0 && d > 0) onAttackEnemies(S, u, (t) => { if (chance(battle, pr)) battle.applyStatus(t, 'cold', { duration: d, source: u }); });
+    if (pr > 0 && d > 0) S.on('damaged', (c) => {
+      const t = c.target;
+      if (c.source !== u || c.type === 'element' || !(c.amount > 0) || isHpLoss(c.dmg) || isProc(c.dmg) || !t || t.side !== 'enemy' || !hasHp(t)) return;
+      if (chance(battle, pr)) battle.applyStatus(t, 'cold', { duration: d, source: u });
+    });
   },
   // 双模机械臂: physical/arts damage becomes 弱点伤害 (whichever type the target resists less)
   chess_item_5_03_e(battle, u, rec, S) {

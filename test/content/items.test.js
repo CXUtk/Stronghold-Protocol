@@ -421,6 +421,61 @@ test('催泪瓦斯 / 谢拉格不融冰: attacks proc 麻痹 (3 % / 5 %) and 寒
   }
 });
 
+test('谢拉格不融冰: each sourced physical/arts/true damage instance rolls its own 12 % / 20 % chance, without an attack event', () => {
+  for (const [id, pr] of [[A('5_02'), 0.12], [B('5_02'), 0.2]]) {
+    for (const [roll, want] of [[pr - 0.001, true], [pr, false]]) {
+      const h = fight({ units: [{ chessId: 't_op', row: 10, col: 4, items: [id] }], foes: [[10, 9]] });
+      h.step();
+      const u = h.unit('t_op'), e = foe(h);
+      let rolls = 0;
+      h.b.rng = Object.assign(() => { rolls++; return roll; }, h.b.rng);
+      for (const type of ['phys', 'arts', 'true']) {
+        h.b.removeBuff(e, 'cold');
+        assert.ok(h.b.dealDamage(u, e, { amount: 500, type, canDodge: false, tags: ['talent', 'dot'] }) > 0);
+        assert.equal(!!e.findBuff('cold'), want, `${id} ${type} roll ${roll}`);
+        if (want) close(e.findBuff('cold').timeLeft, 1.5, 'cold duration');
+      }
+      assert.equal(rolls, 3, 'one probability check per damage instance');
+      assert.equal(h.hooksOf('attack').length, 0, 'no attack event is required');
+      checkInvariants(h.b);
+    }
+  }
+});
+
+test('谢拉格不融冰: no proc for HP loss, elemental buildup, zero/shielded damage, sourceless damage, item procs or another source', () => {
+  const h = fight({ units: [{ uid: 1, chessId: 't_op', row: 10, col: 4, items: [A('5_02')] },
+    { uid: 2, chessId: 't_op', row: 11, col: 4 }], foes: [[10, 9]] });
+  h.step();
+  const u = h.unit(1), other = h.unit(2), e = foe(h);
+  let rolls = 0;
+  h.b.rng = Object.assign(() => { rolls++; return 0; }, h.b.rng);
+  h.b.dealDamage(u, e, { amount: 0, type: 'true' });
+  h.b.addBuff(e, { key: 'test:shield', shield: 1000 });
+  h.b.dealDamage(u, e, { amount: 100, type: 'true' });
+  h.b.removeBuff(e, 'test:shield');
+  h.b.loseHp(e, 100, { source: u });
+  h.b.dealDamage(u, e, { amount: 1, type: 'element', element: 'burn' });
+  h.b.dealDamage(u, e, { amount: 100, type: 'true', sourceless: true });
+  h.b.dealDamage(u, e, { amount: 100, type: 'true', tags: ['item', 'item:pegasus'] });
+  h.b.dealDamage(other, e, { amount: 100, type: 'true' });
+  h.b.dealDamage(u, other, { amount: 100, type: 'true' });
+  assert.equal(rolls, 0, 'excluded events neither roll nor proc');
+  assert.equal(!!e.findBuff('cold'), false);
+  assert.equal(!!other.findBuff('cold'), false);
+  checkInvariants(h.b);
+});
+
+test('谢拉格不融冰: coexisting normal/golden copies each roll once per damage instance and can freeze together', () => {
+  const h = fight({ units: [{ chessId: 't_op', row: 10, col: 4, items: [A('5_02'), B('5_02')] }], foes: [[10, 9]] });
+  h.step();
+  let rolls = 0;
+  h.b.rng = Object.assign(() => { rolls++; return 0; }, h.b.rng);
+  h.b.dealDamage(h.unit('t_op'), foe(h), { amount: 100, type: 'arts', canDodge: false, tags: ['dot'] });
+  assert.equal(rolls, 2);
+  assert.ok(foe(h).findBuff('freeze'));
+  checkInvariants(h.b);
+});
+
 test('双模机械臂: physical / arts damage is dealt as whichever the target resists less (弱点伤害)', () => {
   for (const id of [A('5_03'), B('5_03')]) {
     const h = fight({ units: [{ chessId: 't_op', row: 10, col: 3, items: [id] }], foes: [[10, 8, 'e_def'], [10, 9, 'e_res']],

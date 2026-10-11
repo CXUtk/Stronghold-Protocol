@@ -243,3 +243,8 @@ tile and attack-reach checks. Hand/temp rows, empty halves in single-player mode
 The general `onOwnBoard`/`onFieldBoard` contracts, other movement, summons and preparation placement remain unchanged.
 
 香槟炸弹 also rejects ordinary allied auras and inspiration as a device, through its shared internal selection barrier (§29.11). This does not isolate other unhealable summons or alter its detonation.
+
+谢拉格不融冰 rolls on each positive sourced enemy-damage instance, including talent DoT such as 阿斯卡纶's 死亡拘审,
+not the attack action (§29.17; PRTS 盟约记录 corrects the game's "攻击时" to "造成伤害时"). Normal/golden copies roll
+independently at 12%/20% and apply 1.5 s cold. Gauge buildup, HP loss, sourceless damage and the existing item-proc
+exclusion do not trigger it. This does not classify talent ticks as attacks or change their layer application.
