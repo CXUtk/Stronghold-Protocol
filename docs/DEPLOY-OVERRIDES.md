@@ -33,4 +33,13 @@
 - 回归测试：`test/content/bonds_core.test.js` 的叙拉古用例同步覆盖增益到期、再次部署，以及隐匿结束后 10 秒内 / 外的触发行为；此前与 ×1.3 冲突的两个时长断言在本次一起修正。
 - 验证结果：相关 42 项测试、31 项文档检查通过；Golden 更新后复核 285 个场景全部通过。因叙拉古增益更早结束，12 个场景的战斗过程或结算基准更新：`bond-siracusaShip-low`、`bond-soloShip-low`（其中含叙拉古成员）、`solo-NORMAL-1`、`solo-HARD-1`、`solo-ABYSS-1`、`coop2-NORMAL-3`、`coop2-HARD-4`、`coop3-ABYSS-5`、`coop4-FUNNY-6`、`coop4-ABYSS-7`、`coop2-NORMAL-8-serverrun`、`coop2-NORMAL-70-diy`。ESLint 无错误，仅保留 `fields.js` 原有的 3 项警告。
 
+## 与上游 0.2.4 同步（2026-10-11）
+
+- 上游基线更新为 `bc50cac0`（0.2.4）。干员伤害公告中的自选／补位名称改用上游实现，移除本地重复实现和测试。
+- 保留上述 Boss 侵蚀、联防倒地阿戈尔重新部署和叙拉古 ×0.9 规则。
+- 继续保留歌蕾蒂娅赠卡数量 +1（普通／精锐，说明文字不变）；上游新增白面鸮复制歌蕾蒂娅时跳过三人条件，复制的特质仍沿用本分支的 +1 数量。复制余时不额外增加数量。
+- 保留买入快捷键、寒芒克洛丝连射视觉、小车左右轮换、AI 队友默认最后选择、逐火次数怪初始隐匿，以及敌人失去有效阻挡时的隐匿恢复修复。逐火初始隐匿仍是待原版实测确认的实现推导，上游暂未合入。
+- 本次只更新本地 Git 分支；服务器和正在运行的本地对局仍使用此前启动的版本。
+- 同步后的战斗基准以 0.2.4 为基线重算。保留的逐火隐匿、小车轮换、阻挡修复和部署规则使 31 个场景的事件、快照、时序或结算与纯上游不同：`roster-001`、`roster-003`、`roster-011`、`roster-012`、`roster-013`、`roster-016`、`roster-024`、`roster-025`、`roster-031`、`roster-034`、`roster-042`、`roster-047`、`bond-maniShip-high`、`bond-soloShip-low`、`hidden-boss_9-pair`、`hidden-boss_9-solo`、`solo-ABYSS-1`、`solo-ABYSS-2`、`coop2-NORMAL-3`、`coop2-HARD-4`、`coop3-ABYSS-5`、`coop4-FUNNY-6`、`coop4-ABYSS-7`、`coop2-NORMAL-8-serverrun`、`coop2-ABYSS-10-boosted`、`coop2-NORMAL-70-diy`、`coop2-NORMAL-1-coverage-standins`、`coop2-NORMAL-5-coverage-diy`、`standin-04`、`diy-030`、`diy-084`。其他 256 个场景与上游一致。本次 219 项相关测试及全部 287 个战斗基准复核通过，类型检查通过。
+
 上述规则是否已部署以工作区运维文档中的部署记录为准；正在运行的对局继续使用启动时加载的代码。

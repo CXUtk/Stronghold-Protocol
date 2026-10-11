@@ -34,7 +34,7 @@
 import { TICK, SNAPSHOT_EVERY } from '../sim/constants.js';
 import { layerGainRoom } from '../../shared/constants.js';
 import { uniteLeft } from '../sim/spec.js';
-import { diyRecordOf, diyTokenOwner } from '../../shared/diy.js';
+import { diyTokenOwner, diyRecordOf } from '../../shared/diy.js';
 
 export const MAX_TICKS_PER_INTERVAL = 8;
 export const INTERVAL_MS = 1000 / 30;
@@ -687,17 +687,12 @@ export function specBounds(spec, gd = null) {
       if (!u || !Number.isInteger(u.uid)) continue;
       const defId = u.kind === 'token' ? u.tokenId : u.chessId;
       all.set(u.uid, defId);
-      if (typeof defId === 'string') defIds.add(defId);
-      // Display the body this player actually fields, from the server's battle input — never a reported name.
-      // Different players can fill the same DIY slot with different operators, or field a chess as its stand-in.
       if (gd) {
-        let rec = u.kind === 'token' ? gd.token?.(defId) : gd.chess?.(defId);
-        if (u.kind !== 'token') {
-          if (u.standIn === true) rec = gd.standIn?.(defId) || rec;
-          else if (u.diy) rec = diyRecordOf(rec, u.diy, gd.raw) || rec;
-        }
-        if (rec && typeof rec.name === 'string') names.set(u.uid, rec.name);
+        const base = gd.chess?.(defId) || gd.token?.(defId);
+        const rec = u.standIn === true ? gd.standIn?.(defId) : u.diy && base?.isDiy ? diyRecordOf(base, u.diy, gd.raw) : base;
+        if (typeof rec?.name === 'string') names.set(u.uid, rec.name);
       }
+      if (typeof defId === 'string') defIds.add(defId);
       if (u.kind !== 'token') {
         chess.set(u.uid, defId);
         if (gd) for (const t of summonsOf(gd, defId)) defIds.add(t);
@@ -885,9 +880,8 @@ export function validateClientResult(spec, raw, { gd = null } = {}) {
         if (!onBoard && gd && !own.defIds.has(defId)) continue;
         const rec = gd ? (gd.chess?.(defId) || gd.token?.(defId)) : null;
         if (gd && !rec) continue;
-        const name = (onBoard ? own.names.get(u.uid) : null) ?? (rec && typeof rec.name === 'string' ? rec.name : defId);
         unitStats.push({
-          uid: Number.isInteger(u.uid) ? u.uid : null, defId, name, kind: u.kind === 'token' ? 'token' : 'op',
+          uid: Number.isInteger(u.uid) ? u.uid : null, defId, name: (onBoard && own.names.get(u.uid)) || (typeof rec?.name === 'string' ? rec.name : defId), kind: u.kind === 'token' ? 'token' : 'op',
           dmg: Math.max(0, Number(u.dmg) || 0), kills: Math.max(0, Math.trunc(Number(u.kills) || 0)), heal: Math.max(0, Number(u.heal) || 0),
           taken: Math.max(0, Number(u.taken) || 0), attacks: Math.max(0, Math.trunc(Number(u.attacks) || 0)),
         });

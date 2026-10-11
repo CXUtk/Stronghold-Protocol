@@ -22,6 +22,23 @@ import { DATA, makeMatch, checkInvariants } from './harness.js';
 
 const gd = new GameData(DATA, 'mode_multi_hard');
 
+test('client result names DIY and stand-in operators from the authoritative lineup, never the client or empty slot (#469)', () => {
+  const ordinary = Object.values(DATA.chess).find(c => c.visible && !c.isGolden && gd.standIn(c.chessId));
+  const cases = [
+    { chessId: 'chess_char_6_diy1_a', diy: { charId: 'char_4231_clemnt', skillIndex: 2, uniEquipId: null }, expected: '克莱门莎' },
+    { chessId: ordinary.chessId, standIn: true, expected: gd.standIn(ordinary.chessId).name },
+  ];
+  for (const { expected, ...unit } of cases) {
+    const spec = buildBattleSpec({ battleId: 'names', fieldId: 'n:p', kind: 'normal', seed: 1, round: 3, timeLimit: 60,
+      players: [{ playerId: 'p', units: [{ uid: 7, kind: 'chess', row: 10, col: 3, items: [], ...unit }], bonds: {} }],
+      spawns: [{ enemyKey: plainKey, count: 1, time: 1 }], flags: { layerGainsEnabled: true } });
+    const raw = { reason: 'cleared', time: 20, killed: 1, total: 1, errors: 0,
+      perPlayer: { p: perPlayer({ killed: 1, total: 1, unitStats: [{ uid: 7, defId: 'forged', name: 'forged', kind: 'op', dmg: 1e6 }] }) } };
+    const v = validateClientResult(spec, raw, { gd }); assert.ok(v.ok, v.reason);
+    assert.equal(v.result.perPlayer.p.unitStats[0].name, expected);
+  }
+});
+
 test('eliminated humans auto-observe the first field at COMBAT start (display replica) and may switch freely', () => {
   const h = makeMatch({ mode: 'coop', humans: 3, bots: 1, seed: 9301, fake: true, clientCombat: true, instant: false, pace: 'paced',
     script: () => ({ duration: 6 }) }).start();
@@ -473,64 +490,4 @@ test('CHAR_DAMAGE tickers: a client result names only its own unit types (board,
   assert.ok(v.ok, v.reason);
   assert.deepEqual(v.result.perPlayer.p.unitStats.map((u) => u.defId), [vigil, wolf, 'enemy_9012_acloon']);
   m.dispose();
-});
-
-test('client result names follow each player\'s DIY pick and stand-in, ignoring client-supplied names', () => {
-  const slot = 'chess_char_5_diy1_a';
-  const elite = 'chess_char_5_diy1_b';
-  const silver = 'chess_char_4_22_a';
-  const vigil = 'chess_char_3_19_a';
-  const wolf = 'token_10028_vigil_wolf';
-  const unit = (uid, chessId, extra = {}) => ({ uid, kind: 'chess', chessId, row: 10, col: 3, items: [], ...extra });
-  const spec = buildBattleSpec({ battleId: 'names', fieldId: 'u:p', kind: 'unite', seed: 1, round: 3, timeLimit: 60,
-    players: [
-      { playerId: 'p0', units: [
-        unit(7, slot, { diy: { charId: 'char_4231_clemnt', skillIndex: 1 } }),
-        unit(8, elite, { diy: { charId: 'char_4231_clemnt', skillIndex: 1 } }),
-        unit(9, silver, { standIn: true }), unit(10, vigil),
-      ], bonds: {} },
-      { playerId: 'p1', units: [unit(11, slot, { diy: { charId: 'char_609_acguad' } }), unit(12, silver)], bonds: {} },
-    ], spawns: [], flags: { layerGainsEnabled: true } });
-  const stats = (p) => p.units.map((u) => ({ uid: u.uid, defId: 'forged', name: '<b>forged name</b>', kind: 'op', dmg: 500000 }));
-  const raw = { reason: 'cleared', time: 2, errors: 0, perPlayer: {
-    p0: perPlayer({ total: 0, unitStats: [...stats(spec.players[0]), { uid: null, defId: wolf, name: 'forged', kind: 'token', dmg: 500000 }] }),
-    p1: perPlayer({ total: 0, unitStats: stats(spec.players[1]) }),
-  } };
-  const v = validateClientResult(spec, raw, { gd });
-  assert.ok(v.ok, v.reason);
-  assert.deepEqual(v.result.perPlayer.p0.unitStats.map((u) => u.name), ['克莱门莎', '克莱门莎', 'Sharp', gd.chess(vigil).name, gd.token(wolf).name]);
-  assert.deepEqual(v.result.perPlayer.p1.unitStats.map((u) => u.name), ['Sharp', '银灰']);
-  assert.deepEqual(v.result.perPlayer.p0.unitStats.map((u) => u.defId), [slot, elite, silver, vigil, wolf]);
-});
-
-test('CHAR_DAMAGE tickers show the selected DIY operator after client result validation', async () => {
-  const { give, legalTileFor } = await import('./harness.js');
-  const slot = 'chess_char_5_diy1_a';
-  const tamper = (r) => {
-    for (const p of Object.values(r.perPlayer)) for (const u of p.unitStats) { u.dmg = 500000; u.name = 'forged'; }
-    return r;
-  };
-  const h = makeMatch({ mode: 'coop', difficulty: 'NORMAL', humans: 2, seed: 77, fake: true, clientCombat: true, instant: false,
-    perPlayer: { p_0: { tamper }, p_1: { tamper } }, script: () => ({ duration: 2 }) }).start();
-  try {
-    h.toPrep(1);
-    const picks = [{ charId: 'char_4231_clemnt', skillIndex: 1 }, { charId: 'char_609_acguad' }];
-    for (let i = 0; i < picks.length; i++) {
-      const ps = h.ps(`p_${i}`);
-      assert.equal(ps.setDiy({ [slot]: picks[i] }), true);
-      ps.initDiyStock(new Set());
-      give(h.m, ps, slot, 'board', legalTileFor(h.m, ps, slot));
-    }
-    const before = h.bc.length;
-    assert.ok(h.drive(() => h.m.phase === PHASE.SETTLE));
-    const tickers = h.bc.slice(before).filter((x) => x.t === 'm.ticker' && x.type === 'CHAR_DAMAGE');
-    assert.equal(tickers.length, 2);
-    for (const [pid, name] of [['p_0', '克莱门莎'], ['p_1', 'Sharp']]) {
-      const ticker = tickers.find((x) => x.playerId === pid);
-      assert.equal(ticker.args[1], name);
-      assert.ok(ticker.text.includes(name), ticker.text);
-      assert.ok(!ticker.text.includes('甄选干员'), ticker.text);
-    }
-    checkInvariants(h.m);
-  } finally { h.m.dispose(); }
 });
