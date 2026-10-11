@@ -66,6 +66,21 @@ Economy/shop/pool/merge/hand rules: exactly as research 00-INDEX §3–§4 (inco
 
 **Temp overflow (临时整备区, row 8; user playtest #3 item 3).** Passive gains that find the hand full (merge elites, grants — the operator a 突变细胞 transformation gains included, §21.1 —, battle-result rewards, equipment returned by a merged / sold / transformed carrier) overflow into the 5 temp slots, and Ready is refused while any is occupied (official "直到溢出情况排除才可开始进行作战"). A temp piece is resolved — a chess sold back to the pool with its summons removed, items destroyed, a summon stack removed (it comes back at the next round start, PRTS "干员所属召唤物会于下一回合返还", §20.1) — only at the deadline of the **first prep in which its player could act on it** (`PlayerState.tempDue(piece)` vs `prepsEnded`; every write into a temp slot goes through `_putTemp`, which records it): a piece that arrived during a prep before Ready is due at that prep's end; one that arrived after Ready or during the `<休整期结束时>` effects, or outside PREP (COMBAT, 联防, SETTLE — battle-result grants, a SETTLE merge's elite, returned equipment —, the next ROUND_START, 机变) is kept, visible and usable (move to a free hand slot, place, equip, use, destroy, sell) through the **next** prep. Un-readying (`setReady(false)`) makes whatever arrived while ready due at the current prep. ROUND_START no longer wipes temp (it used to destroy what SETTLE had put there before the player ever saw it). A merge's elite whose merge consumed a deployed copy takes that copy's tile and facing (§20.11); otherwise it goes to the hand, overflowing into temp (also outside PREP). `server/match/audit.js` (`tools/matchrun.mjs --check`) tracks the arrivals itself and flags any temp piece that outlives its due prep. The UI frames the row on the board with the rule (§17.5).
 
+**Equipment beyond temp (local fix).** The [PRTS help §手牌区](https://prts.wiki/w/卫戍协议/帮助) also describes
+hidden overflow after the temporary row fills. Equipment now waits in `PlayerState.itemOverflow`, then automatically
+refills a free hand or temporary slot; FIFO order is [ASSUMED]. This fix covers equipment only, without changing
+operator/summon overflow. Hidden items remain owned, occupy stock and participate in identical-item merges. The
+private view exposes only `overflowItemCount`; direct actions cannot address hidden items, and Ready counts them.
+Their arrival records the same deadline as visible temp; entering a visible temp slot preserves that deadline,
+entering the hand clears it, un-readying brings it forward, and elimination or the due prep end clears it.
+
+Fixed/manufactured equipment traits (including 缪尔赛思, 洛洛 and 诗怀雅) now grant their full count after 投资人
+multiplication even when shared stock is exhausted (`requirePool: false`). They still occupy stock and block ordinary
+shop draws/purchases until enough copies are released. [ASSUMED] This follows the corrected community account in
+[issue #488](https://github.com/sganggs/Stronghold-Protocol/issues/488), rather than an independent original-mode
+experiment. Explicit strategy grants using the same option retain the same semantics. Ordinary acquisitions and
+stock-gated random rewards keep their gates; guaranteed manufacturing draws use the existing pool weights.
+
 Pointing Stick creates at most one pending offer per alive, non-Ready player in PREP. The owner confirms it with
 `g.choice { idx, choiceId }`; confirmation validates its ID, round and index, adds one bounty and clears the offer.
 Ready requires no pending offer as well as an empty temp area. The co-op prep deadline resolves the offer randomly

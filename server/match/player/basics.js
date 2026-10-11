@@ -29,7 +29,7 @@ export class PlayerBasics {
 
   get deployCap() { return Math.max(1, this.gd.deployCap + this.deployCapBonus, this.deployCapMin); }
   get deployCount() { let n = 0; for (const p of this.board.values()) if (p.kind === 'chess') n++; return n; }
-  get tempEmpty() { return this.temp.every((x) => x == null); }
+  get tempEmpty() { return this.temp.every((x) => x == null) && this.itemOverflow.length === 0; }
 
   /**
    * Index of the prep whose deadline resolves a temp piece (compare with `prepsEnded`): recorded when the piece entered
@@ -52,6 +52,11 @@ export class PlayerBasics {
   /** Every write of a piece into a temp slot goes through here (records its due prep). */
   _putTemp(i, piece) {
     this.temp[i] = piece;
+    this._tempDue.set(piece.uid, this._tempDueNow());
+  }
+
+  _putItemOverflow(piece) {
+    this.itemOverflow.push(piece);
     this._tempDue.set(piece.uid, this._tempDueNow());
   }
 

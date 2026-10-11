@@ -222,6 +222,12 @@ describe('3: the temp overflow row (临时整备区)', () => {
     assert.deepEqual(tempInfo(null), { count: 0, items: 0 });
   });
 
+  test('hidden overflow equipment is included in the ready refusal count', () => {
+    const p = { ...priv([{ kind: 'chess' }, { kind: 'item' }]), overflowItemCount: 2, canReady: false };
+    assert.deepEqual(tempInfo(p), { count: 4, items: 3 });
+    assert.match(tempReadyReason(p), /^临时整备区还有 4 个单位：/);
+  });
+
   test('Ready shows the personal-choice reason and describes it even with no temp pieces', () => {
     for (const temp of [[], [{ uid: 1, kind: 'item' }]]) {
       const v = ReadyToggle({ priv: { ...priv(temp), canReady: false, personalChoice: { id: 'choice.1' } }, onToggle() {} });

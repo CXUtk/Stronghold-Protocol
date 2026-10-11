@@ -8,6 +8,8 @@
 //     grants, returned equipment) overflow into temp, and a free hand slot pulls them back in at once, right→left
 //     (_fillHandFromTemp at every recompute: "常规手牌区出现空位时自动移入"); temp blocks Ready ("直到溢出情况排除才可开始
 //     进行作战").
+//     Equipment beyond the five temp slots waits in itemOverflow (PRTS 帮助 §手牌区); a freed visible slot pulls it
+//     in. It still occupies equipment stock, participates in merges and follows the same prep deadline as temp.
 //     A temp piece is resolved (chess sold back to the pool, items destroyed, summon stacks removed — they come back at
 //     the next round start, grantTokensFor) at the deadline of the
 //     first prep in which the player could act on it (tempDue): a piece that overflowed during a prep before Ready
@@ -188,6 +190,8 @@ export class PlayerState {
     this.hand = new Array(HAND_SIZE).fill(null);
     /** @type {Array<any>} */
     this.temp = new Array(TEMP_SIZE).fill(null);
+    /** Items beyond the five visible temp slots; refill those slots when space opens (PRTS 手牌区). */
+    this.itemOverflow = [];
     /** preps of this player that ended so far (endPrep) = index of the current (or next) prep */
     this.prepsEnded = 0;
     /** @type {Map<number, number>} temp piece uid → index of the prep whose deadline resolves it (see tempDue) */

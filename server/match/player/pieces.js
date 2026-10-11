@@ -34,6 +34,8 @@ export class PlayerPieces {
       if (p.uid === uid) return { piece: p, area: 'board', key };
       if (p.items) for (const it of p.items) if (it.uid === uid) return { piece: it, area: 'equipped', holder: p };
     }
+    const idx = this.itemOverflow.findIndex((p) => p.uid === uid);
+    if (idx >= 0) return { piece: this.itemOverflow[idx], area: 'overflow', idx };
     return null;
   }
 
@@ -60,6 +62,11 @@ export class PlayerPieces {
     if (!loc) return;
     if (loc.area === 'hand') this.hand[loc.idx] = null;
     else if (loc.area === 'temp') { this.temp[loc.idx] = null; this._tempDue.delete(loc.piece.uid); }
+    else if (loc.area === 'overflow') {
+      const i = this.itemOverflow.indexOf(loc.piece);
+      if (i >= 0) this.itemOverflow.splice(i, 1);
+      this._tempDue.delete(loc.piece.uid);
+    }
     else if (loc.area === 'board') this.board.delete(loc.key);
     else if (loc.area === 'equipped') {
       const i = loc.holder.items.indexOf(loc.piece);
@@ -69,7 +76,8 @@ export class PlayerPieces {
 
   /**
    * Put a piece into the hand (right→left) or, when `allowTemp`, the temp slots (due at the deadline of the first prep
-   * in which the player can act on it, _tempDueNow). Returns 'hand' | 'temp' | null. A piece put into temp while a hand
+   * in which the player can act on it, _tempDueNow). Items beyond temp wait in the hidden itemOverflow buffer.
+   * Returns 'hand' | 'temp' | 'overflow' | null. A piece put into temp while a hand
    * slot is free (`toTemp`) moves into the hand at the next recompute (_fillHandFromTemp).
    */
   stow(piece, { allowTemp = true, toTemp = false, preferIdx = null } = {}) {
@@ -84,6 +92,10 @@ export class PlayerPieces {
     }
     const j = freeSlot(this.temp);
     if (j >= 0) { this._putTemp(j, piece); return 'temp'; }
+    if (allowTemp && piece.kind === 'item') {
+      this._putItemOverflow(piece);
+      return 'overflow';
+    }
     return null;
   }
 
@@ -94,7 +106,9 @@ export class PlayerPieces {
    * overflowed first moves first — and each piece takes the hand's next free slot right→left ("被发送至手牌区的物资优先
    * 从右到左填充空位"). recompute() runs it, so it follows every change that frees a slot: a sale, a deployment from the
    * hand, a merge that consumed hand copies, an item equipped / destroyed / used from the hand, a summon stack removed
-   * with its owner, an effect's destroyPiece… A piece that leaves temp is no longer due (tempDue). Returns the number
+   * with its owner, an effect's destroyPiece… Hidden equipment then refills any remaining hand/temp vacancy;
+   * FIFO order is [ASSUMED], since PRTS specifies automatic refill but no hidden-buffer order.
+   * A piece that leaves temp for the hand is no longer due (tempDue). Returns the number
    * moved.
    * @returns {number}
    */
@@ -107,6 +121,15 @@ export class PlayerPieces {
       if (i < 0) break;
       this._detach({ piece: p, area: 'temp', idx: j });
       this.hand[i] = p;
+      moved++;
+    }
+    // The hidden items are still owned. Refill oldest first, after moving the visible temp row into the hand.
+    while (this.itemOverflow.length) {
+      const i = freeSlot(this.hand), j = freeSlot(this.temp);
+      if (i < 0 && j < 0) break;
+      const p = this.itemOverflow.shift();
+      if (i >= 0) { this.hand[i] = p; this._tempDue.delete(p.uid); }
+      else this.temp[j] = p; // keep the original due prep while moving from hidden to visible overflow
       moved++;
     }
     return moved;

@@ -130,7 +130,7 @@ for (const golden of [false, true]) {
   });
 }
 
-test('Picture Scroll: a full hand — the copy and its items overflow into temp; an item with no slot left is destroyed like any gained item', (t) => {
+test('Picture Scroll: a full hand — copied equipment survives temp overflow and refills when the scroll is consumed', (t) => {
   for (const free of [3, 2]) {
     const { h, ps, target, cast } = prep(t, { copies: 1, items: ADV });
     while (ps.hand.some((p) => p == null)) assert.ok(ps.acquireItem(FILLER));
@@ -144,11 +144,8 @@ test('Picture Scroll: a full hand — the copy and its items overflow into temp;
     assert.deepEqual(copy.items, [], `free ${free}: the copy wears nothing`);
     assert.deepEqual(target.items.map((p) => p.id).sort(), [...ADV].sort());
     const got = looseItems(ps).filter((id) => id !== FILLER);
-    if (free === 3) assert.deepEqual(got, [...ADV].sort(), 'room for the copy and both items');
-    else {
-      assert.equal(got.length, 1, 'room for the copy and one item: the other is destroyed');
-      assert.ok(toasts().slice(before).some((s) => s.includes('整备区已满，获得的装备已销毁')), 'with the usual toast');
-    }
+    assert.deepEqual(got, [...ADV].sort(), 'both items remain: consuming the scroll frees a slot for hidden overflow');
+    assert.ok(!toasts().slice(before).some((s) => s.includes('整备区已满，获得的装备已销毁')));
     h.invariants();
   }
 });

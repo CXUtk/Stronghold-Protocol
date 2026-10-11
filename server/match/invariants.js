@@ -4,7 +4,8 @@
 //
 // collectViolations(m) → string[] (empty when every invariant holds):
 //   pool     raw balance ≤ cap and raw balance + Σ copies held by pieces == cap (public availability is clamped at zero) per base chess; non-pool chess hold 0 copies;
-//            every capped shop item is held by at most its cap (normal occupies 1, upgraded 2; effect-only items have no cap)
+//            capped equipment's ordinary copies ≤ cap; guaranteed products may exceed it (normal occupies 1,
+//            upgraded 2; effect-only items have no cap); hidden overflow still occupies stock
 //            a player's 自选 stock (0.2.0, player/diy.js) the same against its own pieces of each slotted slot — a DIY
 //            piece is always a slotted slot of its owner's, and a DIY shop / reward card one of its stocked slots
 //   economy  funds / pendingFunds non-negative integers, LP finite, shop level in range, prices ≥ 0
@@ -64,6 +65,8 @@ export function collectViolations(m, { limit = 25 } = {}) {
     if (ps.temp.length !== gd.tempSize) fail(`${id}: temp has ${ps.temp.length} slots`);
     // 临时整备区 = overflow only (PRTS 卫戍协议/帮助 §手牌区 "常规手牌区出现空位时自动移入", GitHub #82)
     if (ps.temp.some(Boolean) && ps.hand.some((x) => x == null)) fail(`${id}: a temp piece waits while a hand slot is free`);
+    if (ps.itemOverflow.length && (ps.hand.some(x => x == null) || ps.temp.some(x => x == null))) fail(`${id}: an overflow item waits while a slot is free`);
+    if (ps.itemOverflow.some(p => p.kind !== 'item')) fail(`${id}: non-item in equipment overflow`);
     if (!(ps.shop.level >= 1 && ps.shop.level <= gd.maxShopLevel)) fail(`${id}: shop level ${ps.shop.level}`);
     if (!(ps.shop.upgradePrice >= 0)) fail(`${id}: upgradePrice ${ps.shop.upgradePrice}`);
     if (!Number.isInteger(ps.shop.freeRefreshes) || ps.shop.freeRefreshes < 0) fail(`${id}: freeRefreshes ${ps.shop.freeRefreshes}`);
@@ -74,7 +77,7 @@ export function collectViolations(m, { limit = 25 } = {}) {
 
     if (!ps.alive) {
       if (ps.board.size) fail(`${id}: eliminated but keeps ${ps.board.size} board pieces`);
-      if (ps.hand.some(Boolean) || ps.temp.some(Boolean)) fail(`${id}: eliminated but keeps hand/temp pieces`);
+      if (ps.hand.some(Boolean) || ps.temp.some(Boolean) || ps.itemOverflow.length) fail(`${id}: eliminated but keeps hand/temp pieces`);
       if (ps.shop.slots.length || ps.offers.length || ps.bounties.length) fail(`${id}: eliminated but keeps shop/offers/bounties`);
       if (ps.funds || ps.pendingFunds) fail(`${id}: eliminated with funds ${ps.funds}+${ps.pendingFunds}`);
     }
@@ -86,13 +89,18 @@ export function collectViolations(m, { limit = 25 } = {}) {
     }
 
     // pieces
-    const all = [...ps.board.values(), ...ps.hand.filter(Boolean), ...ps.temp.filter(Boolean)];
+    const all = [...ps.board.values(), ...ps.hand.filter(Boolean), ...ps.temp.filter(Boolean), ...ps.itemOverflow];
     const boardChessUids = new Set();
     for (const p of ps.board.values()) if (p.kind === 'chess') boardChessUids.add(p.uid);
     const itemCounts = new Map();
     // A copy gained as the previous prep ended (PlayerState.acquireItem deferMerge) waits until the next prep.
     // It does not count toward "merges are immediate" until that prep's checkItemMerges consumes it.
-    const countItem = (it) => { if (it.deferMerge) return; itemCounts.set(it.id, (itemCounts.get(it.id) || 0) + 1); };
+    const countItem = (it) => {
+      const grants = it.poolGrantCopies || 0;
+      if (!Number.isInteger(grants) || grants < 0 || grants > m.itemPool.need(it.id)) fail(`${id}: bad item grant copies ${grants}`);
+      if (it.deferMerge) return;
+      itemCounts.set(it.id, (itemCounts.get(it.id) || 0) + 1);
+    };
     for (const p of all) {
       note(ps, p);
       if (p.kind === 'chess') {
@@ -209,7 +217,8 @@ export function collectViolations(m, { limit = 25 } = {}) {
       const cap = m.itemPool.cap(id);
       if (!Number.isInteger(cap)) continue;
       const h = m.itemPool.held(id);
-      if (h > cap) fail(`item ${id}: held ${h} > cap ${cap}`);
+      const grants = m.itemPool.granted(id);
+      if (h > cap + grants) fail(`item ${id}: held ${h} > cap ${cap} + guaranteed grants ${grants}`);
     }
   }
 

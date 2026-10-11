@@ -233,7 +233,8 @@ export function pendingTip(lp, pending, { unite = false, cap = 10, left = null }
  */
 export function tempInfo(priv) {
   const list = (Array.isArray(priv?.temp) ? priv.temp : []).filter((p) => p && typeof p === 'object');
-  return { count: list.length, items: list.filter((p) => p.kind === 'item').length };
+  const overflow = Number.isInteger(priv?.overflowItemCount) && priv.overflowItemCount > 0 ? priv.overflowItemCount : 0;
+  return { count: list.length + overflow, items: list.filter((p) => p.kind === 'item').length + overflow };
 }
 
 /** What the temp row asks of the player (the ready button's reason, the row's label). */

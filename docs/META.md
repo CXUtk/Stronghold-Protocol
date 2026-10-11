@@ -418,7 +418,7 @@ Writes (all validated, never throw on bad input, never make funds / pools negati
 | `addFunds(n, reason?)` / `addPendingFunds(n)` / `spendFunds(n)` | funds now / at the next round start / pay (false when short) |
 | `addLayers(bondId, n, { requireActive })` | layer gain (`requireActive` = "使已激活的…"); returns layers added — at most the room left under `BOND_LAYER_CAP` (999, shared/constants.js `layerGainRoom`; the battle gains merged at SETTLE too); fires onLayers unless it added 0 |
 | `grantChess(id, { toTemp, golden, requirePool=true, fromPool=true })` | acquire a chess (takes pool copies; with `requirePool` a pool chess with no copy left fails → `null`); merges; fires onGain. `toTemp` puts it into temp, but a free hand slot pulls it in at the next recompute (temp holds overflow only, `PlayerState._fillHandFromTemp`) |
-| `grantItem(id, { toTemp })` | acquire an item (merges with an identical normal item); `toTemp` as for grantChess |
+| `grantItem(id, { toTemp, requirePool=true })` | acquire an item (merges with an identical normal item); `toTemp` as for grantChess; full hand/temp uses hidden equipment overflow. `requirePool: false` allows guaranteed products beyond the cap, still occupying stock |
 | `rollChess({ maxTier, tier, bond, filter })` / `rollItem({ pool, tier, maxTier })` | copy-weighted chess id from the shared pool / item id (choices.json pools) |
 | `grantFreeRefresh(n)` | free refreshes (stack) |
 | `modifyPrice(delta)` / `setPrice(v)` | onPrice only: edit `ev.price` |
@@ -585,7 +585,12 @@ Any `choice:` handler whose EffectRef reuses its own key must guard like this (o
   `prepsEnded`, recorded by `_putTemp`, user playtest #3): arrived during a prep before Ready → that prep's end; after
   Ready, during onPrepEnd, or outside PREP (COMBAT, 联防, SETTLE, ROUND_START, 机变) → the end of the NEXT prep, so it
   is shown and usable first; `setReady(false)` makes what arrived while ready due at the current prep. The round
-  start never wipes temp (DESIGN §6.2).
+  start never wipes temp (DESIGN §6.2). Equipment beyond the five visible temp slots waits in `itemOverflow` (PRTS
+  help §手牌区; FIFO order [ASSUMED]), refilling a free hand/temp slot at recompute. It remains in stock and merge
+  accounting; `m.private.overflowItemCount` includes it in the Ready refusal count without exposing its identities.
+  Hidden items cannot be moved/equipped/destroyed directly. Their recorded deadline follows temp rules, is preserved
+  on hidden→temp refill, and is cleared on hand refill or elimination (local fix; [design/match.md](design/match.md)
+  §6.2, “Equipment beyond temp”).
 * **Merge**: 3 normal copies (风丸 2) anywhere (board/hand/temp) → 1 elite (the incoming copy, then temp, hand, board
   copies are consumed). Where it goes (PRTS 卫戍协议/帮助 "发送1名【精锐】状态的该干员至手牌区（若消耗已部署至作战区的干员，
   则发送至作战区对应位置）", the user's playtest #6 follow-up): when a consumed copy stood on the board, onto that copy's
@@ -898,6 +903,10 @@ round was over. The official 1 s `broadcastBeginDelay` is not modelled.
   its copies). A 拉普兰德 bought after selling one in the same round is a new copy and fires on its own first refresh
   ("获得该干员后"; each such +4 costs 3 + 1 refresh − 1 refund and needs her in the shop).
 * Chess granted by effects need a free pool copy unless `requirePool: false` (then they hold 0 copies).
+* Equipment `requirePool: false` instead grants beyond capacity while still occupying real stock. Guaranteed
+  fixed/manufactured traits use it (投资人 still multiplies their count); ordinary purchases/draws remain stock-gated.
+  `poolGrantCopies` marks the guaranteed portion for invariant checks and survives merges. This cap exception is
+  [ASSUMED] from the corrected community account in issue #488, without independent original-mode verification.
 * Boss-round `local` pack spawns (boss parts) all spawn; content scripts (bosses.js) decide their behaviour.
 * The Final Assault ends as a defeat when every field finished with the boss pool above 0 (boss escaped).
 * The 999 layer cap holds for every prep-side gain too (the client only shows the in-battle clamp; the scene server's
@@ -937,6 +946,9 @@ choices are explicitly [ASSUMED]; DESIGN §28.15–16 records the source and val
 ### Shared inventory after 0.2.3 (DESIGN §29.8)
 
 `SharedItemPool` derives equipment availability from current ownership across all players: ordinary 1, upgraded 2.
+Hidden equipment overflow is included. Guaranteed products may exceed capacity while continuing to consume stock;
+the local exception and its evidence limits are recorded in [design/match.md](design/match.md) §6.2,
+“Equipment beyond temp”.
 Equips, merges and returns cannot lose reservations. Consumptions/destruction release ownership [ASSUMED removal
 interpretation]. Shop/reward displays reserve nothing; rejected exhausted purchases retain funds and offers.
 整备 upgrades the purchased item only when `left` still has the golden's second copy; otherwise the item stays

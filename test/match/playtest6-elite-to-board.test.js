@@ -182,7 +182,7 @@ test('equipment: the consumed copies\' items return to the hand, the elite on th
   m.dispose();
 });
 
-test('equipment with the hand and temp full: the elite keeps up to its 2 equip slots, any further item is destroyed (logged)', () => {
+test('equipment with the hand and temp full: all four returned items wait in hidden overflow, none are destroyed or equipped', () => {
   const { m, ps } = prep({ seed: 47 });
   const [id] = meleeTier1(m);
   const a = deploy(m, ps, id, 'UP');
@@ -204,11 +204,9 @@ test('equipment with the hand and temp full: the elite keeps up to its 2 equip s
   m.log.warn = warn;
   const elite = ps.board.get(want);
   assert.ok(elite && m.gd.isGolden(elite.id), 'the elite took the first deployed copy\'s tile');
-  assert.equal(elite.items.length, m.gd.equipPerChess, 'it keeps 2 of the 4 returned items');
-  const kept = new Set(elite.items.map((it) => it.uid));
-  assert.ok([...kept].every((u) => its.some((it) => it.uid === u)), 'the kept items are returned ones');
-  assert.equal(its.filter((it) => !kept.has(it.uid) && ps.find(it.uid)).length, 0, 'the other two are nowhere (hand, temp, board)');
-  assert.equal(warns.filter((s) => /returned item .* destroyed \(no space\)/.test(s)).length, ids.length - m.gd.equipPerChess, 'the other two are destroyed with a log warning');
+  assert.deepEqual(elite.items, [], 'the returned equipment needs to be equipped again');
+  for (const it of its) assert.equal(ps.find(it.uid)?.area, 'overflow', 'every returned item remains owned');
+  assert.equal(warns.filter((s) => /returned item .* destroyed \(no space\)/.test(s)).length, 0);
   checkInvariants(m);
   m.dispose();
 });

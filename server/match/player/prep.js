@@ -62,7 +62,7 @@ export class PlayerPrep {
     if (this.ready === !!on) return OK;
     this.ready = !!on;
     // un-ready: the player can act again, so what overflowed while it was ready is due at this prep's deadline
-    if (!on) for (const p of this.temp) if (p && this.tempDue(p) > this.prepsEnded) this._tempDue.set(p.uid, this.prepsEnded);
+    if (!on) for (const p of [...this.temp, ...this.itemOverflow]) if (p && this.tempDue(p) > this.prepsEnded) this._tempDue.set(p.uid, this.prepsEnded);
     this.dirty();
     this.m.onReadyChanged(this);
     return OK;
@@ -88,6 +88,12 @@ export class PlayerPrep {
         this.returnCopies(p);
       }
     }
+    const kept = [];
+    for (const p of this.itemOverflow) {
+      if (this.tempDue(p) > this.prepsEnded) kept.push(p);
+      else { this._tempDue.delete(p.uid); changed = true; }
+    }
+    this.itemOverflow = kept;
     if (changed) this.recompute();
   }
 }

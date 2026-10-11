@@ -40,7 +40,7 @@ export class PlayerRound {
   endPrep() {
     this.resolveTemp();
     this.prepsEnded++;
-    for (const uid of [...this._tempDue.keys()]) if (!this.temp.some((p) => p && p.uid === uid)) this._tempDue.delete(uid);
+    for (const uid of [...this._tempDue.keys()]) if (![...this.temp, ...this.itemOverflow].some((p) => p && p.uid === uid)) this._tempDue.delete(uid);
     this.offers = [];
     this.clearUnfrozenShop();
     if (!this.gd.leftoverKeptBands.includes(this.bandId)) this.funds = 0;
@@ -62,6 +62,7 @@ export class PlayerRound {
     this.board.clear();
     this.hand.fill(null);
     this.temp.fill(null);
+    this.itemOverflow.length = 0;
     this._tempDue.clear();
     this.offers = [];
     this.bounties = [];

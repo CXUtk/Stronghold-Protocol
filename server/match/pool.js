@@ -187,22 +187,31 @@ export class SharedPool {
 /** Shared equipment stock, derived from actual ownership. Merges, equips and returns cannot lose a reservation:
  * normal equipment occupies one, upgraded equipment two. Shop/choice displays reserve nothing. Source: the original
  * experiment BV1eLXXBqEgF, 1:30 and 2:30. [ASSUMED] An item that is consumed/destroyed or removed by elimination no
- * longer occupies stock, consistently with the video's ownership model; this is not a per-match purchase limit. */
+ * longer occupies stock, consistently with the video's ownership model; this is not a per-match purchase limit.
+ * Hidden items count too. Guaranteed products can exceed capacity but still block ordinary draws; poolGrantCopies
+ * tracks their contribution for the invariant, and does not exempt them from held() / left(). */
 export class SharedItemPool {
   constructor(gd, players) { this.gd = gd; this.players = players; }
   cap(id) { return this.gd.itemPoolCopies(id); }
   need(id) { return this.gd.isGolden(id) ? 2 : 1; }
   held(id) {
+    return this._held(id, false);
+  }
+  granted(id) {
+    return this._held(id, true);
+  }
+  _held(id, grants) {
     const base = this.gd.baseIdOf(id);
     let count = 0;
     const see = p => {
       if (!p) return;
-      if (p.kind === 'item' && this.gd.baseIdOf(p.id) === base) count += this.need(p.id);
-      for (const item of p.items || []) if (this.gd.baseIdOf(item.id) === base) count += this.need(item.id);
+      if (p.kind === 'item' && this.gd.baseIdOf(p.id) === base) count += grants ? (p.poolGrantCopies || 0) : this.need(p.id);
+      for (const item of p.items || []) if (this.gd.baseIdOf(item.id) === base) count += grants ? (item.poolGrantCopies || 0) : this.need(item.id);
     };
     for (const ps of this.players()) {
       for (const p of ps.hand) see(p);
       for (const p of ps.temp) see(p);
+      for (const p of ps.itemOverflow || []) see(p);
       for (const p of ps.board.values()) see(p);
     }
     return count;
@@ -211,8 +220,8 @@ export class SharedItemPool {
   canGain(id) { return this.left(id) >= this.need(id); }
   /** Stock gates eligibility, not probability: retain the existing uniform item draw or explicit data weights.
    * The measured stock table alone does not establish shop probabilities. */
-  pick(rng, ids, weights = null) {
-    const list = [...new Set(ids)].filter(id => this.canGain(id));
+  pick(rng, ids, weights = null, { requirePool = true } = {}) {
+    const list = [...new Set(ids)].filter(id => !requirePool || this.canGain(id));
     const pairs = list.map(id => [id, weights ? Math.max(0, Number(weights.get(id)) || 0) : 1]);
     const total = pairs.reduce((n, p) => n + Math.max(0, p[1]), 0);
     if (!(total > 0)) return null;

@@ -20,7 +20,7 @@ export class PlayerPlacement {
   move(uid, to, dir) {
     const g = this._gate(); if (g) return g;
     const loc = this.find(uid);
-    if (!loc || loc.area === 'equipped') return fail(ERR.BAD_TARGET);
+    if (!loc || loc.area === 'equipped' || loc.area === 'overflow') return fail(ERR.BAD_TARGET);
     if (!to || typeof to !== 'object') return fail(ERR.BAD_TARGET);
     const piece = loc.piece;
     if (to.area === 'board') {

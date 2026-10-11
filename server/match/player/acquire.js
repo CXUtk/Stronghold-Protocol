@@ -73,8 +73,7 @@ export class PlayerAcquire {
    * destroyed its carrier before the gain: that tile is no copy's). It replaces a deployed copy, so the deploy count
    * never grows. Otherwise the elite goes to the hand, overflow temp — outside PREP too (a SETTLE merge's elite waits in
    * temp through the next prep, tempDue). The copies' equipment returns to the hand ("干员晋级后已配发装备会回收至整备区";
-   * overflow temp; with both full it stays on the elite, up to its equipPerChess (2) slots — any further item is
-   * destroyed with a log warning, as before the official rule) and an identical normal pair among it merges like any gain
+   * overflow temp, then hidden equipment overflow when both visible rows are full) and an identical normal pair merges like any gain
    * (checkItemMerges); their summons are removed, and an elite on the board
    * gets its own summon stack (grantTokensFor: its loadout, like any deployment). Returns the elite piece (or null if
    * the elite could not be stored).
@@ -119,7 +118,7 @@ export class PlayerAcquire {
     // the returned equipment follows the auto-merge rule like any other gain ("已拥有2件同一初始装备时…自动合并")
     this.checkItemMerges();
     // deployed like any operator placed by hand: its manually deployable summons join the hand (after the returned
-    // equipment, which would be lost in temp — a summon stack removed there comes back at the next round start)
+    // equipment — a summon stack removed from temp comes back at the next round start)
     if (where === 'board') this.grantTokensFor(elite);
     if (!where) {
       this.poolOf(baseId).give(baseId, copies);
@@ -165,9 +164,8 @@ export class PlayerAcquire {
    * (acquireChess, onGain source 'transform'): the hand, overflow temp ("被发送至手牌区的物资优先从右到左填充空位"), and with
    * both full it goes back to the pool ("整备区已满，获得的干员已返还"); it gets no summon card in the hand (only a deployment
    * brings one), and a merge it completes follows the ordinary rule (_mergeChess: the elite on a consumed deployed copy's
-   * tile, else the hand — the carrier's freed tile is no copy's). An item that found no slot takes one the gain freed (a
-   * merge consumes copies), else stays on the gained operator up to its equipPerChess slots, else it is destroyed with a
-   * log warning (as in a merge). Official footage (bilibili BV1vzyVBuEN9, BV1Qkw1zMEoR; pointed out in PR #2): at the
+   * tile, else the hand — the carrier's freed tile is no copy's). Equipment with no visible slot waits in hidden
+   * overflow, remaining unequipped. Official footage (bilibili BV1vzyVBuEN9, BV1Qkw1zMEoR; pointed out in PR #2): at the
    * next prep the carrier's tile is empty, one more deployment is left and the new operator waits in the 整备区.
    * @param {any} piece the carrier (an owned chess piece)
    * @param {string} newId chess id gained in its place
@@ -264,6 +262,7 @@ export class PlayerAcquire {
 
   _itemLocations(id) {
     const out = [];
+    for (let i = 0; i < this.itemOverflow.length; i++) if (this.itemOverflow[i].id === id) out.push({ piece: this.itemOverflow[i], area: 'overflow', idx: i });
     for (let i = 0; i < this.temp.length; i++) if (this.temp[i] && this.temp[i].kind === 'item' && this.temp[i].id === id) out.push({ piece: this.temp[i], area: 'temp', idx: i });
     for (let i = 0; i < this.hand.length; i++) if (this.hand[i] && this.hand[i].kind === 'item' && this.hand[i].id === id) out.push({ piece: this.hand[i], area: 'hand', idx: i });
     for (const holder of this.allChess()) for (const it of holder.items || []) if (it.id === id) out.push({ piece: it, area: 'equipped', holder });
@@ -278,21 +277,24 @@ export class PlayerAcquire {
   }
 
   /**
-   * Acquire an item (buy, supply card, grant). Merges with an identical normal copy (hand/temp/equipped) into the
+   * Acquire an item (buy, supply card, grant). Merges with an identical normal copy (hand/temp/overflow/equipped) into the
    * golden item (to the hand). Returns the owned piece or null.
-   * `deferMerge` (effectsMeta, while onPrepEnd is on the stack): stow it — hand, else temp — and do not merge in this
+   * `deferMerge` (effectsMeta, while onPrepEnd is on the stack): stow it — hand, else temp, else hidden overflow — and do not merge in this
    * call, even when an identical normal copy is already owned. The next prep's start runs checkItemMerges. Nothing
-   * already equipped is taken off for the fight about to start. Hand and temp both full keeps the 「整备区已满，获得的装备已销毁」
-   * outcome. [ASSUMED] every item granted at 休整期结束, not only 维多利亚's 战栗维式重锤 (owner's decision 2026-10-04).
+   * already equipped is taken off for the fight about to start. Hidden items use the same deadline as visible temp.
+   * [ASSUMED] every item granted at 休整期结束, not only 维多利亚's 战栗维式重锤 (owner's decision 2026-10-04).
    */
-  acquireItem(itemId, { source = 'grant', toTemp = false, silent = false, deferMerge = false } = {}) {
+  acquireItem(itemId, { source = 'grant', toTemp = false, silent = false, deferMerge = false, requirePool = true } = {}) {
     const rec = this.gd.item(itemId);
     if (!rec) return null;
-    if (!this.m.itemPool.canGain(itemId)) {
+    if (requirePool && !this.m.itemPool.canGain(itemId)) {
       this.m.toast(this, 'warn', '装备库存不足，未获得该装备');
       return null;
     }
     let piece = this.newPiece('item', itemId);
+    // [ASSUMED] Guaranteed trait/strategy products occupy stock but can exceed the cap (community report #488;
+    // not an independent original-mode experiment). Ordinary acquisitions keep the stock gate.
+    if (!requirePool) piece.poolGrantCopies = this.m.itemPool.need(itemId);
     // A prep-end grant may sit beside an identical copy until the next prep. The invariant counts only copies
     // without this mark, so the fight that is about to start is not reported as a missed merge.
     if (deferMerge) piece.deferMerge = true;
@@ -315,10 +317,12 @@ export class PlayerAcquire {
     const consumed = incoming ? [{ piece: incoming, area: 'new' }] : [];
     for (const l of locs) { if (consumed.length >= need) break; consumed.push(l); }
     if (consumed.length < need) return null;
-    // remember where equipped twins sat: with a full hand AND a full temp the golden item takes the first one's slot
+    // Remember equipped slots for the fallback if stow is refused; full visible rows now use hidden overflow.
     const slotOf = consumed.filter((l) => l.area === 'equipped').map((l) => ({ holder: l.holder, idx: l.holder.items.indexOf(l.piece) }));
     for (const l of consumed) if (l.area !== 'new') this._detach(l);
     const golden = this.newPiece('item', rec.upgradeChessId || rec.goldenId);
+    const granted = consumed.reduce((n, l) => n + (l.piece.poolGrantCopies || 0), 0);
+    if (granted) golden.poolGrantCopies = granted;
     if (!this.stow(golden, { allowTemp: true })) {
       const at = slotOf[0];
       if (!at || !this.find(at.holder.uid)) {
@@ -339,6 +343,7 @@ export class PlayerAcquire {
       const scan = (p) => { if (p && p.kind === 'item' && this._itemMergeable(p.id)) counts.set(p.id, (counts.get(p.id) || 0) + 1); };
       for (const p of this.hand) scan(p);
       for (const p of this.temp) scan(p);
+      for (const p of this.itemOverflow) scan(p);
       for (const holder of this.allChess()) for (const it of holder.items || []) scan(it);
       let did = false;
       for (const [id, n] of counts) {

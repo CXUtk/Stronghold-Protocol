@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>装备发放测试 · 卫戍协议</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/fonts/fonts.css" />
+  <link rel="stylesheet" href="/css/theme.css" />
+  <link rel="stylesheet" href="/css/components.css" />
+  <link rel="stylesheet" href="/css/screens/game.css" />
+  <link rel="stylesheet" href="/css/screens/game-shop.css" />
+  <link rel="stylesheet" href="/css/screens/game-panels.css" />
+  <link rel="stylesheet" href="/css/screens/briefing.css" />
+  <link rel="stylesheet" href="/css/screens/draft.css" />
+  <link rel="stylesheet" href="/css/screens/result.css" />
+  <link rel="stylesheet" href="/css/screens/guide.css" />
+  <link rel="stylesheet" href="/css/emotes.css" />
+  <link rel="stylesheet" href="/css/devices.css" />
+  <script type="importmap">{ "imports": { "preact": "/vendor/preact.module.js", "preact/hooks": "/vendor/hooks.module.js", "htm": "/vendor/htm.module.js" } }</script>
+  <style>
+    .ep-panel { position: fixed; left: 12px; top: 12px; z-index: 150; width: min(320px, calc(100vw - 24px));
+      max-height: calc(100dvh - 24px); overflow-y: auto; padding: 12px; box-sizing: border-box;
+      background: rgba(9, 19, 16, .96); border: 1px solid #448b73; color: #eef7f2; font: 14px/1.5 system-ui, sans-serif; }
+    .ep-panel summary { color: #4ed8af; font-weight: bold; cursor: pointer; }
+    .ep-panel label { display: grid; grid-template-columns: 80px 1fr; gap: 8px; margin-top: 8px; align-items: center; }
+    .ep-panel select, .ep-panel button { min-height: 34px; color: #eef7f2; background: #142b23; border: 1px solid #448b73; font: inherit; padding: 4px 8px; }
+    .ep-panel button { cursor: pointer; }
+    .ep-panel button:disabled { opacity: .45; cursor: default; }
+    .ep-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .ep-panel p { margin: 8px 0; font-size: 12px; color: #c2d2ca; }
+    #ep-counts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; padding: 8px 0; border-block: 1px solid #2a4b3e; }
+    #ep-counts b { color: #4ed8af; }
+    #ep-log { font-size: 12px; white-space: pre-wrap; max-height: 100px; overflow: auto; }
+    @media (max-width: 700px) { .ep-panel { top: auto; bottom: 10px; max-height: 50dvh; width: min(320px, calc(100vw - 24px)); } }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <details class="ep-panel" open>
+    <summary>装备发放测试</summary>
+    <label>场景<select id="ep-scenario"><option value="purchase">买入后整备区刚好满</option><option value="overflow">临时区也满：被动发放</option></select></label>
+    <label>干员<select id="ep-operator"><option value="chess_char_6_11_a">缪尔赛思 · 普通</option><option value="chess_char_6_11_b">缪尔赛思 · 精锐</option><option value="chess_char_2_10_a">洛洛 · 普通</option><option value="chess_char_2_10_b">洛洛 · 精锐</option><option value="chess_char_3_03_a">诗怀雅 · 普通</option><option value="chess_char_3_03_b">诗怀雅 · 精锐</option></select></label>
+    <label>投资人<select id="ep-multiplier"><option value="2">触发 2 次</option><option value="3">触发 3 次</option></select></label>
+    <label>队友已有球<select id="ep-stock"><option value="0">0 个</option><option value="2">2 个</option><option value="3">3 个（库存已满）</option></select></label>
+    <div class="ep-actions"><button id="ep-reset">重置场景</button><button id="ep-gain">买入干员</button></div>
+    <p id="ep-hint">点击买入：普通缪尔赛思应得到 2 个球。也可以使用下面的商店和地图操作。</p>
+    <div id="ep-counts"></div>
+    <div class="ep-actions"><button id="ep-free">销毁一件临时装备</button><button id="ep-deploy">部署一名整备区干员</button></div>
+    <p>赠品持有量按初始装备计：一件进阶装备算两件，使用或销毁后会减少。隐藏缓存腾出位置后自动补入。</p>
+    <div id="ep-log" role="status"></div>
+  </details>
+  <script type="module" src="/dev/equipment-overflow.js"></script>
+</body>
+</html>

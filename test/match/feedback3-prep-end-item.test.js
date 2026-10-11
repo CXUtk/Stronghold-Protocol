@@ -19,6 +19,7 @@ function copies(ps, id) {
   const see = (p) => { if (p && p.kind === 'item' && p.id === id) n++; };
   for (const p of ps.hand) see(p);
   for (const p of ps.temp) see(p);
+  for (const p of ps.itemOverflow) see(p);
   for (const c of ps.board.values()) if (c && c.kind === 'chess') for (const it of c.items || []) see(it);
   return n;
 }
@@ -107,22 +108,23 @@ test('two milestones owed at prep end both wait: no golden before the fight; the
   h.m.dispose();
 });
 
-test('hand and temp full at prep end: the new hammer is destroyed, the equipped one stays, and the next prep does not put a golden in the slot', () => {
+test('hand and temp full at prep end: new hammers wait in overflow, the equipped one stays, and next prep merges only the loose pair', () => {
   const h = fresh();
   const { ps, carrier, equipped } = arm(h, { layers: 50, fill: true });
+  ps.ready = true; // passive additions can fill both rows after Ready; manual Ready would refuse them
   h.m.endPrep();
   assert.equal(carrier.items.length, 1);
   assert.equal(carrier.items[0].uid, equipped.uid);
   assert.equal(carrier.items[0].id, HAMMER);
   assert.equal(copies(ps, GOLDEN), 0);
-  assert.equal(copies(ps, HAMMER), 1);
+  assert.equal(copies(ps, HAMMER), 3, 'equipped copy plus both deferred grants');
   const toasts = h.sent.filter(([, msg]) => msg.t === 'm.toast').map(([, msg]) => msg.text);
-  assert.equal(toasts.filter((t) => t === '整备区已满，获得的装备已销毁').length, 2);
+  assert.equal(toasts.filter((t) => t === '整备区已满，获得的装备已销毁').length, 0);
   const input = FakeBattle.instances.at(-1).opts.players[0];
   assert.ok(input.units.find((u) => u.uid === carrier.uid).items.includes(HAMMER));
   h.toPrep(2);
   assert.equal(carrier.items[0].uid, equipped.uid, 'nothing was merged into the slot');
-  assert.equal(copies(ps, GOLDEN), 0);
+  assert.equal(copies(ps, GOLDEN), 1, 'the loose pair merges at the next prep');
   assert.equal(copies(ps, HAMMER), 1);
   h.m.dispose();
 });

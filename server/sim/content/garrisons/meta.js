@@ -239,7 +239,7 @@ H.SERVER_GAIN_EQUIP = {
   run(ctx) {
     const { bb, bbStr } = ctx.source;
     if (!ctx.gd.item(bbStr.chess)) return;
-    for (let i = 0; i < Math.min(10, num(bb.count, 1)); i++) ctx.grantItem(bbStr.chess);
+    for (let i = 0; i < Math.min(10, num(bb.count, 1)); i++) ctx.grantItem(bbStr.chess, { requirePool: false });
   },
 };
 
@@ -273,7 +273,7 @@ function rollEquip(ctx, poolId, golden) {
       return pairs[pairs.length - 1][0];
     }
   }
-  const r = ctx.rollPool(poolId);
+  const r = ctx.rollPool(poolId, { requirePool: false });
   return r && r.kind === 'item' ? r.id : null;
 }
 
@@ -283,7 +283,7 @@ H.SERVER_POOL_EQUIP = {
     const golden = /_b$/.test(garrisonId);
     for (let i = 0; i < Math.min(10, num(bb.count, 1)); i++) {
       const id = rollEquip(ctx, bbStr.pool, golden);
-      if (id) ctx.grantItem(id);
+      if (id) ctx.grantItem(id, { requirePool: false });
     }
   },
 };
