@@ -44,9 +44,9 @@
 .damage-panel__type { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .02rem .04rem; padding-left: 5px; border-left: 2px solid var(--damage-color); }
 .damage-panel__type span { color: var(--damage-color); }
 .damage-panel__type b { color: var(--text-md); }
-.damage-panel [data-damage-type="phys"] { --damage-color: #ddd6c6; }
+.damage-panel [data-damage-type="phys"] { --damage-color: #ff8787; }
 .damage-panel [data-damage-type="arts"] { --damage-color: #78c7ff; }
-.damage-panel [data-damage-type="true"] { --damage-color: #ffd97c; }
+.damage-panel [data-damage-type="true"] { --damage-color: #f2f4f7; }
 .damage-panel [data-damage-type="elemental"] { --damage-color: #da9cff; }
 .damage-panel__row { padding: .1rem .02rem; border-bottom: 1px solid var(--line); }
 .damage-panel__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
