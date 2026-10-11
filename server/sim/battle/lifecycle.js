@@ -5,7 +5,7 @@
 
 import { FORCED_EXIT, MAX_BATTLE_TIME } from '../constants.js';
 import { updateAlly, updateEnemy } from '../ai.js';
-import { bondDamageEntry } from '../../../shared/damageSources.js';
+import { damageBreakdownEntry } from '../../../shared/damageSources.js';
 
 export class BattleLifecycle {
   start() {
@@ -227,7 +227,7 @@ export class BattleLifecycle {
       pp.unitStats = ps.units.map((u) => ({
         id: u.id, uid: u.uid, defId: u.defId, name: u.name, kind: u.kind,
         dmg: Math.round(u.stats.dmg), kills: u.stats.kills, heal: Math.round(u.stats.heal), taken: Math.round(u.stats.taken), attacks: u.stats.attacks,
-        ...bondDamageEntry(u.stats.bondDamage, Math.round(u.stats.dmg)),
+        ...damageBreakdownEntry(u.stats, Math.round(u.stats.dmg)),
       }));
       perPlayer[ps.playerId] = pp;
     }

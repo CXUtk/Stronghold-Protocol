@@ -52,6 +52,9 @@ the official game.
 The separate Alliance-damage section aggregates direct 坚守, 叙拉古, 卡西米尔 and 炎佑 damage, with the same player
 filter. Operator/summon rows show their included Alliance portion. These are subsets of the displayed total, not
 additional damage; Alliance stat bonuses remain in operator damage. The entire body scrolls on short screens.
+The total, operator and Alliance entries break actual HP damage down into physical, Arts, true and elemental types,
+with text labels as well as distinct colors. Elemental buildup is excluded. Unknown types in older reports are not
+guessed; classified values are rounded together without creating or losing damage between the four types.
 
 Look & feel: research 06 §11–§12 (near-black green-grey panels, mint `#4ed8af` accents, gold prices, bracket frames, hexagon badges, bond discs, 7-segment countdown). Fonts: Noto Sans SC (Google Fonts with local fallback), Bender/Novecento self-hosted for numerals and Latin micro-labels.
 

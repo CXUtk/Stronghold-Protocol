@@ -40,6 +40,14 @@
 .damage-panel__bonds { padding: .1rem .02rem; border-bottom: 1px solid var(--line); color: var(--mint-400); }
 .damage-panel__bonds .damage-panel__note { margin-top: .02rem; }
 .damage-panel__bond-list > li { margin-top: .06rem; color: var(--text-md); }
+.damage-panel__types { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .04rem .08rem; margin: .06rem 0; font-size: max(.12rem, 11px); }
+.damage-panel__type { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .02rem .04rem; padding-left: 5px; border-left: 2px solid var(--damage-color); }
+.damage-panel__type span { color: var(--damage-color); }
+.damage-panel__type b { color: var(--text-md); }
+.damage-panel__type[data-damage-type="phys"] { --damage-color: #ddd6c6; }
+.damage-panel__type[data-damage-type="arts"] { --damage-color: #78c7ff; }
+.damage-panel__type[data-damage-type="true"] { --damage-color: #ffd97c; }
+.damage-panel__type[data-damage-type="elemental"] { --damage-color: #da9cff; }
 .damage-panel__row { padding: .1rem .02rem; border-bottom: 1px solid var(--line); }
 .damage-panel__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .damage-panel__value { flex: none; }

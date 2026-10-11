@@ -79,6 +79,8 @@ for (const kind of ['normal', 'boss']) test(`3 坚守 reflection is separately r
   h.b.addBuff(d1, { key: 'test:bonus', mods: { dmgDealtMul: 2 } });
   h.b.dealDamage(e, d1, { amount: 100, type: 'true' });
   assert.equal(d1.stats.bondDamage.steadShip, 760, 'actual RES-mitigated reflection; source attack multipliers do not apply');
+  assert.deepEqual(d1.stats.damageTypes, { arts: 760 });
+  assert.deepEqual(d1.stats.bondDamageTypes.steadShip, { arts: 760 });
   assert.equal(battleDamageStats(h.b).units.find((u) => u.uid === d1.uid).bondDamage.steadShip, 760);
   const first = hp();
   h.b.dealDamage(e, d1, { amount: 100, type: 'true' });
@@ -108,6 +110,8 @@ test('叙拉古 procs have their own subtotal, survive compact/accepted normal r
   assert.equal(live.bondDamage.siracusaShip, bond);
   assert.equal(live.dmg, before - e.hp);
   assert.equal(live.dmg, 750 + bond, 'ordinary and Alliance damage each counted once');
+  assert.deepEqual(live.damageTypes, { phys: 750, true: bond });
+  assert.deepEqual(live.bondDamageTypes, { siracusaShip: { true: bond } });
   h.b.forceEnd('forced');
   const result = compactResult(h.result());
   assert.ok(isBattleResult(result), 'Alliance metadata passes wire shape validation');
@@ -117,18 +121,31 @@ test('叙拉古 procs have their own subtotal, survive compact/accepted normal r
   const accepted = validateClientResult(spec, result, {});
   assert.ok(accepted.ok, accepted.reason);
   assert.equal(accepted.result.perPlayer.p1.unitStats[0].bondDamage.siracusaShip, bond, 'server sanitization retains the subtotal');
+  assert.deepEqual(accepted.result.perPlayer.p1.unitStats[0].damageTypes, live.damageTypes);
+  assert.deepEqual(accepted.result.perPlayer.p1.unitStats[0].bondDamageTypes, live.bondDamageTypes);
   for (const invalid of [{ unknown: 1 }, { siracusaShip: live.dmg + 1 }, { steadShip: Infinity }, { steadShip: -1 }]) {
     const bad = JSON.parse(JSON.stringify(result));
     bad.perPlayer.p1.unitStats[0].bondDamage = invalid;
     assert.equal(isBattleResult(bad), false, 'unknown, oversized, non-finite and negative metadata rejected');
   }
+  for (const invalid of [{ element: 1000 }, { phys: live.dmg + 1 }, { arts: Infinity }, { true: -1 }]) {
+    const bad = JSON.parse(JSON.stringify(result));
+    bad.perPlayer.p1.unitStats[0].damageTypes = invalid;
+    assert.equal(isBattleResult(bad), false, 'HP types reject gauges, oversized, non-finite and negative metadata');
+  }
+  const badNested = JSON.parse(JSON.stringify(result));
+  badNested.perPlayer.p1.unitStats[0].bondDamageTypes = { siracusaShip: { true: bond + 1 } };
+  assert.equal(isBattleResult(badNested), false, 'typed Alliance damage cannot exceed that Alliance subtotal');
   const normal = new Map([['p1', accepted.result.perPlayer.p1]]);
   const base = completedDamageStats(normal, ['p1']);
   const unite = battleDamageStats({ kind: 'unite', players: [{ playerId: 'p1', units: [
-    { uid: u.uid, kind: 'op', name: u.name, defId: u.defId, stats: { dmg: 25, bondDamage: { siracusaShip: 20 } } },
+    { uid: u.uid, kind: 'op', name: u.name, defId: u.defId, stats: { dmg: 25, damageTypes: { phys: 5, true: 20 },
+      bondDamage: { siracusaShip: 20 }, bondDamageTypes: { siracusaShip: { true: 20 } } } },
   ] }] }, base).units.find((r) => r.uid === u.uid);
   assert.equal(unite.dmg, live.dmg + 25);
   assert.equal(unite.bondDamage.siracusaShip, bond + 20, 'normal + Unite subtotals accumulate with the operator');
+  assert.deepEqual(unite.damageTypes, { phys: 755, true: bond + 20 });
+  assert.deepEqual(unite.bondDamageTypes, { siracusaShip: { true: bond + 20 } });
 });
 
 test('卡西米尔 blocking pulses and non-blocking bonus hits are separate from ordinary attacks', () => {
@@ -164,5 +181,30 @@ test('炎佑 output is Alliance damage and remains one separate summon row; over
   const report = battleDamageStats(h.b), row = report.units.find((u) => u.kind === 'token');
   assert.equal(row.dmg, 70);
   assert.deepEqual(row.bondDamage, { yanShip: 70 });
+  assert.deepEqual(row.damageTypes, { true: 70 });
+  assert.deepEqual(row.bondDamageTypes, { yanShip: { true: 70 } });
   assert.equal(reportDamage(h), 70, 'neither summon nor Alliance classification adds a second copy');
+});
+
+test('HP damage types use mitigation and real elemental bursts, never gauge buildup or overkill', () => {
+  const h = makeBattle({ autoFinish: false, content: 'none', flags: { startOpCooldown: 99 },
+    units: [{ uid: 11, chessId: 'chess_char_1_01_a', row: 10, col: 3 }],
+    defs: { enemies: { dummy: enemyRec({ key: 'dummy', hp: 10000, atk: 0, speed: 0, def: 100, res: 50 }) } },
+    enemies: [{ key: 'dummy', pos: [10, 5] }] });
+  h.step();
+  const u = h.unit(11), e = h.enemy();
+  for (const type of ['phys', 'arts', 'true']) h.b.dealDamage(u, e, { amount: 200, type, canDodge: false });
+  h.b.dealDamage(u, e, { amount: 300, type: 'element', element: 'burn' });
+  const first = battleDamageStats(h.b).units[0];
+  assert.equal(first.dmg, 400);
+  assert.deepEqual(first.damageTypes, { phys: 100, arts: 100, true: 200 });
+  h.b.dealDamage(u, e, { amount: 700, type: 'element', element: 'burn' });
+  const burst = battleDamageStats(h.b).units[0];
+  assert.equal(burst.dmg, 7400);
+  assert.equal(burst.damageTypes.elemental, 7000, 'burn burst credited to its filler as elemental HP damage');
+  h.b.dealDamage(u, e, { amount: 99999, type: 'elemental', element: 'burn', canDodge: false });
+  const final = battleDamageStats(h.b).units[0];
+  assert.equal(final.dmg, 10000);
+  assert.deepEqual(final.damageTypes, { phys: 100, arts: 100, true: 200, elemental: 9600 });
+  assert.equal(Object.values(final.damageTypes).reduce((sum, n) => sum + n, 0), final.dmg);
 });

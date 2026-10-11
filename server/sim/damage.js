@@ -53,7 +53,7 @@
 import { MIN_DAMAGE_RATIO, ELEMENT, ELEMENT_ORDER, PALSY_MAX } from './constants.js';
 import { BOSS_HIT_LIMIT } from '../../shared/constants.js';
 import { evadesGround } from './targeting.js';
-import { DAMAGE_BOND_IDS } from '../../shared/damageSources.js';
+import { DAMAGE_BOND_IDS, DAMAGE_TYPES } from '../../shared/damageSources.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -365,11 +365,21 @@ export function applyHpLoss(battle, source, target, amount, dmg) {
   // 史尔特尔 S3 …), friendly damage; `taken` and the kill credit do
   if (source && source.side !== target.side) {
     source.stats.dmg += dealt;
+    const type = dmg?.type || 'true';
+    if (source.side === 'ally' && dealt > 0 && DAMAGE_TYPES.includes(type)) {
+      const byType = source.stats.damageTypes || (source.stats.damageTypes = {});
+      byType[type] = (byType[type] || 0) + dealt;
+    }
     // Reporting subset only: use the same post-shield, post-overkill HP removal as the existing total.
     const bondId = dmg?.bondId || (source.mem?.bondYan ? 'yanShip' : null);
     if (source.side === 'ally' && dealt > 0 && DAMAGE_BOND_IDS.includes(bondId)) {
       const byBond = source.stats.bondDamage || (source.stats.bondDamage = {});
       byBond[bondId] = (byBond[bondId] || 0) + dealt;
+      if (DAMAGE_TYPES.includes(type)) {
+        const bondTypes = source.stats.bondDamageTypes || (source.stats.bondDamageTypes = {});
+        const byType = bondTypes[bondId] || (bondTypes[bondId] = {});
+        byType[type] = (byType[type] || 0) + dealt;
+      }
     }
     if (source.side === 'ally' && source.ownerId != null) { const pp = battle._pp(source.ownerId); if (pp) pp.damageDealt += dealt; }
   }

@@ -107,6 +107,9 @@ Optional `unitStats[].bondDamage` records known direct-Alliance subsets of `dmg`
 kazimierzShip, yanShip). Compact results preserve it; inbound validation bounds its keys and non-negative finite
 values by the unit total, and server sanitization retains it for the Unite baseline. It affects display only,
 never settlement, damage totals or result digests. `b.snap.damage.units` carries the same per-unit subsets.
+Optional `unitStats[].damageTypes` maps phys/arts/true/elemental to actual HP damage; `bondDamageTypes` maps the
+known Alliance ids to the same type maps. Each map is size/key/value bounded by its parent total. The compact result,
+server sanitization, Unite baseline and streamed report preserve them. Elemental gauge buildup is excluded.
 
 **顶栏胶囊 (the top bar's 击倒 / 漏掉 counter; PR #157, official reading).** The capsule shows `resolved / total`:
 - `total` = the enemies **this field itself scheduled** (`Battle` `total`: the `spawns` the match built, `inTotal`) that count — `countInTotal: false`, `tag: 'boss'` / `'part'` and data `notCountInTotal` entries stay out, like the 领袖 of a boss field.

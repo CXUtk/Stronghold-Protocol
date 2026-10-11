@@ -5,7 +5,7 @@ import { DIFFICULTIES, NAME_MAX_LEN, ROOM_CODE_LEN, MAX_SEATS, EMOTES, GEO } fro
 import { isDroppableChess } from './standIn.js';
 import { diySlotIds, validateDiyPicks } from './diy.js';
 import { cultivatedStats, isPotential, isCultivate, POTENTIAL_DEFAULT, CULTIVATE_DEFAULT } from './potential.js';
-import { DAMAGE_BOND_IDS } from './damageSources.js';
+import { DAMAGE_BOND_IDS, DAMAGE_TYPES } from './damageSources.js';
 
 // ---- tiny validators -------------------------------------------------------
 const isInt = (v, lo = -Infinity, hi = Infinity) => Number.isInteger(v) && v >= lo && v <= hi;
@@ -40,11 +40,17 @@ const isLeak = (l) => isPlain(l) && isId(l.enemyKey)
   && optional(isBool)(l.counted) && optional(isBool)(l.boss) && optional(isBool)(l.spawned);
 const isUnitEnd = (u) => isPlain(u) && nullable(isUid)(u.uid) && isNum(u.hpPct, 0, 1) && isNum(u.sp, 0, 1e5) && isBool(u.alive)
   && optional(isBool)(u.skillActive) && nullable(isId)(u.defId);
+const isDamageTypes = (v, total) => isMap(v, DAMAGE_TYPES.length, (k) => DAMAGE_TYPES.includes(k), (n) => isNum(n, 0, BIG))
+  && Object.values(v).reduce((sum, n) => sum + n, 0) <= (total ?? 0) + 1e-6;
 const isUnitStat = (u) => isPlain(u) && nullable(isUid)(u.uid) && nullable(isId)(u.defId) && optional((v) => isStr(v, 16))(u.kind)
   && isStat(u.dmg) && isStat(u.kills) && isStat(u.heal) && isStat(u.taken) && isStat(u.attacks)
   && (u.bondDamage === undefined || (isMap(u.bondDamage, DAMAGE_BOND_IDS.length,
     (k) => DAMAGE_BOND_IDS.includes(k), (v) => isNum(v, 0, BIG))
-    && Object.values(u.bondDamage).reduce((sum, v) => sum + v, 0) <= (u.dmg ?? 0) + 1e-6));
+    && Object.values(u.bondDamage).reduce((sum, v) => sum + v, 0) <= (u.dmg ?? 0) + 1e-6))
+  && (u.damageTypes === undefined || isDamageTypes(u.damageTypes, u.dmg))
+  && (u.bondDamageTypes === undefined || (isMap(u.bondDamageTypes, DAMAGE_BOND_IDS.length,
+    (k) => DAMAGE_BOND_IDS.includes(k), (v) => isDamageTypes(v, BIG))
+    && Object.entries(u.bondDamageTypes).every(([id, v]) => isDamageTypes(v, u.bondDamage?.[id]))));
 const isPerPlayer = (p) => isPlain(p) && isInt(p.killed, 0, 1e5) && isInt(p.total, 0, 1e5)
   // `resolved` = the HUD capsule's numerator of this player's own field (the round's own scheduled enemies knocked out
   // or leaked: server/sim/battle/deploy.js killedInTotal / leakedInTotal, Battle.resolved). `killed` counts every counted

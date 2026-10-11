@@ -496,6 +496,10 @@ recorded for the player whose half contains the goal it reached, with `sourcePla
   display-only subset of `dmg`, retained by compact results and server validation for the normal → Unite transition.
   The subset records actual HP removal for 坚守 thorns, 叙拉古 / 卡西米尔 direct damage and 炎佑 output; it never counts
   friendly sharing/drain or adds to damage totals. Attribute bonuses remain in the operator's ordinary total.
+  Optional `damageTypes` (phys/arts/true/elemental) and `bondDamageTypes` (bond id → those types) refine those same
+  post-mitigation, post-shield, post-overkill counters, including sourceless bursts credited to their filler. `element`
+  is gauge buildup, never HP damage. Results, validation and normal → Unite reporting preserve this display metadata;
+  type values are rounded together for the panel so the displayed classified sum stays consistent.
 
 ### 1.4 Robustness
 

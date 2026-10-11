@@ -64,21 +64,30 @@ describe('live round damage panel', { skip: !ENABLED && 'set SP_E2E=1 and CHROME
         const fieldId = m.store.get().match.field.fieldId;
         net._emit('b.snap', { t: 'b.snap', fieldId, gt: 5, units: [], dp: 10, killed: 0, total: 1,
           damage: { fieldId, round: m.S().pub.round, kind: 'normal', units: [
-            { id: 'p1:op:1', ownerId: 'p1', name: '深靛', kind: 'op', dmg: 100, bondDamage: { steadShip: 40 } },
+            { id: 'p1:op:1', ownerId: 'p1', name: '深靛', kind: 'op', dmg: 100, damageTypes: { phys: 30, arts: 40, true: 20, elemental: 10 },
+              bondDamage: { steadShip: 40 }, bondDamageTypes: { steadShip: { arts: 40 } } },
             { id: 'p1:op:2', ownerId: 'p1', name: '调香师', kind: 'op', dmg: 0 },
-            { id: 'ai_2:op:1', ownerId: 'ai_2', name: '寒芒克洛丝', kind: 'op', dmg: 300, bondDamage: { siracusaShip: 200 } },
+            { id: 'ai_2:op:1', ownerId: 'ai_2', name: '寒芒克洛丝', kind: 'op', dmg: 300, damageTypes: { phys: 100, true: 200 },
+              bondDamage: { siracusaShip: 200 }, bondDamageTypes: { siracusaShip: { true: 200 } } },
           ] } });
       });
       await page.waitForFunction(() => document.querySelector('.damage-panel__total b')?.textContent === '400');
+      for (const [type, n] of Object.entries({ phys: 130, arts: 40, true: 220, elemental: 10 })) {
+        assert.equal(await page.$eval(`[data-type-scope="total"] [data-damage-type="${type}"] b`, (el) => Number(el.textContent)), n);
+      }
+      assert.equal(await page.$eval('[data-type-scope="bond:steadShip"] [data-damage-type="arts"] b', (el) => el.textContent), '40');
+      assert.equal(await page.$eval('[data-type-scope="bond:siracusaShip"] [data-damage-type="true"] b', (el) => el.textContent), '200');
       assert.equal(await page.$eval('.damage-panel__bonds > .damage-panel__line b', (el) => el.textContent), '240');
       assert.equal(await page.$eval('[data-damage-bond="siracusaShip"] b', (el) => el.textContent), '200');
       assert.equal(await page.$eval('[data-damage-bond="siracusaShip"] span', (el) => el.textContent), '叙拉古');
       assert.equal(await page.$eval('[data-damage-bond="steadShip"] span', (el) => el.textContent), '坚守');
       assert.ok(await page.$eval('.damage-panel__bonds .damage-panel__note', (el) => el.textContent.includes('已包含在总伤害中')));
       await pause(1700); // let the battle-start banner leave before capturing the panel
-      await (await page.$('.damage-panel')).screenshot({ path: `${OUT}/round-damage-alliance.png` });
+      await (await page.$('.damage-panel')).screenshot({ path: `${OUT}/round-damage-types.png` });
       await page.select('.damage-panel__filter select', 'p1');
       await page.waitForFunction(() => document.querySelector('.damage-panel__total b')?.textContent === '100');
+      assert.equal(await page.$eval('[data-type-scope="total"] [data-damage-type="phys"] b', (el) => el.textContent), '30');
+      assert.equal(await page.$eval('[data-type-scope="p1:op:1"] [data-damage-type="elemental"] b', (el) => el.textContent), '10');
       assert.equal(await page.$('[data-damage-bond="siracusaShip"]'), null, 'other player’s Alliance damage filtered out');
       assert.equal(await page.$eval('[data-damage-bond="steadShip"] b', (el) => el.textContent), '40');
       assert.ok(await page.$eval('[data-stat-id="p1:op:1"]', (el) => el.textContent.includes('其中盟约伤害 40')));

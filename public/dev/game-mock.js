@@ -512,9 +512,13 @@ function startCombat(phase) {
       if (!liveEnemies.length || rnd() > 0.2) continue;
       const tgt = liveEnemies[Math.floor(rnd() * liveEnemies.length)];
       const dmg = Math.round(200 + rnd() * 700);
-      a.stats.dmg += Math.min(Math.max(0, tgt.hp), e2boss(tgt) ? dmg * 3 : dmg);
+      const dealt = Math.min(Math.max(0, tgt.hp), e2boss(tgt) ? dmg * 3 : dmg);
+      const type = rnd() < 0.3 ? 'arts' : 'phys';
+      a.stats.dmg += dealt;
+      const types = a.stats.damageTypes || (a.stats.damageTypes = {});
+      types[type] = (types[type] || 0) + dealt;
       tgt.hp -= e2boss(tgt) ? dmg * 3 : dmg;
-      ev.push(['atk', a.id, tgt.id, 'arrow'], ['dmg', tgt.id, dmg, rnd() < 0.3 ? 'arts' : 'phys']);
+      ev.push(['atk', a.id, tgt.id, 'arrow'], ['dmg', tgt.id, dmg, type]);
       a.sp = (a.sp + 1) % a.spMax;
       if (tgt.hp <= 0 && !tgt.boss && !tgt.dead) { tgt.dead = true; killed++; ev.push(['die', tgt.id]); countKill(); }
     }
