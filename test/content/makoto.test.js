@@ -84,17 +84,53 @@ test('结城理 S3 cannot activate a second time until the substitute switch ani
   assert.equal(h.invariants(), true);
 });
 
-test('结城理 S3 automatic second cast observes the three-second operation cooldown', () => {
+test('结城理 S3 first automatic cast waits for an enemy Thanatos can target', () => {
   const h = scene(2);
   h.run(0.1);
   const u = h.unit(1);
   u.skill.setSpTotal(100);
-  assert.equal(u.skill.activate('manual'), true);
-  h.spawn(FOE, { pos: [9, 7], routeIndex: 0 });
-  h.run(2.8);
+  const e = h.spawn(FOE, { pos: [9, 7], routeIndex: 0 });
+  h.b.applyStatus(e, 'stealth', { duration: 10 });
+  h.run(3.5);
+  assert.equal(u.mem.makotoMode, null, 'an untargetable enemy does not waste the first cast');
+  h.b.applyStatus(e, 'reveal', { duration: 10 });
+  h.run(0.2);
   assert.equal(u.mem.makotoMode, 'thanatos3');
-  h.run(0.3);
+  assert.equal(u.skill.activations, 1);
+  assert.equal(h.invariants(), true);
+});
+
+test('结城理 S3 can auto-enter Thanatos for a flying target that the doll can hit', () => {
+  const h = makeBattle({ units: [pick(2)], defs: { enemies: { [FOE]: enemyRec({ key: FOE, hp: 30000, atk: 0, speed: 0, motion: 'FLY' }) } },
+    autoFinish: false, timeLimit: 20 });
+  h.run(0.1);
+  const u = h.unit(1);
+  u.skill.setSpTotal(100);
+  h.spawn(FOE, { pos: [9, 7], routeIndex: 0 });
+  h.run(3.5);
+  assert.equal(u.mem.makotoMode, 'thanatos3');
+  assert.equal(u.skill.activations, 1);
+  assert.equal(h.invariants(), true);
+});
+
+test('结城理 S3 keeps Thanatos attacking instead of automatically spending the optional second cast', () => {
+  const h = scene(2);
+  h.run(0.1);
+  const u = h.unit(1);
+  u.skill.setSpTotal(100);
+  h.spawn(FOE, { pos: [9, 7], routeIndex: 0 });
+  h.run(3.5);
+  assert.equal(u.mem.makotoMode, 'thanatos3');
+  const attacksAtSwitch = u.stats.attacks;
+  h.run(4);
+  assert.ok(u.stats.attacks > attacksAtSwitch, 'Thanatos attacks its target');
+  assert.equal(u.mem.makotoMode, 'thanatos3');
+  assert.equal(u.skill.charges, 1, 'the manual second cast remains available');
+  assert.equal(u.skill.activations, 1, 'automatic strategy did not spend the second cast');
+  assert.equal(u.skill.activate('SKILL_RANGE'), false, 'even an explicit automatic trigger is ignored');
+  h.b.dealDamage(null, u, { amount: 999999, type: 'true', canDodge: false });
   assert.equal(u.mem.makotoMode, 'orpheus3');
+  assert.equal(u.skill.activations, 1, 'fatal switch did not cast a second skill');
   assert.equal(h.invariants(), true);
 });
 

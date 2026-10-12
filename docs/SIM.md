@@ -1040,7 +1040,9 @@ flag alters movement or 失衡.
   after its previous cast (a charged skill spends its charges 3 s apart) or after its battle-start deployment
   (`Battle._deploy` initial; `battle.flags.startOpCooldown`, default 3 — the test harness sets 0 unless told otherwise);
   AUTO skills are exempt; kits with their own automatic cast of a MANUAL skill check `skill.opCooling` (波登可 S1, 雪猎
-  special bullets, 流形 copy). While a cast "next attack" (instant / charges with an attack override) waits for its
+  special bullets, 流形 copy). 结城理 S3 locally filters its automatic first cast to enemies its projected 塔纳托斯·改
+  attack can select and never auto-spends its optional second charge; manual activation after the switch and fatal
+  damage still reach 俄耳甫斯·改 (DESIGN §29.19). While a cast "next attack" (instant / charges with an attack override) waits for its
   attack, no further charge is cast. An instant / charges skill with no attack override of its own (a throw, a heal, a
   buff, a DP gain …) is cast from the tick (the rules above, the DEFAULT of units that never attack, content trigger
   ranges) at most once per attack interval of its unit — `skill.nextCastAt`, set by such a cast, reset on deployment —:

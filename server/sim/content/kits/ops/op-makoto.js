@@ -89,12 +89,19 @@ export default {
       skills: { [S1]: { kind: 'instant', onStart: cast }, [S2]: { kind: 'instant', onStart: cast }, [S3]: { kind: 'instant', onStart: cast } },
       install(battle, unit) {
         if (selected === S3 && unit.skill && !Object.prototype.hasOwnProperty.call(unit.skill, 'activate')) {
-          // PRTS: the second cast is available only after the Thanatos switch animation finishes.
+          // Keep the first automatic cast for a target Thanatos can actually hit. The second cast
+          // is a player choice: never spend it through the generic automatic skill strategy.
           const activate = unit.skill.activate;
           Object.defineProperty(unit.skill, 'activate', {
             configurable: true, writable: true, enumerable: false,
             value(reason, opts) {
-              if (unit.trait.doll && (unit.trait.dollSwitching || unit.mem.makotoMode !== 'thanatos3')) return false;
+              const automatic = reason != null && reason !== 'manual';
+              if (unit.trait.doll) {
+                if (unit.trait.dollSwitching || unit.mem.makotoMode !== 'thanatos3' || automatic) return false;
+              } else if (automatic) {
+                const keys = absoluteRangeKeys(skillGrid, unit.tileR, unit.tileC, unit.dir, unit.s.rangeExtend);
+                if (!battle.enemiesInKeys(keys, unit, { ...unit.profile, canHitFly: true }).length) return false;
+              }
               return activate.call(this, reason, opts);
             },
           });
@@ -137,8 +144,8 @@ export default {
             battle.applyStatus(e, 'sluggish', { duration: dollSlow, source: unit });
           }
           setMode(battle, unit, selected === S1 ? 'orpheus1' : selected === S2 ? 'thanatos2' : 'thanatos3');
-          // Arm the second cast when the 1-second switch animation has finished. Its automatic
-          // operation rule still observes the 3-second cooldown from the first cast.
+          // Arm the optional manual second cast when the 1-second switch animation has finished.
+          // The automatic operation keeps Thanatos attacking until the doll is defeated or expires.
           if (selected === S3 && unit.skill) {
             const arm = () => {
               if (!up(unit) || !unit.trait.doll || unit.mem.makotoMode !== 'thanatos3') return;
