@@ -86,14 +86,16 @@ export class FxProjectiles {
     const angle = Math.atan2(q.y - y, q.x - x);
     const range = Math.hypot(q.x - x, q.y - y);
     // Cosmetic only: sample once per blast, so the little streaks do not jitter when a frame is redrawn.
-    // Independent angles may cluster naturally; all stay inside the forward-facing cone.
-    // Two heavier pellets and six smaller ones give the burst a less regular silhouette.
-    const pellets = EXECUTOR_ID.test(src.info?.defId || '') ? Array.from({ length: 8 }, (_, i) => ({
+    // Independent angles may cluster naturally; each pellet also starts and fades on its own schedule.
+    // One heavy tracer, two medium ones and two tiny sparks break up the otherwise even wave front.
+    const pellets = EXECUTOR_ID.test(src.info?.defId || '') ? Array.from({ length: 5 }, (_, i) => ({
       angle: angle + (Math.random() - 0.5) * 1.04,
-      reach: 0.5 + Math.random() * 0.48,
-      delay: Math.random() * 0.18,
-      size: i < 2 ? 1.15 + Math.random() * 0.55 : 0.4 + Math.random() * 0.6,
-      length: 0.55 + Math.random() * 1.1,
+      reach: 0.48 + Math.random() * 0.5,
+      start: Math.random() * 0.22,
+      duration: 0.45 + Math.random() * 0.35,
+      offset: (Math.random() - 0.5) * s * 0.22,
+      size: i === 0 ? 1.45 + Math.random() * 0.45 : i < 3 ? 0.75 + Math.random() * 0.4 : 0.3 + Math.random() * 0.3,
+      length: i === 0 ? 1.25 + Math.random() * 0.55 : i < 3 ? 0.6 + Math.random() * 0.65 : 0.3 + Math.random() * 0.4,
     })) : [];
     this.shotgunWaves.push({ x, y, s, angle, range, pellets, t: 0, dur: 0.17 });
     if (this.shotgunWaves.length > 24) this.shotgunWaves.shift();
@@ -133,16 +135,19 @@ export class FxProjectiles {
         }
       }
       for (const pellet of wave.pellets) {
-        const progress = Math.max(0, (k - pellet.delay) / (1 - pellet.delay));
-        if (!progress) continue;
+        const progress = (k - pellet.start) / pellet.duration;
+        if (progress <= 0 || progress >= 1) continue;
         const travel = wave.range * pellet.reach * (1 - (1 - progress) ** 2);
-        const trail = Math.min(travel, clamp(wave.s * 0.14 * pellet.length, 3, 18));
+        const trail = Math.min(travel, clamp(wave.s * 0.14 * pellet.length, 2, 20));
         const dx = Math.cos(pellet.angle), dy = Math.sin(pellet.angle);
-        const px = wave.x + dx * travel, py = wave.y + dy * travel;
+        const ox = wave.x - Math.sin(wave.angle) * pellet.offset;
+        const oy = wave.y + Math.cos(wave.angle) * pellet.offset;
+        const px = ox + dx * travel, py = oy + dy * travel;
         const tailX = px - dx * trail, tailY = py - dy * trail;
-        g.lineStyle(clamp(wave.s * 0.055 * pellet.size, 1, 6), 0xffaa49, fade * 0.55);
+        const pelletFade = Math.min(1, (1 - progress) * 4) * (1 - k) ** 0.4;
+        g.lineStyle(clamp(wave.s * 0.055 * pellet.size, 1, 6), 0xffaa49, pelletFade * 0.55);
         g.moveTo(tailX, tailY); g.lineTo(px, py);
-        g.lineStyle(clamp(wave.s * 0.025 * pellet.size, 0.8, 3), 0xfff4c0, fade * 0.95);
+        g.lineStyle(clamp(wave.s * 0.025 * pellet.size, 0.8, 3), 0xfff4c0, pelletFade * 0.95);
         g.moveTo(tailX, tailY); g.lineTo(px, py);
       }
       this.shotgunWaves[w++] = wave;
