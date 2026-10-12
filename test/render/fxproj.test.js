@@ -163,14 +163,22 @@ describe('shots', () => {
     const { fx } = makeFx({ views: [a, b, c] });
     a.dir = 'RIGHT';
     a.info.defId = 'chess_char_2_01_a'; // 送葬人
-    fx.attack(a, b, 'arrow', 2, 'shotgunWave', 1.5);
+    const random = Math.random;
+    try {
+      Math.random = () => 0.5;
+      fx.attack(a, b, 'arrow', 2, 'shotgunWave', 1.5);
+    } finally { Math.random = random; }
     fx.attack(a, c, 'arrow', 2, 'shotgunWaveSkip');
     assert.equal(fx.projs.length, 0);
     assert.equal(fx.shotgunWaves.length, 1);
     const wave = fx.shotgunWaves[0];
-    assert.equal(wave.pellets.length, 7, 'Executor gets seven cosmetic pellet streaks');
-    assert.ok(wave.pellets.every(p => Math.abs(p.angle - wave.angle) <= 0.48 && p.reach < 1 && p.delay < 0.12),
+    assert.equal(wave.pellets.length, 8, 'Executor gets eight cosmetic pellet streaks');
+    assert.ok(wave.pellets.every(p => p.angle === wave.angle), 'angles are sampled independently rather than forced into evenly spaced slots');
+    assert.ok(wave.pellets.every(p => Math.abs(p.angle - wave.angle) <= 0.52 && p.reach < 1 && p.delay < 0.18),
       'each pellet stays within the facing fan and attack reach');
+    assert.ok(wave.pellets.slice(0, 2).every(p => p.size >= 1.15) && wave.pellets.slice(2).every(p => p.size < 1),
+      'two larger pellets mix with six smaller ones');
+    assert.ok(wave.pellets.every(p => p.length >= 0.55 && p.length < 1.65));
     const pelletAngles = wave.pellets.map(p => p.angle);
     fx.attack(a, c, 'arrow', 1, 'shotgunWave', 3.5);
     assert.equal(fx.shotgunWaves[1].angle, wave.angle, 'a side target cannot steer the wave');
