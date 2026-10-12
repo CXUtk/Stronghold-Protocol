@@ -158,6 +158,54 @@ describe('particles', () => {
 });
 
 describe('shots', () => {
+  test('scattershooters draw one fast expanding cone for multiple targets, without cosmetic arrows', () => {
+    const a = unit(1, 3, 10), b = unit(2, 6, 10, { isEnemy: true }), c = unit(3, 6, 9, { isEnemy: true });
+    const { fx } = makeFx({ views: [a, b, c] });
+    a.dir = 'RIGHT';
+    fx.attack(a, b, 'arrow', 2, 'shotgunWave', 1.5);
+    fx.attack(a, c, 'arrow', 2, 'shotgunWaveSkip');
+    assert.equal(fx.projs.length, 0);
+    assert.equal(fx.shotgunWaves.length, 1);
+    const wave = fx.shotgunWaves[0];
+    fx.attack(a, c, 'arrow', 1, 'shotgunWave', 3.5);
+    assert.equal(fx.shotgunWaves[1].angle, wave.angle, 'a side target cannot steer the wave');
+    assert.ok(fx.shotgunWaves[1].range > wave.range * 1.8, 'longer range extends the wave');
+    a.dir = 'UP';
+    fx.attack(a, b, 'arrow', 1, 'shotgunWave', 1.5);
+    assert.ok(Math.abs(fx.shotgunWaves[2].angle - wave.angle) > 0.3, 'turning the operator rotates the wave');
+    assert.equal(fx.projs.length, 0);
+    fx.update(0.04);
+    const earlyRadius = wave.range * (0.07 + 0.93 * (1 - (1 - wave.t / wave.dur) ** 2));
+    fx.update(0.04);
+    const lateRadius = wave.range * (0.07 + 0.93 * (1 - (1 - wave.t / wave.dur) ** 2));
+    assert.ok(lateRadius > earlyRadius, 'the light front spreads outward');
+    run(fx, 0.2);
+    assert.equal(fx.shotgunWaves.length, 0, 'the wave clears quickly');
+    fx.clear();
+    fx.attack(a, b, 'arrow');
+    assert.equal(fx.projs.length, 1, 'ordinary archers still launch arrows');
+    fx.destroy();
+  });
+
+  test('空弦 S3 draws a golden long-trail volley, bow flash and star-ring impacts without changing ordinary arrows', () => {
+    const a = unit(1, 3, 10), b = unit(2, 9, 10, { isEnemy: true });
+    for (const quality of ['high', 'low']) {
+      const { fx } = makeFx({ quality, views: [a, b] });
+      fx.attack(a, b, 'arrow', 3, 'archetStorm');
+      assert.equal(fx.projs.length, 3);
+      assert.ok(fx.projs.every(p => p.spec.storm && p.spec.len >= 6 && p.spec.hit === 'archetStorm'));
+      if (fx.rich) assert.ok(liveTex(fx, 'slash').length >= 1, 'first shot lights the bow on high quality');
+      run(fx, 0.25);
+      assert.ok(liveTex(fx, 'ring').length >= 1, 'target receives a gold impact ring');
+      assert.ok(liveTex(fx, 'flare').length >= 1, 'target receives a white-hot star');
+      run(fx, 1);
+      assert.equal(fx.projs.length, 0);
+      fx.attack(a, b, 'arrow');
+      assert.equal(fx.projs[0].spec.storm, undefined, 'a later ordinary shot has no pooled storm style');
+      fx.destroy();
+    }
+  });
+
   test('arrow and bolt volleys show 2/4/5 shots in sequence at the battle clock rate, including low quality', () => {
     const a = unit(1, 3, 10), b = unit(2, 9, 10, { isEnemy: true });
     for (const [kind, count] of [['arrow', 2], ['arrow', 4], ['arrow', 5], ['bolt', 2]]) for (const ts of [1, 2, 4]) for (const quality of ['high', 'low']) {
