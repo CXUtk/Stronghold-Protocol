@@ -60,7 +60,7 @@ export class FxProjectiles {
       if (kind === 'none' || !kind) this._slashAt = src.id;
       return;
     }
-    const count = kind === 'arrow' ? clamp(Math.floor(Number(shots) || 1), 1, 4) : 1;
+    const count = kind === 'arrow' || kind === 'bolt' ? clamp(Math.floor(Number(shots) || 1), 1, 8) : 1;
     for (let i = 0; i < count; i++) this._launchShot(src, tgt, kind, spec, i * 0.08 / this._ts());
   }
 

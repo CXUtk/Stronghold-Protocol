@@ -158,11 +158,11 @@ describe('particles', () => {
 });
 
 describe('shots', () => {
-  test('arrow volleys show 2/4 shots in sequence at the battle clock rate, including low quality', () => {
+  test('arrow and bolt volleys show 2/4/5 shots in sequence at the battle clock rate, including low quality', () => {
     const a = unit(1, 3, 10), b = unit(2, 9, 10, { isEnemy: true });
-    for (const count of [2, 4]) for (const ts of [1, 2, 4]) for (const quality of ['high', 'low']) {
+    for (const [kind, count] of [['arrow', 2], ['arrow', 4], ['arrow', 5], ['bolt', 2]]) for (const ts of [1, 2, 4]) for (const quality of ['high', 'low']) {
       const { fx } = makeFx({ ts, quality, views: [a, b] });
-      fx.attack(a, b, 'arrow', count);
+      fx.attack(a, b, kind, count);
       assert.equal(fx.projs.length, count);
       const shots = [...fx.projs];
       for (let i = 0; i < count; i++) assert.ok(Math.abs(shots[i].delay - i * 0.08 / ts) < 1e-9);
@@ -172,7 +172,7 @@ describe('shots', () => {
       assert.equal(shots[1].core.alpha, 0, 'pending arrows are invisible');
       fx.update(0.06 / ts);
       assert.ok(shots[1].t > 0, 'second arrow released');
-      if (count === 4) assert.equal(shots[2].t, 0, 'remaining arrows still wait');
+      if (count > 2) assert.equal(shots[2].t, 0, 'remaining shots still wait');
       run(fx, 2);
       assert.equal(fx.projs.length, 0, 'all volley arrows are released after landing');
       fx.attack(a, b, 'arrow');
@@ -189,11 +189,15 @@ describe('shots', () => {
       assert.equal(fx.projs.length, 1);
     }
     fx.clear(); fx.attack(a, b, 'arrow', 999);
-    assert.equal(fx.projs.length, 4, 'bounded cosmetic count');
+    assert.equal(fx.projs.length, 8, 'bounded cosmetic count');
+    fx.clear(); fx.attack(a, b, 'bolt', 5);
+    assert.equal(fx.projs.length, 5, 'arts multi-hit attacks also show each shot');
     fx.clear(); fx.attack(a, b, 'bomb', 4);
     assert.equal(fx.projs.length, 1, 'other projectile kinds keep their behavior');
     fx.clear(); fx.attack(a, b, 'beam', 4);
     assert.equal(fx.beamList.length, 1);
+    fx.clear(); fx.attack(a, b, 'boomerang', 5);
+    assert.equal(fx.projs.length, 1, 'one returning body can deal multiple hits');
     fx.destroy();
   });
 
