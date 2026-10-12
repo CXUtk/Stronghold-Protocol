@@ -64,6 +64,40 @@ test('结城理 S3 second activation changes Thanatos to Orpheus, restores two b
   assert.equal(h.invariants(), true);
 });
 
+test('结城理 S3 cannot activate a second time until the substitute switch animation ends', () => {
+  const h = scene(2);
+  h.run(0.1);
+  const u = h.unit(1);
+  u.skill.setSpTotal(100);
+  assert.equal(u.skill.activate('manual'), true);
+  assert.equal(u.mem.makotoMode, 'thanatos3');
+  assert.equal(u.trait.dollSwitching, true);
+  assert.equal(u.skill.charges, 0);
+  assert.equal(u.skill.activate('manual'), false, 'a second tap during the switch is ignored');
+  h.run(0.8);
+  assert.equal(u.skill.activate('manual'), false);
+  h.run(0.4);
+  assert.equal(u.trait.dollSwitching, false);
+  assert.equal(u.skill.charges, 1);
+  assert.equal(u.skill.activate('manual'), true);
+  assert.equal(u.mem.makotoMode, 'orpheus3');
+  assert.equal(h.invariants(), true);
+});
+
+test('结城理 S3 automatic second cast observes the three-second operation cooldown', () => {
+  const h = scene(2);
+  h.run(0.1);
+  const u = h.unit(1);
+  u.skill.setSpTotal(100);
+  assert.equal(u.skill.activate('manual'), true);
+  h.spawn(FOE, { pos: [9, 7], routeIndex: 0 });
+  h.run(2.8);
+  assert.equal(u.mem.makotoMode, 'thanatos3');
+  h.run(0.3);
+  assert.equal(u.mem.makotoMode, 'orpheus3');
+  assert.equal(h.invariants(), true);
+});
+
 test('结城理 total attack uses body ATK rather than doll ATK when the substitute expires', () => {
   const h = scene(0);
   const u = enter(h);

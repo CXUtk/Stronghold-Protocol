@@ -127,6 +127,8 @@ How downloads are fetched:
 
 The first run downloads about **548 MiB in 10,643 files** (`stats` of `data/assets.json` in 0.2.2: 574,449,900 bytes). The two 干员战斗语音 dubs are 2,674 files each, the twelve slots a battle plays for 191 operators: the Chinese one 65.6 MiB, the Japanese one 85.2 MiB (89,388,041 bytes; adding it took 107 s at about 1 MB/s from raw.githubusercontent.com). A re-run takes about 1 s. The three prep-only slots the official client uses elsewhere (干员报到 / 编入队伍 / 任命队长, 360 more files per dub, 18.4 MiB of them Chinese) are left out unless `--voice-all` is passed.
 
+The local 结城理 addition has a Japanese voice tree but no Chinese voice tree in the current manifest; therefore `voiceJpChars` is one higher than `voiceChars`. The historical 0.2.2 counts above are unchanged.
+
 Outputs:
 - `data/assets.json`: the manifest (committed).
 - `public/assets/**`: art and audio (git-ignored).

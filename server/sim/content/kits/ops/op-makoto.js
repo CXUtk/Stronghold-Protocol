@@ -3,6 +3,7 @@
 import { num, talentBb, traitBb, skillRec, up, alliesInGridOf } from '../shared/tier1.js';
 import { weaknessRetype } from '../../items/battle.js';
 import { absoluteRangeKeys } from '../../../targeting.js';
+import { DOLL_SWITCH } from '../../../professions.js';
 
 const S1 = 'skchr_makoto_1';
 const S2 = 'skchr_makoto_2';
@@ -69,7 +70,7 @@ export default {
       else battle.removeBuff(unit, S3_ORPHEUS);
     };
     const toOrpheus = (battle, unit) => {
-      if (!up(unit) || !unit.trait.doll || unit.mem.makotoMode !== 'thanatos3') return;
+      if (!up(unit) || !unit.trait.doll || unit.trait.dollSwitching || unit.mem.makotoMode !== 'thanatos3') return;
       setMode(battle, unit, 'orpheus3');
       if (unit.skill) unit.skill.charges = 0;
       healOrpheus(battle, unit);
@@ -87,6 +88,17 @@ export default {
       // On the body all three skills switch to the doll at once. S3's second cast changes its persona.
       skills: { [S1]: { kind: 'instant', onStart: cast }, [S2]: { kind: 'instant', onStart: cast }, [S3]: { kind: 'instant', onStart: cast } },
       install(battle, unit) {
+        if (selected === S3 && unit.skill && !Object.prototype.hasOwnProperty.call(unit.skill, 'activate')) {
+          // PRTS: the second cast is available only after the Thanatos switch animation finishes.
+          const activate = unit.skill.activate;
+          Object.defineProperty(unit.skill, 'activate', {
+            configurable: true, writable: true, enumerable: false,
+            value(reason, opts) {
+              if (unit.trait.doll && (unit.trait.dollSwitching || unit.mem.makotoMode !== 'thanatos3')) return false;
+              return activate.call(this, reason, opts);
+            },
+          });
+        }
         unit.mem.makotoBaseProfile = {
           noAttack: unit.profile.noAttack, dmgType: unit.profile.dmgType, atkScale: unit.profile.atkScale,
           maxTargets: unit.profile.maxTargets, canHitFly: unit.profile.canHitFly, onEachHit: unit.profile.onEachHit,
@@ -125,9 +137,16 @@ export default {
             battle.applyStatus(e, 'sluggish', { duration: dollSlow, source: unit });
           }
           setMode(battle, unit, selected === S1 ? 'orpheus1' : selected === S2 ? 'thanatos2' : 'thanatos3');
-          // S3 can be activated a second time while in the doll. Its automatic operation rule
-          // decides when to use the charge; the substitute's no-SP lock remains intact.
-          if (selected === S3 && unit.skill) unit.skill.charges = 1;
+          // Arm the second cast when the 1-second switch animation has finished. Its automatic
+          // operation rule still observes the 3-second cooldown from the first cast.
+          if (selected === S3 && unit.skill) {
+            const arm = () => {
+              if (!up(unit) || !unit.trait.doll || unit.mem.makotoMode !== 'thanatos3') return;
+              if (unit.trait.dollSwitching) battle.after(1 / 30, arm, { owner: unit });
+              else unit.skill.charges = 1;
+            };
+            battle.after(DOLL_SWITCH, arm, { owner: unit });
+          }
         }, { owner: unit, priority: -10 });
         battle.on('hit', (c) => {
           if (c.source === unit && c.target?.side === 'enemy' && unit.mem.makotoMode === 'thanatos3') weaknessRetype(c.dmg, unit, c.target);
