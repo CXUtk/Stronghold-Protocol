@@ -45,7 +45,7 @@ async function main() {
   if (q.get('panel') === '0') $('panel').classList.add('is-hidden');
   await data.loadAll('chess', 'tokens', 'items', 'enemies', 'stages', 'bonds', 'config');
   await assets.ready();
-  const index = await fetch(`${recordingRoot}/index.json`).then((r) => (r.ok ? r.json() : []), () => []);
+  const index = await fetch(`${recordingRoot}/index.json`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : []), () => []);
   const view = await createFieldView($('field'), {
     data, assets, settings: { quality: q.get('quality') || 'high', damageNumbers: true },
     ...(q.has('aa') ? { antialias: q.get('aa') !== '0' } : {}),
@@ -152,7 +152,7 @@ async function prepScene(view, stageId, index = []) {
   ];
   const penRec = q.get('pen') ? index.find((r) => r.name === q.get('pen')) : null;
   if (penRec) {
-    const rec = await fetch(`/dev/recordings/${penRec.file}`).then((r) => r.json(), () => null);
+    const rec = await fetch(`/dev/recordings/${penRec.file}`, { cache: 'no-store' }).then((r) => r.json(), () => null);
     if (Array.isArray(rec?.preview)) nextEnemies = rec.preview;
   } else if (q.get('pen') === '0') nextEnemies = [];
   const chess = data.list('chess').filter((c) => c.visible && !c.isGolden);
@@ -293,7 +293,7 @@ async function prepScene(view, stageId, index = []) {
 // recording scene
 
 async function recordingScene(view, meta) {
-  const rec = await fetch(`${recordingRoot}/${meta.file}`).then((r) => r.json());
+  const rec = await fetch(`${recordingRoot}/${meta.file}`, { cache: 'no-store' }).then((r) => r.json());
   const stage = data.lookup('stages', rec.stageId);
   const frames = rec.frames;
   const t0 = frames[0].snap.t;
