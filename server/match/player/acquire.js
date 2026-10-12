@@ -213,8 +213,11 @@ export class PlayerAcquire {
    * copy-weighted roll from the shared pool excluding the ones already drawn; a tier left without another chess tops
    * up from the tier below (user playtest #6 item 19: the official promotion reward never offers one operator twice —
    * the user's first-hand report; the normal shop's slots may repeat). The offer reserves no copies (the pick takes one).
-   * The player's slotted 自选 pieces join the draw like in its shop (player/diy.js diyRollEntries: once the 调度中心 is at
-   * the slot's level) — the reward is a temporary refresh of the shop ("临时刷新3名…干员") [ASSUMED].
+   * The player's slotted 自选 pieces of the reward tier join the draw (player/diy.js diyStockEntries: copies left, then
+   * the roll's tier — not the ordinary shop's shopLevel gate). 卫戍协议/帮助 干员晋升 names one temporary refresh one tier
+   * above the 调度中心 and no separate pool; the owner decided on 2026-10-12 that the refresh includes 自选 of the newly
+   * reached tier. 0.2.0 had [ASSUMED] the shop-level gate on this refresh too (DESIGN §25); §30.23 reverses that.
+   * An offer built from explicit `ids` does not roll.
    */
   pushRewardOffer(source = 'merge', { tier = null, ids = null, label = null } = {}) {
     const ro = this.gd.rewardOffer();
@@ -226,7 +229,7 @@ export class PlayerAcquire {
       const fresh = (id) => !list.includes(id);
       for (let i = 0; i < ro.count; i++) {
         let id = null;
-        for (let tt = t; tt >= 1 && !id; tt--) id = this.m.pool.roll(this.m.rngShop, { tier: tt, filter: fresh, extra: this.diyRollEntries() });
+        for (let tt = t; tt >= 1 && !id; tt--) id = this.m.pool.roll(this.m.rngShop, { tier: tt, filter: fresh, extra: this.diyStockEntries() });
         if (id) list.push(id);
       }
     }
@@ -287,14 +290,15 @@ export class PlayerAcquire {
   acquireItem(itemId, { source = 'grant', toTemp = false, silent = false, deferMerge = false, requirePool = true } = {}) {
     const rec = this.gd.item(itemId);
     if (!rec) return null;
-    if (requirePool && !this.m.itemPool.canGain(itemId)) {
+    // Only fixed operator-gift families may overdraw; other grants retain the stock limit.
+    const unlimitedGift = !requirePool && this.gd.isUnlimitedGiftItem(itemId);
+    if (!unlimitedGift && !this.m.itemPool.canGain(itemId)) {
       this.m.toast(this, 'warn', '装备库存不足，未获得该装备');
       return null;
     }
     let piece = this.newPiece('item', itemId);
-    // [ASSUMED] Guaranteed trait/strategy products occupy stock but can exceed the cap (community report #488;
-    // not an independent original-mode experiment). Ordinary acquisitions keep the stock gate.
-    if (!requirePool) piece.poolGrantCopies = this.m.itemPool.need(itemId);
+    // Fixed operator gifts occupy stock even when allowed to overdraw it (community report #488).
+    if (unlimitedGift) piece.poolGrantCopies = this.m.itemPool.need(itemId);
     // A prep-end grant may sit beside an identical copy until the next prep. The invariant counts only copies
     // without this mark, so the fight that is about to start is not reported as a missed merge.
     if (deferMerge) piece.deferMerge = true;

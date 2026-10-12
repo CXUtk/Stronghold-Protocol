@@ -9,10 +9,11 @@ import { ERR } from '../../shared/constants.js';
 const quiet = { info() {}, warn() {}, error() {} };
 const BALL = 'chess_item_6_09_e_a';
 const COIN = 'chess_item_1_03_e_a';
+const rockrPool = DATA.choices.pools.pool_equip_rockr.weighted.map(([id]) => id);
 const fillers = Object.values(DATA.chess).filter(c => c.visible && !c.isGolden &&
   (c.garrisonIds || []).every(g => DATA.garrisons[g].eventType === 'IN_BATTLE')).map(c => c.chessId);
 const fillerItems = Object.values(DATA.items).filter(i => i.itemType === 'EQUIP' && !i.isGolden &&
-  i.kind === 'passive' && !DATA.choices.pools.pool_equip_rockr.items.includes(i.id)).map(i => i.id).slice(0, 5);
+  i.kind === 'passive' && !rockrPool.includes(i.id)).map(i => i.id).slice(0, 5);
 
 function setup({ multiplier = 2, temp = 0, stock = 0 } = {}) {
   const h = makeMatch({ mode: 'coop', humans: 4, fake: true, seed: 41,
@@ -68,7 +69,7 @@ test('缪尔赛思 purchase in the last hand slot and full-row passive traits pr
 });
 
 test('洛洛 manufacture keeps the full normal/elite × 投资人 count with both visible areas full', () => {
-  const pool = DATA.choices.pools.pool_equip_rockr.items;
+  const pool = rockrPool;
   for (const id of ['chess_char_2_10_a', 'chess_char_2_10_b']) for (const multiplier of [2, 3]) {
     const s = setup({ multiplier, temp: 5 });
     buy(s, id);
