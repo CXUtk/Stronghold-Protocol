@@ -221,7 +221,8 @@ gold-white tracer, a bow flash and a short impact ring. Other arrows keep the sh
 Scattershooters (送葬人 and 松果) draw one roughly 0.17-second expanding fan per area attack. It follows the
 operator's deployed facing and reaches the far edge of the current skill/buff range; the first target's lateral
 position does not steer it. Later targets of the same attack do not launch separate arrows. `shotgunWave` and
-`shotgunWaveSkip` only affect rendering, not the simulated targets, projectiles, or hit count.
+`shotgunWaveSkip` only affect rendering, not the simulated targets, projectiles, or hit count. 送葬人的光波还带有
+七条短小的散射弹片轨迹：每次攻击在朝向扇形内随机取角度，轨迹不超过当前攻击距离；松果保持纯光波。
 
 ---
 
