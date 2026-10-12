@@ -162,11 +162,16 @@ describe('shots', () => {
     const a = unit(1, 3, 10), b = unit(2, 6, 10, { isEnemy: true }), c = unit(3, 6, 9, { isEnemy: true });
     const { fx } = makeFx({ views: [a, b, c] });
     a.dir = 'RIGHT';
+    a.info.defId = 'chess_char_2_01_a'; // 送葬人
     fx.attack(a, b, 'arrow', 2, 'shotgunWave', 1.5);
     fx.attack(a, c, 'arrow', 2, 'shotgunWaveSkip');
     assert.equal(fx.projs.length, 0);
     assert.equal(fx.shotgunWaves.length, 1);
     const wave = fx.shotgunWaves[0];
+    assert.equal(wave.pellets.length, 7, 'Executor gets seven cosmetic pellet streaks');
+    assert.ok(wave.pellets.every(p => Math.abs(p.angle - wave.angle) <= 0.48 && p.reach < 1 && p.delay < 0.12),
+      'each pellet stays within the facing fan and attack reach');
+    const pelletAngles = wave.pellets.map(p => p.angle);
     fx.attack(a, c, 'arrow', 1, 'shotgunWave', 3.5);
     assert.equal(fx.shotgunWaves[1].angle, wave.angle, 'a side target cannot steer the wave');
     assert.ok(fx.shotgunWaves[1].range > wave.range * 1.8, 'longer range extends the wave');
@@ -175,12 +180,17 @@ describe('shots', () => {
     assert.ok(Math.abs(fx.shotgunWaves[2].angle - wave.angle) > 0.3, 'turning the operator rotates the wave');
     assert.equal(fx.projs.length, 0);
     fx.update(0.04);
+    assert.deepEqual(wave.pellets.map(p => p.angle), pelletAngles, 'the sampled directions do not jitter between frames');
     const earlyRadius = wave.range * (0.07 + 0.93 * (1 - (1 - wave.t / wave.dur) ** 2));
     fx.update(0.04);
     const lateRadius = wave.range * (0.07 + 0.93 * (1 - (1 - wave.t / wave.dur) ** 2));
     assert.ok(lateRadius > earlyRadius, 'the light front spreads outward');
     run(fx, 0.2);
     assert.equal(fx.shotgunWaves.length, 0, 'the wave clears quickly');
+    fx.clear();
+    a.info.defId = 'chess_char_3_10_a'; // 松果 keeps the plain wave
+    fx.attack(a, b, 'arrow', 1, 'shotgunWave', 1.5);
+    assert.equal(fx.shotgunWaves[0].pellets.length, 0);
     fx.clear();
     fx.attack(a, b, 'arrow');
     assert.equal(fx.projs.length, 1, 'ordinary archers still launch arrows');
