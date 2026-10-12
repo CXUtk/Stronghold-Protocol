@@ -86,11 +86,14 @@ export class FxProjectiles {
     const angle = Math.atan2(q.y - y, q.x - x);
     const range = Math.hypot(q.x - x, q.y - y);
     // Cosmetic only: sample once per blast, so the little streaks do not jitter when a frame is redrawn.
-    // Stratified angles keep the burst scattered while every pellet stays inside the facing cone.
-    const pellets = EXECUTOR_ID.test(src.info?.defId || '') ? Array.from({ length: 7 }, (_, i) => ({
-      angle: angle + ((i + Math.random()) / 7 - 0.5) * 0.96,
-      reach: 0.65 + Math.random() * 0.3,
-      delay: Math.random() * 0.12,
+    // Independent angles may cluster naturally; all stay inside the forward-facing cone.
+    // Two heavier pellets and six smaller ones give the burst a less regular silhouette.
+    const pellets = EXECUTOR_ID.test(src.info?.defId || '') ? Array.from({ length: 8 }, (_, i) => ({
+      angle: angle + (Math.random() - 0.5) * 1.04,
+      reach: 0.5 + Math.random() * 0.48,
+      delay: Math.random() * 0.18,
+      size: i < 2 ? 1.15 + Math.random() * 0.55 : 0.4 + Math.random() * 0.6,
+      length: 0.55 + Math.random() * 1.1,
     })) : [];
     this.shotgunWaves.push({ x, y, s, angle, range, pellets, t: 0, dur: 0.17 });
     if (this.shotgunWaves.length > 24) this.shotgunWaves.shift();
@@ -133,13 +136,13 @@ export class FxProjectiles {
         const progress = Math.max(0, (k - pellet.delay) / (1 - pellet.delay));
         if (!progress) continue;
         const travel = wave.range * pellet.reach * (1 - (1 - progress) ** 2);
-        const trail = Math.min(travel, clamp(wave.s * 0.14, 4, 11));
+        const trail = Math.min(travel, clamp(wave.s * 0.14 * pellet.length, 3, 18));
         const dx = Math.cos(pellet.angle), dy = Math.sin(pellet.angle);
         const px = wave.x + dx * travel, py = wave.y + dy * travel;
         const tailX = px - dx * trail, tailY = py - dy * trail;
-        g.lineStyle(clamp(wave.s * 0.055, 2, 4), 0xffaa49, fade * 0.55);
+        g.lineStyle(clamp(wave.s * 0.055 * pellet.size, 1, 6), 0xffaa49, fade * 0.55);
         g.moveTo(tailX, tailY); g.lineTo(px, py);
-        g.lineStyle(clamp(wave.s * 0.025, 1, 2), 0xfff4c0, fade * 0.95);
+        g.lineStyle(clamp(wave.s * 0.025 * pellet.size, 0.8, 3), 0xfff4c0, fade * 0.95);
         g.moveTo(tailX, tailY); g.lineTo(px, py);
       }
       this.shotgunWaves[w++] = wave;
