@@ -211,6 +211,12 @@ history and the open points: DESIGN §32.14.25.
   and `tools/perfbench.mjs --fx`; `tools/vfx-skill-coverage.mjs` prints the roster's plan coverage and what the battle
   view plays of it.
 
+Fixed multi-hit arrow and bolt attacks draw one staggered cosmetic projectile per hit (up to eight) from a single
+`atk` event. This includes 能天使 S1/S2/S3, 新约能天使 S3, 空弦 S3, 送葬人 S2, 信仰搅拌机 S1 and 灵知 S1; 寒芒克洛丝's changing 2/4-hit
+count remains explicitly supplied by her kit. There is still one attack animation and one simulated projectile per
+target, so the extra tracers never change damage or impact timing. Shells, beams, boomerangs and melee hits keep
+their existing rendering.
+
 ---
 
 ## 10. Client UI (screens & components)

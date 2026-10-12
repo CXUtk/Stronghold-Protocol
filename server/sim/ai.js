@@ -285,8 +285,10 @@ export function performAttack(b, u, prof, targets, opts = null) {
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i];
     const ev = ['atk', u.id, t.id, vis];
-    // Optional cosmetic volley size; the existing impact/damage timing stays unchanged.
+    // Fixed multi-hit arrows/bolts draw one cosmetic shot per hit. Dynamic hit functions are
+    // opt-in: evaluating one here could consume RNG before the actual impact.
     if (prof.visualVolley) ev.push(prof.hitsFn ? prof.hitsFn(b, u) : prof.hits || 1);
+    else if (!isHeal && ranged && (vis === 'arrow' || vis === 'bolt') && !prof.hitsFn && prof.hits > 1) ev.push(prof.hits);
     b._ev(ev);
     if (isHeal) { doHeal(b, u, prof, t); continue; }
     // Target acquisition mutates the fortress profile. Keep this shot's mode while its shell is in flight.
