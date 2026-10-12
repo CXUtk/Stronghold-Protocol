@@ -6,7 +6,8 @@
 //     (config.economy.poolCopies[tier], measured identity overrides; co-op shared stock doubled). `left` is the
 //     signed capacity minus occupation; the public left() and shop sampling clamp a deficit to zero.
 //   * Owning a piece takes copies: a normal piece holds 1, an elite holds 3 (merge of 3 normals). Shop displays
-//     do NOT reserve copies; buying fails (SOLD_OUT) when left = 0.
+//     do NOT reserve copies. An item buy fails (SOLD_OUT) when left = 0; an operator card already shown in the shop or a
+//     reward can still be taken and overdraws (a negative raw left, the debt — GitHub #498, the owner's decision).
 //   * Pieces remember how many copies they hold (`piece.poolCopies`), so selling / elimination / temp wipes return
 //     exactly what was taken — chess granted by effects while the pool is empty (or hidden/banned chess) hold 0.
 //   * Invariant: raw left ≤ cap and raw left + Σ held copies == cap. Mimic can exceed stock, but its copies still occupy it.
@@ -14,9 +15,9 @@
 // Rolls: each chess slot draws ONE copy uniformly from all remaining copies of eligible chess with tier ≤ shop level
 // ("copy-weighted"; duplicates within a roll allowed). The item slot picks a tier with the same tier shares, then a
 // uniform shop-eligible item of that tier (falling back to lower tiers). A roll may add entries outside the pool
-// (`extra`, after its own): one player's 自选 stock (0.2.0, player/diy.js diyRollEntries), drawn by that player only.
-// deploy rule: its remaining copies carry a separate weightMultiplier in co-op, matching the ordinary tier's initial
-// draw weight without expanding the private stock. Availability and identity-only draws still use the real copies.
+// (`extra`, after its own): one player's 自选 stock. The shop passes diyRollEntries (shopLevel gate); promotion
+// rewards and random grants pass diyStockEntries (roll-tier gate). On deploy, co-op private copies use an extra
+// weightMultiplier for copy-weighted draws, while availability and identity-only draws use actual copies.
 
 /**
  * Per-match disabled bond set D and banned chess (research 01 A2): D = uniform sample of `core` core bonds and `addon`

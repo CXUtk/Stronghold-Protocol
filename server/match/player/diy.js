@@ -21,15 +21,11 @@
 //     gets no stock and so leaves the shop, like a preset chess whose bonds are all off (PRTS 卫戍协议：盟约 "禁用盟约有可能
 //     影响自选的支援干员"); 协防 (emptyShip) is never banned, so a prototype always stays. poolOf(baseId) routes every copy
 //     taken or returned for a slotted slot to that stock (buy, reward picks, merges, promotions, sells, temp, elimination).
-//   * the shop's draws (diyRollEntries): the stock of each slotted slot joins this player's copy-weighted rolls — the
-//     shop's chess slots and the reward offers' temporary refreshes [ASSUMED] — weighted like any chess of its tier, once
-//     the 调度中心 has reached the slot's shopLevel (activity_table shopLevelDisplayDataDict lists the tier-5 slots at
-//     level 5 and the tier-6 slots at level 6; PRTS 帮助 "仅在调度中心等级 ≥ 干员所在等阶"). The price is the slot's (any
-//     chess of its tier: 4).
-//     deploy rule requested on 2026-10-11: multiply each private copy's sampling weight by the ordinary co-op stock
-//     multiplier (2), so a full tier-5/6 slot has initial weight 16/10. Its actual private capacity remains 8/5.
-//     The same multiplier follows every copy-weighted grant; identity-only draws still weight each identity once.
-//     This is the user's deployment rule, not a verified official probability rule (docs/DEPLOY-OVERRIDES.md).
+//   * ordinary shop rolls (diyRollEntries) include each slotted piece once its shopLevel is reached. On deploy,
+//     co-op private-copy weightMultiplier is 2 (initial tier-5/6 weights 16/10, capacities still 8/5); this is
+//     the owner's deployment rule, not a verified official probability rule (docs/DEPLOY-OVERRIDES.md).
+//   * promotion rewards (pushRewardOffer without explicit ids) use diyStockEntries at tier min(shopLevel + 1, 6),
+//     so tier-5/6 自选 may appear one shop level before ordinary shop. This is not guaranteed (DESIGN §30.23).
 //   * random grants (diyStockEntries, 0.2.0 WE2 #9): an effect, reward or 机变 card that grants this player a random
 //     operator from the pool draws its stock too — 「自选干员放入后模拟中的补给池随机范围也将被相应扩大」 (bilibili), "调度中心
 //     随机资源的范围将被扩大" (PRTS 新手教程) — under the roll's own tier rules (the effect's tier / maxTier: no 调度中心 gate,
@@ -211,8 +207,7 @@ export class PlayerDiy {
   }
 
   /**
-   * The stock entries this player's shop draws from now ([baseId, entry] with copies left and the 调度中心 at the slot's
-   * shopLevel), or null (none — the shared pool's roll alone, exactly as without picks).
+   * The entries for ordinary shop draws (shopLevel gate); promotion rewards use diyStockEntries.
    * @returns {Array<[string, { cap: number, left: number, tier: number, shopLevel: number, weightMultiplier: number }]> | null}
    */
   diyRollEntries() {
@@ -223,8 +218,7 @@ export class PlayerDiy {
   }
 
   /**
-   * The stock entries a random grant of this player draws besides the shared pool (see the header): every slotted piece
-   * with copies left, whatever the 调度中心 level (the roll's own tier rules apply), or null (none).
+   * The entries for random grants and promotion reward refreshes (roll-tier gate, no shopLevel gate).
    * @returns {Array<[string, { cap: number, left: number, tier: number, shopLevel: number, weightMultiplier: number }]> | null}
    */
   diyStockEntries() {
