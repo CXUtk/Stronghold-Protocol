@@ -1649,3 +1649,7 @@ general hook guard. The queue is emptied in `finally`; it introduces no timer or
 - 谢拉格不融冰 listens to `damaged` for positive sourced damage to a surviving enemy, including talent DoT (§29.17). It skips `type: 'element'` gauge buildup, `isHpLoss(dmg)`, sourceless damage and item-proc damage; each copy rolls its own data probability. Do not emit an `attack` or set `isAttack` on a talent tick to enable this equipment: that would also change unrelated attack effects and 阿斯卡纶's talent layers.
 
 `champagneHold` includes the internal `isolated` ally-selection flag (§29.11): device-type champagne bombs are excluded from ordinary allied auras/inspiration in both creation paths. Other unhealable summons retain their own selection behavior.
+
+维什戴尔's `shadowTile` requires `Battle.onFieldBoard` before ranking summon candidates: a board of this field (a
+teammate's half), never a boss field's hand / 临时整备区 rows or an empty half (§31.10). `grid.inRect` alone also admits
+those bench rows. See [DESIGN §3](design/geometry-time.md#3-coordinates-fields-and-geometry) for the deployment boundary.
