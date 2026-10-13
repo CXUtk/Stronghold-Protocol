@@ -233,7 +233,10 @@ export function performAttack(b, u, prof, targets, opts = null) {
   const energy = !isHeal && prof.releaseEnergy ? prof.releaseEnergy(b, u) : 0;
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i];
-    b._ev(['atk', u.id, t.id, vis]);
+    const ev = ['atk', u.id, t.id, vis];
+    // Optional cosmetic volley size; the existing impact/damage timing stays unchanged.
+    if (prof.visualVolley) ev.push(prof.hitsFn ? prof.hitsFn(b, u) : prof.hits || 1);
+    b._ev(ev);
     if (isHeal) { doHeal(b, u, prof, t); continue; }
     // Target acquisition mutates the fortress profile. Keep this shot's mode while its shell is in flight.
     const info = { isSkill, index: i, attackId, fortressMelee: !!prof._fortressMelee, energy: i === 0 ? energy : 0 };
