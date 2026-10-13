@@ -8,7 +8,6 @@
 //     every sim fx kind (render/fx.js FX_KINDS), every projectile kind (boomerang included) and every status icon; at
 //     'lock' it plays 蕾缪安's S3 as the sim does (a lock every 0.5 s, then one shell every 0.3 s with its bombard)
 // Query: ?scene=prep|<recording>|stress|numbers &stage=<stageId> &t=<seconds> &speed=<x> &paused=1 &panel=0 &quality=high|medium|low
-//        &recordings=<path> (optional recording index/files root; defaults to /dev/recordings)
 //        &pen=<recording> (prep: that recording's round preview — m.private.nextEnemies — in the enemy preview pen)
 //        &ops=<chessId>,… (stress: up to 6 given chess in the crowd's front row, ids 6, 8, 10, …)
 //        &fa=L|R (prep on that half of the Final Assault boss field, view.setCamera('bossPrep', { side }))
@@ -26,7 +25,6 @@ import { FX_KINDS } from '../js/render/fx.js';
 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
-const recordingRoot = (q.get('recordings') || '/dev/recordings').replace(/\/$/, '');
 const logLines = [];
 function log(...a) {
   const s = a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
@@ -47,7 +45,7 @@ async function main() {
   if (q.get('panel') === '0') $('panel').classList.add('is-hidden');
   await data.loadAll('chess', 'tokens', 'items', 'enemies', 'stages', 'bonds', 'config');
   await assets.ready();
-  const index = await fetch(`${recordingRoot}/index.json`).then((r) => (r.ok ? r.json() : []), () => []);
+  const index = await fetch('/dev/recordings/index.json').then((r) => (r.ok ? r.json() : []), () => []);
   const view = await createFieldView($('field'), {
     data, assets, settings: { quality: q.get('quality') || 'high', damageNumbers: true, ...(q.has('fx') ? { officialFx: q.get('fx') } : {}) },
     ...(q.has('aa') ? { antialias: q.get('aa') !== '0' } : {}),
@@ -295,7 +293,7 @@ async function prepScene(view, stageId, index = []) {
 // recording scene
 
 async function recordingScene(view, meta) {
-  const rec = await fetch(`${recordingRoot}/${meta.file}`).then((r) => r.json());
+  const rec = await fetch(`/dev/recordings/${meta.file}`).then((r) => r.json());
   const stage = data.lookup('stages', rec.stageId);
   const frames = rec.frames;
   const t0 = frames[0].snap.t;

@@ -211,18 +211,24 @@ history and the open points: DESIGN §32.14.25.
   and `tools/perfbench.mjs --fx`; `tools/vfx-skill-coverage.mjs` prints the roster's plan coverage and what the battle
   view plays of it.
 
-Fixed multi-hit arrow and bolt attacks draw one staggered cosmetic projectile per hit (up to eight) from a single
-`atk` event. This includes 能天使 S1/S2/S3, 新约能天使 S3, 空弦 S3, 信仰搅拌机 S1 and 灵知 S1; 寒芒克洛丝's changing 2/4-hit
-count remains explicitly supplied by her kit. There is still one attack animation and one simulated projectile per
-target, so the extra tracers never change damage or impact timing. Shells, beams, boomerangs and melee hits keep
-their existing rendering.
-空弦 S3 marks its `atk` event with the optional sixth `visualStyle` field (`archetStorm`): the same volley gains a
-gold-white tracer, a bow flash and a short impact ring. Other arrows keep the shared effect.
-Scattershooters (送葬人 and 松果) draw one roughly 0.17-second expanding fan per area attack. It follows the
-operator's deployed facing and reaches the far edge of the current skill/buff range; the first target's lateral
-position does not steer it. Later targets of the same attack do not launch separate arrows. `shotgunWave` and
-`shotgunWaveSkip` only affect rendering, not the simulated targets, projectiles, or hit count. 送葬人的光波还带有
-五条大小、长度、起点和出现时间不一的散射弹片轨迹：每次攻击在朝向扇形内独立随机取角度，轨迹不超过当前攻击距离；松果保持纯光波。
+Multi-hit visuals (§31.12): fixed multi-hit arrow and bolt attacks draw one staggered cosmetic projectile per hit
+(up to eight) from a single `atk` event. Dynamic hit counts are explicitly opted in with `visualVolley`, as in
+Kroos the Keen Glint's two/four-hit skill. One attack animation and one simulated projectile remain per target;
+extra tracers do not change damage or impact timing. Shells, beams, boomerangs and melee hits use their existing visuals.
+
+Archetto's S3 adds the optional sixth `visualStyle` field (`archetStorm`) to its `atk` event. **[ASSUMED]** The
+gold-white tracer, bow flash and short impact ring approximate the supplied gameplay reference; their palette,
+shape and duration are not official parameters. Other arrows retain the shared effect.
+
+Only Executor and Pinecone opt in to `shotgunWave` through their own kits. The shared `reaperrange` profession does
+not enable it, so other scattershooters, including Ch'en the Holungday, do not inherit the fan. One fan follows the
+operator's deployed facing and reaches the far edge of the current skill/buff range, regardless of the primary
+target's lateral position. Later targets use `shotgunWaveSkip` and draw no additional shot.
+**[ASSUMED]** Its 1.10-radian spread, 0.17-game-second lifetime and orange/gold-white colours are visual approximations
+from the supplied reference, not official values. Executor also draws five cosmetic pellet streaks with different
+sizes, lengths, offsets, appearance times and random angles within the fan; Pinecone retains the plain fan.
+The pellet pattern is sampled in the renderer, once per attack, and does not consume simulation RNG. The visual
+styles change neither simulated targets and projectiles nor hit counts or damage timing.
 
 ---
 

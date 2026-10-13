@@ -504,7 +504,7 @@ export const SUB = Object.freeze({
     afterAttack: (battle, unit) => { unit.trait.ammo = Math.max(0, (unit.trait.ammo ?? 8) - 1); } }),
   loopshooter: P({ projectile: 'boomerang', boomerang: true, install: installLoopshooter,
     canAttack: (battle, unit) => !(unit.trait.boomerangsOut > 0) }),
-  reaperrange: P({ allInRange: true, visualStyle: 'shotgunWave',
+  reaperrange: P({ allInRange: true,
     dmgMul: (battle, unit, target) => {
       const grid = unit.profile.frontGrid;
       const front = grid ? inTraitGrid(unit, target, grid) : onFrontLine(unit, target);
