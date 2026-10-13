@@ -87,6 +87,15 @@ Ready requires no pending offer as well as an empty temp area. The co-op prep de
 before resolving temp and setting Ready; untimed solo / single-human prep does not schedule a separate choice timer.
 The offer is recipient-private, including after reconnect, and never enters `m.public.sp` or a teammate's scout view.
 
+**Local opt-in: active-alliance shop weights.** The user-requested `activeBondShopBoost` room option is off by
+default, available in solo and co-op, host-only before starting, and fixed for the match. Every ordinary shop draw
+multiplies a card's existing remaining-copy weight by 1.2 if its effective bonds match ANY of that player's currently
+active alliances (mode-inactive alliances never qualify; drawn bans can still activate through other cards or
+equipment). Multiple matches never stack; no active alliance means the original weights. DIY
+uses the player's composed record and existing private-stock multiplier. Automatic and manual refreshes use the
+same rule; frozen cards keep their original draw metadata. Stock, eligibility, item tier shares, random gifts and
+promotion rewards are unchanged. This is a local gameplay variant, not an official-mode claim or upstream change.
+
 ### 6.3 Bonds & layers (bondsMeta.js)
 
 - `count` = number of **distinct base chess** on the board carrying the bond (`BOARD`); `BOARD_AND_DECK` bonds also count the hand; 绝技 counts elites on board; 调和 adds +1 to each core bond count that has a real member on the board (the views mark such an entry `harmony: 1`, §21.26), etc. (research 02).

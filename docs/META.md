@@ -549,6 +549,16 @@ Any `choice:` handler whose EffectRef reuses its own key must guard like this (o
   extra slots at once, empty (the cards shown stay; the empty slots fill on the next roll); `MAX_LEVEL` at 6. One freeze
   toggle freezes every unsold slot until the next round start; a manual refresh rerolls everything (new slots stay
   frozen). Unfrozen slots are cleared at combat start. Slot positions are stable (frozen slots keep their index).
+* **Local shop option**: `room.setActiveBondShopBoost { on: boolean }`, host-only before a solo/co-op match, default
+  false, retained for this room. `room.state.activeBondShopBoost` becomes `Match.opts.activeBondShopBoost` at start.
+  `PlayerState.shopBoostBondIds()` returns this player's actually active bonds (excluding mode-inactive bonds,
+  not rejecting an active bond just because it was drawn in the bans); ordinary shop rolls pass a
+  per-draw `weight(id)` to `SharedPool.roll`, multiplying the existing copy weight by 1.2 once on any match. The
+  player's effective DIY bonds apply. No stock mutation or extra RNG draw; gifts, promotion rewards and item draws
+  receive no weight callback. While enabled, `m.private.shop.bondBoost = { multiplier: 1.2, bondIds }` describes the
+  next refresh; `shop.slots[].boostBonds` records the matched bonds at that card's draw, retained through freezing.
+  Both fields are absent with the default rules. This user-requested local variant is documented in
+  [DEPLOY-OVERRIDES.md](DEPLOY-OVERRIDES.md), not intended for upstream.
 * **Pool**: copies 12/14/18/16/8/5 (缪尔赛思 4); a normal piece holds 1 copy, an elite 3; displays never reserve copies;
   selling, temp resolution and elimination return exactly what a piece holds (`left + held = cap` always).
 * **自选编队 (0.2.0, `player/diy.js`; research 0.2.0 §2, the owner's decisions of 2026-10-05)**: a human's `seat.diy`

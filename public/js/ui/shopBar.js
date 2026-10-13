@@ -93,6 +93,9 @@ export function ChessCard({ slot, idx, priv, frozen = false, reason = null, free
   const hint = mergeHint(priv, slot.id);
   const willMerge = !!hint;
   const bonds = Array.isArray(c?.bonds) ? c.bonds : [];
+  const boostBonds = !free && Array.isArray(slot.boostBonds) ? slot.boostBonds : [];
+  const boostTip = boostBonds.length ? t('刷新时匹配：{bonds}；抽取权重 +20%（多盟约不叠加）',
+    { bonds: boostBonds.map((id) => data.lookup('bonds', id)?.name || id) }) : null;
   const disabled = !!reason;
   const lo = si ? standInLoadout(si, LOOKUPS.getChess, data.get('backups')) : c ? chessLoadout(c, priv?.loadout, dr ? diyGetter(LOOKUPS.getChess, priv, diyData) : LOOKUPS.getChess, { ops: priv?.ops ?? null, effects: data.get('effects') }) : null;
   const tap = () => { if (onTap) onTap(idx); else if (!disabled) onBuy(idx); else onDetail(slot.id, 'chess', hint); };
@@ -121,13 +124,14 @@ export function ChessCard({ slot, idx, priv, frozen = false, reason = null, free
         ${bonds.slice(0, 3).map((b) => {
           const name = data.lookup('bonds', b)?.name || b;
           const off = !!(offBonds && offBonds.has(b)); // a bond this mode never activates (gameLogic modeOffBonds)
-          return html`<span key=${b} class=${cx('scard__bond', off && 'is-off')} title=${off ? briefingBondTip(name, 'off') : undefined}><${BondGlyph} bondId=${b} /><span>${name}</span></span>`;
+          return html`<span key=${b} class=${cx('scard__bond', off && 'is-off', boostBonds.includes(b) && 'is-boosted')} title=${boostBonds.includes(b) ? boostTip : off ? briefingBondTip(name, 'off') : undefined}><${BondGlyph} bondId=${b} /><span>${name}</span></span>`;
         })}
       </span>
       <span class="scard__class">
         <${Img} src=${profIconUrl(m, c?.profession)} class="scard__prof" />
         <span>${c?.subProfessionName || ''}</span>
       </span>
+      ${boostTip ? html`<span class="scard__boost" title=${boostTip}>${t('抽取权重 +20%')}</span>` : null}
     </span>
     ${willMerge ? html`<span class="scard__mergetag" title=${hint}>${t('可晋升')}</span>` : null}
     ${frozen ? html`<span class="scard__ice" aria-hidden="true"><${Icon} name="snow" /></span>` : null}
@@ -312,6 +316,8 @@ export function ShopBar({ priv, editable, collapsed, refreshBusy = false, onColl
   const frzReason = editable ? null : shopBlockReason('freeze', { priv, editable });
   const free = Number(shop.freeRefreshes) || 0;
   const showReward = !!(reward && Array.isArray(reward.slots) && reward.slots.length);
+  const boostNames = (shop.bondBoost?.bondIds || []).map((id) => data.lookup('bonds', id)?.name || id);
+  const boostText = boostNames.length ? t('{bonds}', { bonds: boostNames }) : t('暂无激活盟约');
 
   // A completed upgrade changes the level, so its confirmation cannot carry into the next upgrade.
   const levelKey = `lv:${shop.level ?? 1}`;
@@ -355,6 +361,9 @@ export function ShopBar({ priv, editable, collapsed, refreshBusy = false, onColl
   return html`<section class=${cx('shopbar', frozen && 'is-frozen', !editable && 'is-locked', showReward && 'has-reward', armed && 'has-armed')} ref=${barRef} aria-label=${t('调度中心')}>
     <div class="shopbar__tools">
       <span class="shopbar__remain">${t('剩余可放置角色：')}<b class=${cx('num', remaining === 0 && 't-orange')}>${remaining}</b></span>
+      ${shop.bondBoost ? html`<span class="shopbar__bondboost" title=${t('下次刷新加权盟约：{bonds}；相关干员卡权重 +20%，多盟约不叠加', { bonds: boostText })}>
+        <b>${t('盟约招募 +20%')}</b><span>${boostText}</span>
+      </span>` : null}
       <button type="button" class=${cx('toolbtn', 'toolbtn--ice', frozen && 'is-on')} disabled=${!!frzReason} onClick=${onFreeze}
         title=${frzReason || (frozen ? t('解冻商店 · {key}', { key: hk.freeze }) : t('冻结商店（下回合保留） · {key}', { key: hk.freeze }))}>
         <${Img} src=${uiUrl(data.get('assets'), frozen ? 'shopPanel/frozen_icon2' : 'shopPanel/frozen_icon')} class="toolbtn__img" fallback=${html`<${Icon} name="snow" />`} />

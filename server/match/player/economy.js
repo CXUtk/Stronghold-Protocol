@@ -64,10 +64,26 @@ export class PlayerEconomy {
     return Number.isFinite(p) ? Math.max(0, Math.round(p)) : slot.basePrice;
   }
 
-  _rollChessSlot() {
+  /** Local opt-in rule: this player's active alliances. Drawn bans can still activate via other cards/equipment. */
+  shopBoostBondIds() {
+    if (!this.m.activeBondShopBoost) return [];
+    return this.gd.bondIds.filter((id) => this.bonds[id]?.active && !this.gd.modeInactiveBonds.has(id));
+  }
+
+  shopBoostMatches(id, bondIds) {
+    const own = this.gd.chess(id)?.bonds || [];
+    return bondIds.filter((bondId) => own.includes(bondId));
+  }
+
+  _rollChessSlot(bondIds = this.shopBoostBondIds()) {
     // the slotted 自选 pieces join the draw once the 调度中心 reaches their slot's level (player/diy.js diyRollEntries)
-    const id = this.m.pool.roll(this.m.rngShop, { maxTier: this.shop.level, extra: this.diyRollEntries() });
-    return id ? { kind: 'chess', id, basePrice: this.gd.chessPrice(id), frozen: false, sold: false } : null;
+    // User-requested local variant, not an official rule: match ANY active alliance once (1.2x, never compounded).
+    const weight = bondIds.length ? (id) => this.shopBoostMatches(id, bondIds).length ? 1.2 : 1 : null;
+    const id = this.m.pool.roll(this.m.rngShop, { maxTier: this.shop.level, extra: this.diyRollEntries(), weight });
+    if (!id) return null;
+    const boostBonds = this.shopBoostMatches(id, bondIds);
+    return { kind: 'chess', id, basePrice: this.gd.chessPrice(id), frozen: false, sold: false,
+      ...(boostBonds.length ? { boostBonds } : {}) };
   }
 
   _rollItemSlot() {
@@ -88,7 +104,8 @@ export class PlayerEconomy {
     const keep = (s, kind) => (keepFrozen && s && s.kind === kind && !s.sold && s.frozen ? { ...s } : null);
     // frozen slots keep their position; sold / empty / unfrozen positions are rerolled
     const slots = [];
-    for (let i = 0; i < nChess; i++) slots.push(keep(oldChess[i], 'chess') ?? this._rollChessSlot());
+    const bondIds = this.shopBoostBondIds();
+    for (let i = 0; i < nChess; i++) slots.push(keep(oldChess[i], 'chess') ?? this._rollChessSlot(bondIds));
     for (let i = 0; i < nItem; i++) slots.push(keep(oldItems[i], 'item') ?? this._rollItemSlot());
     this.shop.slots = slots;
     this.shop.layout = { chess: nChess, item: nItem };

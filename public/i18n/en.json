@@ -1245,5 +1245,13 @@
   "本场没有干员伤害数据": "No operator damage data on this field",
   "等待战斗数据": "Waiting for battle data",
   "统计实际扣除的敌方生命；召唤物单独列出。": "Counts actual enemy HP removed; summons are listed separately.",
-  "含本回合普通作战与联防。": "Includes this round’s normal battle and Unite."
+  "含本回合普通作战与联防。": "Includes this round’s normal battle and Unite.",
+  "盟约招募加成（本地规则）": "Alliance recruitment boost (local rule)",
+  "本局商店中，匹配自己已激活盟约的干员卡抽取权重 +20%；匹配多个盟约不叠加": "In this match, Operator cards matching your active Alliances have +20% shop draw weight. Multiple matches do not stack.",
+  "刷新时匹配：{bonds}；抽取权重 +20%（多盟约不叠加）": "Matched on refresh: {bonds}; draw weight +20% (multiple Alliances do not stack)",
+  "抽取权重 +20%": "Draw weight +20%",
+  "{bonds}": "{bonds}",
+  "暂无激活盟约": "No active Alliances",
+  "下次刷新加权盟约：{bonds}；相关干员卡权重 +20%，多盟约不叠加": "Alliances boosted on next refresh: {bonds}; related Operator card weight +20%, without stacking",
+  "盟约招募 +20%": "Alliance recruitment +20%"
 }

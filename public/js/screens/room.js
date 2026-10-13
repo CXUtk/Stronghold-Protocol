@@ -84,6 +84,13 @@ export function aiLastOption(room, myId) {
   return { on: room.aiPicksLast === true, editable: room.hostId != null && room.hostId === myId };
 }
 
+/** Local shop option, available in both modes; the running match locks it. */
+export function activeBondShopOption(room, myId) {
+  if (!room) return null;
+  return { on: room.activeBondShopBoost === true,
+    editable: !room.inMatch && room.hostId != null && room.hostId === myId };
+}
+
 /** Invite link for a room code (current page URL with ?room=CODE). */
 export function inviteLink(code) {
   const loc = globalThis.location;
@@ -219,6 +226,20 @@ function AiLastToggle({ option, busy, onToggle }) {
   </div>`;
 }
 
+function BondShopToggle({ option, busy, onToggle }) {
+  if (!option) return null;
+  return html`<div class="ailast">
+    <${Tooltip} text=${t('本局商店中，匹配自己已激活盟约的干员卡抽取权重 +20%；匹配多个盟约不叠加')}>
+      <button type="button" role="switch" aria-checked=${option.on ? 'true' : 'false'}
+          class=${`dpick__opt ailast__opt${option.on ? ' is-active' : ''}`} disabled=${!option.editable || !!busy}
+          onClick=${() => option.editable && onToggle(!option.on)}>
+        <${Icon} name="check" class=${option.on ? 'is-on' : ''} />${t('盟约招募加成（本地规则）')}
+      </button>
+    <//>
+    ${option.editable ? null : html`<span class="t-dim">${t('由创建者设置')}</span>`}
+  </div>`;
+}
+
 /** Room screen component. */
 export function RoomScreen() {
   const room = useStore((s) => s.room);
@@ -260,6 +281,7 @@ export function RoomScreen() {
   };
   const setDifficulty = (difficulty) => run('diff', () => net.request('room.setDifficulty', { difficulty }));
   const setAiLast = (on) => run('ailast', () => net.request('room.setAiPicksLast', { on }));
+  const setBondShop = (on) => run('bondshop', () => net.request('room.setActiveBondShopBoost', { on }));
   // spectator seats: the host frees one; a spectator takes a free player seat with room.join of this room
   const removeSpectator = (playerId) => run(`rs${playerId}`, () => net.request('room.removeSpectator', { playerId }));
   const sit = () => run('sit', () => net.request('room.join', { code: room.code }));
@@ -343,6 +365,7 @@ export function RoomScreen() {
         <div class="room-bar__opts">
           <${DifficultyPicker} room=${room} isHost=${facts.isHost} busy=${busy} onPick=${setDifficulty} />
           <${AiLastToggle} option=${aiLastOption(room, me.playerId)} busy=${busy} onToggle=${setAiLast} />
+          <${BondShopToggle} option=${activeBondShopOption(room, me.playerId)} busy=${busy} onToggle=${setBondShop} />
         </div>
       </div>
       <div class="room-bar__center">

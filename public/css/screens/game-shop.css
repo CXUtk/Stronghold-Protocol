@@ -23,6 +23,15 @@
   border-left: 3px solid var(--mint-500);
 }
 .shopbar__remain b { color: var(--mint-400); font-size: .2rem; margin-left: .04rem; }
+.shopbar__bondboost {
+  grid-column: 1 / -1; justify-self: end; display: flex; align-items: center; gap: .08rem;
+  max-width: min(6rem, calc(100vw - .52rem)); padding: .04rem .1rem;
+  background: rgba(8, 11, 10, .9); color: var(--text-md); font-size: .13rem; pointer-events: auto;
+}
+.shopbar__bondboost b { flex-shrink: 0; color: var(--mint-400); }
+.shopbar__bondboost > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.scard__boost { color: var(--mint-400); font-size: .11rem; line-height: 1.2; }
+.scard__bond.is-boosted { color: var(--mint-400); }
 .toolbtn {
   --tb: var(--ice);
   display: flex; align-items: center; gap: .08rem; height: .48rem; padding: 0 .14rem 0 .08rem;

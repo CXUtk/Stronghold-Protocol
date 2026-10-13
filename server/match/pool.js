@@ -100,14 +100,16 @@ export class SharedPool {
    * pairs of the same shape — a player's 自选 stock) under the same filters. An optional weightMultiplier changes
    * copy-weighted sampling only, never availability or ignoreCounts identity sampling.
    */
-  _eligible({ maxTier = 6, tier = null, filter = null, extra = null, ignoreCounts = false } = {}) {
+  _eligible({ maxTier = 6, tier = null, filter = null, extra = null, ignoreCounts = false, weight = null } = {}) {
     const out = [];
     const scan = (list) => {
       for (const [id, e] of list) {
         if (!ignoreCounts && e.left <= 0) continue;
         if (tier != null ? e.tier !== tier : e.tier > maxTier) continue;
         if (filter && !filter(id, e)) continue;
-        out.push([id, ignoreCounts ? 1 : e.left * (e.weightMultiplier ?? 1)]);
+        const factor = weight ? weight(id) : 1;
+        const n = ignoreCounts ? 1 : e.left * (e.weightMultiplier ?? 1);
+        out.push([id, n * (Number.isFinite(factor) && factor > 0 ? factor : 1)]);
       }
     };
     scan(this.entries);
@@ -119,7 +121,8 @@ export class SharedPool {
    * Copy-weighted roll over eligible chess, including optional per-copy weight multipliers. Returns a base id or null.
    * @param {Function} rng
    * @param {{ maxTier?: number, tier?: number|null, filter?: (id: string, e: object) => boolean,
-   *   extra?: Iterable<[string, { left: number, tier: number, weightMultiplier?: number }]>|null }} [opts]
+   *   extra?: Iterable<[string, { left: number, tier: number, weightMultiplier?: number }]>|null,
+   *   weight?: ((id: string) => number)|null }} [opts] weight adjusts this draw only, never stock or tierShares
    */
   roll(rng, opts = {}) {
     const el = this._eligible(opts);
