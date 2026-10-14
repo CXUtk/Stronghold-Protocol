@@ -86,3 +86,15 @@
 The local lobby enables `terrain-parity-v12` for four-player ABYSS rooms with one to three AI teammates. It combines PR 445 personas, measured build scoring, expanded placement candidates and player-legal preparation-end rehearsals. The effective budget is eight layouts and three independent samples per layout. Public draft choices and focus remain reserved; the AI chooses available Russell, Touch, then Amiya fallback bands. Other modes and human autoplay do not receive this selected policy. Set `SP_BOT_POLICY=off` before starting the server to disable it. This does not change combat rules, card costs or player resources.
 
 Selection evidence: 336 controlled full-match comparisons, seven maps and 42 cases across three team compositions, rounds 1–11. Each population is normalized per AI and weighted equally; round 11 has half weight. Selected policy / player-aligned PR 445 / player-aligned baseline mean own-clear rates were 79.9% / 74.8% / 61.4%. The runner controls human leaks and does not model human purchasing. This is the highest point estimate in this sample, not a guarantee of perfect play or a conclusive win over the close second candidate. All raw records and alternate policies remain in the local experiment archive.
+
+Follow-up on `fix/ai-ranged-opening-block`: add optional ranged ground-blocking and forward-facing proposals to this
+policy's existing rehearsal budget. Do not attribute the preceding 336-match results to the modified candidate set.
+Fixed diagnostics with four-player ABYSS values reduced two-Vendela R1 leaks from 37 to 9 across 14 map/seed cases.
+A separate injected Gummy/Insider/two-Vendela lineup over 28 R1/R7 cases produced 199 baseline leaks, 139 with ground
+proposals only, 145 with forward proposals only and 118 with both. R7 uses injected elite units without an economy
+trajectory; these are mechanism diagnostics on seen seeds, not new full-match validation. Turning existing layouts
+RIGHT without moving them improved 5 cases, worsened 5 and tied 18. The intermediate opening-only candidate and
+all diagnostic inputs, results and source snapshots are preserved in the workspace experiment index.
+The combined proposal improved 10 cases, tied 17 and regressed one (seed 1801, act2autochess_m01 R7, 0 → 2 leaks).
+It changes which candidates fit the fixed budget and is not guaranteed to retain the old winner. The fix remains
+on its feature branch pending broader evaluation; the deployed v16 result is still the preceding implementation.

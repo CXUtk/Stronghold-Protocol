@@ -1225,8 +1225,11 @@ export class Layout {
   }
 }
 
-function unitOf(rec, key, r, c, dir = 'RIGHT', model = null) {
-  const block = isBlocker(rec) ? Math.max(1, rec.stats?.blockCnt ?? 1) : 0;
+function unitOf(rec, key, r, c, dir = 'RIGHT', model = null, rangedBlock = false) {
+  // An optional proposal values the real blocking capacity of ranged operators on a ground route.
+  // Keep the ordinary proposal too: a fragile blocker can die sooner than enemies would leave its range.
+  const block = isBlocker(rec) ? Math.max(1, rec.stats?.blockCnt ?? 1)
+    : rangedBlock && model?.ground.has(key) ? Math.max(0, rec.stats?.blockCnt ?? 0) : 0;
   const atkMul = airflowAtkMul(model, key, dir);
   return {
     rec, key, dir, dps: effDps(model, rec) * atkMul, atkMul, air: hitsFly(rec), ground: rec.attackKind !== 'heal' && !isHealer(rec),
@@ -1267,6 +1270,12 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
   // hp + def/res weight ≈ effective hp), the rest by DPS, healers last (owner 2026-10-07: a glass cannon used to
   // claim the front tile while the tank stood behind it)
   const tank = (r) => (r.stats?.maxHp || 0) + 30 * ((r.stats?.def || 0) + (r.stats?.res || 0));
+  const groundRanged = new Set(pieces.filter(p => {
+    const r = rec(p);
+    return p.kind === 'chess' && basePositionClass(r) === 'ranged' && !isHealer(r)
+      && r.attackKind !== 'none' && (r.stats?.blockCnt ?? 0) > 0;
+  }).sort((a, b) => tank(rec(b)) - tank(rec(a)) || a.uid - b.uid)
+    .slice(0, params.groundRangedCount || 0).map(p => p.uid));
   const order = pieces.slice().sort((a, b) => rank(a) - rank(b)
     || (rank(a) === 0 && params.tankFirst !== false ? tank(rec(b)) - tank(rec(a)) : dpsOf(rec(b)) - dpsOf(rec(a)))
     || (!m.wave && isHealer(rec(a)) ? rec(b).rangeGrid.length - rec(a).rangeGrid.length : 0) || a.uid - b.uid);
@@ -1291,7 +1300,8 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     // a blocker whose range is its own tile only (range 0-1: 角峰, 古米, 泡泡, 折桠, 菲莱, 蛇屠箱, 塞雷娅, 余) neither blocks nor
     // hits anything off the enemy road — the official range "0-1" (excel range_table) is the one grid (0,0) — so a free road tile
     // comes first (the kill estimate saturates in a full layout and then cannot tell the tiles apart)
-    const preferRoad = isBlocker(r0) && r0.rangeGrid?.length === 1 && r0.rangeGrid[0].every((v) => v === 0);
+    const preferRoad = groundRanged.has(p.uid)
+      || isBlocker(r0) && r0.rangeGrid?.length === 1 && r0.rangeGrid[0].every((v) => v === 0);
     let bestRoad = null;
     let bestRoadV = -Infinity;
     // [ASSUMED] A ground medic still blocks, but cannot kill what it holds. Prefer a tile off the road or
@@ -1312,8 +1322,9 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
           && ally.cover.has(rt.tiles[Math.max(0, i - 1)]));
       }));
       const seen = new Set();
-      for (const dir of PLAN_DIRS) {
-        const u = unitOf(r0, k, r, c, dir, model);
+      const directions = params.forwardRanged && basePositionClass(r0) === 'ranged' && !isHealer(r0) ? ['RIGHT'] : PLAN_DIRS;
+      for (const dir of directions) {
+        const u = unitOf(r0, k, r, c, dir, model, params.rangedBlock);
         // (the same covered tiles under a different airflow ATK factor are a different candidate)
         const sig = `${u.atkMul}|${[...u.cover].sort().join(' ')}`;
         if (seen.has(sig)) continue;
@@ -1344,7 +1355,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     const pick = bestSupported || bestHigh || bestRoad || best;
     if (!pick) continue;
     taken.add(pick[0]);
-    layout.units.push(unitOf(r0, pick[0], pick[1], pick[2], pick[3], model));
+    layout.units.push(unitOf(r0, pick[0], pick[1], pick[2], pick[3], model, params.rangedBlock));
     out.set(p.uid, pick[0]);
     out.dirs.set(p.uid, pick[3]);
     yield;
@@ -1371,7 +1382,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     for (const [r, c] of legalTiles(map, placeClass(ps, pgd.chess(p.id) || r0))) {
       const k = tileKey(r, c);
       if (taken.has(k) || !model.ground.has(k) || !support(k)) continue;
-      const candidate = unitOf(r0, k, r, c, unit.dir, model);
+      const candidate = unitOf(r0, k, r, c, unit.dir, model, params.rangedBlock);
       layout.units[index] = candidate;
       const v = layout.value();
       layout.units[index] = unit;
@@ -2165,7 +2176,19 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
     if (current.size === chosen.length) plans.push(current);
   }
   if (final && m.wave && m.botRehearsal > 0) {
-    const baseVariants = policyApplies(m, ps) && m.botLayoutVariants || REHEARSAL_VARIANTS;
+    let baseVariants = policyApplies(m, ps) && m.botLayoutVariants || REHEARSAL_VARIANTS;
+    // Preserve an unrestricted proposal and compare ground-blocking / incoming-side firing alternatives.
+    // These also matter in mixed lineups. Place them before lower-priority variants so the existing budget
+    // actually evaluates them; rehearsal may reject every proposal that exposes fragile ranged operators.
+    if (m.botGroundBlockCandidates && policyApplies(m, ps)
+      && chosen.some(p => basePositionClass(chessRec(m, p.id, ps)) === 'ranged' && !isHealer(chessRec(m, p.id, ps)))) {
+      const ground = ctx.model.routes.some(rt => !rt.fly && rt.n > 0);
+      baseVariants = [baseVariants[0],
+        ...(ground ? [{ rangedBlock: true, groundRangedCount: 1 }, { rangedBlock: true, groundRangedCount: 2 }] : []),
+        { forwardRanged: true },
+        ...(ground ? [{ rangedBlock: true, groundRangedCount: 1, forwardRanged: true }] : []),
+        ...baseVariants.slice(1)];
+    }
     const variants = policyApplies(m, ps) && m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
     for (const v of variants) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));
   } else {

@@ -12,6 +12,7 @@ export function configureIndividualBot(m, requested, rehearsalOption) {
   const bots = m.order.filter(p => p.isBot).length;
   if (m.isSolo || m.modeId !== 'mode_multi_abyss' || m.order.length !== 4 || bots < 1 || bots > 3) return false;
   m.botIndividualPolicy = requested;
+  m.botGroundBlockCandidates = true;
   m.botDefaultRehearsal = m.botRehearsal;
   if (rehearsalOption == null) m.botRehearsal = 8; // Effective budget of the evaluated candidate.
   m.botLegacyParity = false;

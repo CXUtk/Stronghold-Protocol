@@ -348,6 +348,16 @@ flowing), then `botPrepEnd` (the rehearsed layout when it won, temp, Ready). The
 default layout stays). Virtual time runs it in one go (same decisions). Tests default rehearsal to 0
 (`test/match/harness.js`); `tools/matchrun.mjs --rehearsal N` sets it.
 
+The local individual policy also enables `botGroundBlockCandidates`. Alongside unrestricted layouts, normal-wave
+rehearsals consider one or two ranged damage dealers on legal ground-route tiles, using their actual `blockCnt`
+instead of treating their ranged profession as zero blocking. These proposals try the more durable ranged units
+first; pure healers keep their existing supported-placement rule. Separate proposals face ranged damage dealers
+RIGHT toward incoming enemies, with and without extra ground blocking; healers still choose their own facing.
+The candidates apply to mixed lineups too, not just the first wave or Vendela. The existing rehearsal cap and
+three-sample comparison remain unchanged, so these proposals replace some lower-priority variants rather than
+adding more simulated battles. They are decision heuristics, not new deployment/combat rules, and do not force
+the final layout to use ground tiles or RIGHT. Boss rounds and policies that do not enable the option are unchanged.
+
 ---
 
 ## 2. Effect registry (content API)
