@@ -22,6 +22,8 @@ export const POLICIES = Object.freeze({
   'pr445-personas': { rehearsal: 4, partnerBand: 'band_amedic', personas: true },
   // v5's historical seat-order assignment is retained above for exact reproduction, not policy selection.
   'pr445-aligned': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true },
+  // Same PR 445 strategy, under the v12 player-action/information boundary. Not an upstream change.
+  'pr445-parity-v13': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true, playerParity: true },
   'pr445-dps-order': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true, layoutParams: { tankFirst: false } },
   'pr445-no-combos': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true, skipCombos: true },
   'pr445-cap3': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true, levelCap: 3, role: 'anchor' },

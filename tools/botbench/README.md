@@ -288,6 +288,11 @@ All older policy IDs explicitly enable `botLegacyParity` to replay their origina
 are historical controls, not eligible deployment choices. `baseline-parity-v12` provides the legal baseline under
 the same information restriction as new candidates. Compare both baselines and the v11 projections, preserve every
 raw result and fingerprint, and do not claim that removal of an information advantage must improve performance.
+`pr445-parity-v13` applies that same boundary to the current PR 445 strategy (`01c86849`), with four layouts;
+`pr445-aligned` remains its historical control on the common 452/606/607/608 foundation. Neither is an unmodified
+checkout of the PR's older engine. The current research candidates use eleven layouts and additional scoring,
+so report their compute cost separately instead of implying an equal-compute comparison. Fixed Amiya/Russell
+plus Touch assignments evaluate these two pairs only, not all six presets or adaptive band selection.
 The flag has no room option/environment switch. Normal matches on this experimental branch use parity behavior;
 deploy remains separate. Timing under parallel offline workers is throughput data, not production latency proof.
 
