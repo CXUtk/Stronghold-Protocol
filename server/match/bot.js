@@ -1225,6 +1225,8 @@ export function planLayout(m, ps, pieces, params = LAYOUT_PARAMS, opts = {}) {
 
 /** planLayout as a step generator: yields after each placed piece (Match slices a bot's prep, see botPrepBeginSteps). */
 export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupied = new Set(), recOf = null } = {}) {
+  // Offline experiments can ablate layout heuristics without changing the frozen PR 445 policy.
+  params = { ...params, ...m.botLayoutParams };
   const model = fieldModel(m, ps);
   const map = ps.deployMap();
   const pgd = ps.gd || m.gd;
@@ -1236,7 +1238,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
   // claim the front tile while the tank stood behind it)
   const tank = (r) => (r.stats?.maxHp || 0) + 30 * ((r.stats?.def || 0) + (r.stats?.res || 0));
   const order = pieces.slice().sort((a, b) => rank(a) - rank(b)
-    || (rank(a) === 0 ? tank(rec(b)) - tank(rec(a)) : dpsOf(rec(b)) - dpsOf(rec(a)))
+    || (rank(a) === 0 && params.tankFirst !== false ? tank(rec(b)) - tank(rec(a)) : dpsOf(rec(b)) - dpsOf(rec(a)))
     || (!m.wave && isHealer(rec(a)) ? rec(b).rangeGrid.length - rec(a).rangeGrid.length : 0) || a.uid - b.uid);
   const taken = new Set(occupied);
   const out = new LayoutPlan();
@@ -2091,7 +2093,8 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
   yield;
   const plans = [];
   if (final && m.wave && m.botRehearsal > 0) {
-    const variants = m.botLayoutAdjustment ? [...REHEARSAL_VARIANTS, { tactical: true }] : REHEARSAL_VARIANTS;
+    const baseVariants = m.botLayoutVariants || REHEARSAL_VARIANTS;
+    const variants = m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
     for (const v of variants) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));
   } else {
     plans.push(yield* planLayoutSteps(m, ps, chosen));
@@ -2208,6 +2211,7 @@ export function stackTake(ease, comboValue, best, before, seated) {
  * the combo is simply skipped — the rehearsed layout survives.
  */
 export function* comboLayoutSteps(m, ps) {
+  if (m.botSkipCombos) return;
   const per = personaOf(m, ps);
   if (!per) return;
   const gd = m.gd;

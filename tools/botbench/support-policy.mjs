@@ -3,7 +3,7 @@
 import { runSupportMatch } from './support-runner.mjs';
 import { readFileSync } from 'node:fs';
 import { buildContext, combatValue } from '../../server/match/bot-build.js';
-import { fieldModel } from '../../server/match/bot.js';
+import { fieldModel, REHEARSAL_VARIANTS } from '../../server/match/bot.js';
 import { observeBattle } from './battle-observer.mjs';
 import { installTacticalPolicy } from './tactical-policy.mjs';
 const atlases = new Map();
@@ -11,6 +11,17 @@ const atlases = new Map();
 export const POLICIES = Object.freeze({
   baseline: { rehearsal: 3 },
   'pr445-personas': { rehearsal: 4, partnerBand: 'band_amedic', personas: true },
+  // v5's historical seat-order assignment is retained above for exact reproduction, not policy selection.
+  'pr445-aligned': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true },
+  'pr445-dps-order': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true, layoutParams: { tankFirst: false } },
+  'pr445-no-combos': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true, skipCombos: true },
+  'pr445-cap3': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true, levelCap: 3, role: 'anchor' },
+  'pr445-build': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true, build: 'tanks' },
+  'pr445-carry': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true, tactical: 'carry' },
+  'hybrid-v6': { rehearsal: 6, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    levelCap: 3, role: 'anchor', build: 'tanks', tactical: 'hazard', layoutParams: { tankFirst: false }, skipCombos: true },
+  'hybrid-v7': { rehearsal: 7, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'tanks', tactical: 'hazard', routeVariants: true, skipCombos: true },
   'wider-layout': { rehearsal: 5 },
   'core3-both': { rehearsal: 3, levelCap: 3, role: 'both' },
   'core4-both': { rehearsal: 3, levelCap: 4, role: 'both' },
@@ -61,7 +72,22 @@ export function runSupportPolicy(config, policyId = 'baseline') {
         bots[0].botPersona = config.band === 'band_amiya' ? 'amiya_fallback' : 'ioleta_fallback';
         bots[1].botPersona = 'touch_fallback';
         rec.personas = bots.map((p) => ({ pid: p.playerId, persona: p.botPersona }));
+        if (policy.alignPersonas) {
+          const pickBand = m.pickBand.bind(m);
+          m.pickBand = (ps, bandId) => {
+            if (ps.isBot) {
+              ps.botPersona = ({ band_amiya: 'amiya_fallback', band_ioleta: 'ioleta_fallback', band_amedic: 'touch_fallback' })[bandId] || null;
+              ps._botPersona = null;
+              rec.personas = bots.map((p) => ({ pid: p.playerId, persona: p.botPersona }));
+            }
+            return pickBand(ps, bandId);
+          };
+        }
       }
+      m.botLayoutParams = policy.layoutParams;
+      m.botSkipCombos = policy.skipCombos;
+      if (policy.routeVariants) m.botLayoutVariants = [...REHEARSAL_VARIANTS.slice(0, 4),
+        { tankFirst: false }, { tankFirst: false, spread: 3, secondHold: 0.2, cohesion: 0 }];
       installTacticalPolicy(m, policy, tacticalTrials);
       if (config.observe) {
         const original = m.newBattle.bind(m);
