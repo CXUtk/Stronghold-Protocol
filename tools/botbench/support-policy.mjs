@@ -10,6 +10,7 @@ const atlases = new Map();
 
 export const POLICIES = Object.freeze({
   baseline: { rehearsal: 3 },
+  'pr445-personas': { rehearsal: 4, partnerBand: 'band_amedic', personas: true },
   'wider-layout': { rehearsal: 5 },
   'core3-both': { rehearsal: 3, levelCap: 3, role: 'both' },
   'core4-both': { rehearsal: 3, levelCap: 4, role: 'both' },
@@ -55,6 +56,12 @@ export function runSupportPolicy(config, policyId = 'baseline') {
   const partnerBand = policy.partnerBand === 'other-anchor' ? (config.band === 'band_amiya' ? 'band_ioleta' : 'band_amiya') : policy.partnerBand;
   const result = runSupportMatch({ ...config, rehearsal: policy.rehearsal, partnerBand }, {
     configure(m, rec) {
+      if (policy.personas) {
+        const bots = m.order.filter((p) => p.isBot);
+        bots[0].botPersona = config.band === 'band_amiya' ? 'amiya_fallback' : 'ioleta_fallback';
+        bots[1].botPersona = 'touch_fallback';
+        rec.personas = bots.map((p) => ({ pid: p.playerId, persona: p.botPersona }));
+      }
       installTacticalPolicy(m, policy, tacticalTrials);
       if (config.observe) {
         const original = m.newBattle.bind(m);

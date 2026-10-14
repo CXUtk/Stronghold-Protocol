@@ -283,6 +283,18 @@ may differ, while data and fixtures must agree. Keep the original batch and both
 imported baseline a rerun, or count it twice. A comparison's final objective remains failures first, then round-weighted
 human LP (rounds 1–10: 1, round 11: 0.5); retain raw LP as well.
 
+The separate PR 445 experiment ports strategy source from `01c86849`: persona rules, operator manual, combo placement,
+economy salvage and last-round snapshots. `pr445-personas` explicitly assigns the Amiya/Russell anchor and Touch
+partner and uses four rehearsals. The common foundation's hand-capacity fixes, supported positions and normal
+rehearsal inputs remain. This branch also includes PR 445's general compact-layout and tank-order changes; it is an
+adapted combined candidate, not an isolated test of persona purchase weights. No lobby/UI integration is needed for
+the benchmark. The adaptive-draft hook is retained for its original regression test, but adaptive selection is not
+part of these fixed-band runs. Game data and combat-rule files match the foundation branch.
+
+Known regression before validation: the foundation's two-entry guard scenario in `test/match/bot.test.js` leaks
+one of three enemies on its second route with this candidate (foundation: zero). Keep that failing assertion and
+report it; do not tune the candidate to pass after inspecting validation seeds. This branch is experimental only.
+
 `runSupportPolicy({ ...config, observe: true }, id)` records actual healing amounts/source-target totals, terrain
 damage, knockdowns and half-second samples of injured/infection exposure. Its uncovered time measures ordinary
 healer target-range eligibility, not all skill/bard healing; use actual received healing alongside it. Observation
