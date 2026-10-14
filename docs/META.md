@@ -363,6 +363,13 @@ prefers legal non-mire tiles for both damage dealers and healers and retains a l
 it does not prohibit mire in other candidates. Rehearsals already simulate accumulating mire ASPD loss, actual
 incoming damage, healing and knockouts; the existing leak-first/remaining-health score chooses the final plan.
 This avoids counting extra blocking as an unconditional benefit, without inventing new terrain or combat rules.
+`botRouteBlockCandidates` adds road-defense proposals for normal ground waves: extended-range melee blockers
+also prefer legal route tiles, and up to two durable ranged damage dealers are explicitly considered for blocking.
+A diminishing per-route capacity bonus proposes filling an exposed entrance before adding capacity to an already
+covered one. Flying routes receive no blocking bonus. Mire maps also get a dry version of this proposal. These are
+heuristic alternatives, not mandatory placements or a prediction of survival: the same eight-plan, three-sample
+rehearsal compares actual leaks and remaining health. The unrestricted proposal is kept; added proposals can
+displace later ground/facing variants within the cap. Pure healers retain their supported-placement rule.
 
 ---
 

@@ -109,3 +109,22 @@ The diagnostic replay now uses production `botPrepEnd` multipass legal placement
 that can fail on a legal swap refusal. The interrupted initial six-unit batch is retained and excluded from selection.
 Full raw inputs/results, per-unit mire exposure/ASPD/damage/healing/deaths and source snapshots are archived;
 these injected-roster scenarios do not reproduce the screenshot's exact game or a complete economy trajectory.
+
+Route-defense follow-up: the old mandatory road preference covered self-range melee guards and selected ranged
+units, but extended-range melee units could still stand off the path. The additional `botRouteBlockCandidates`
+family gives melee blockers road preference and scores marginal blocking capacity separately on each ground route
+(diminishing returns). It also tries two durable ranged blockers and, on mire, a dry variant. Pure healers retain
+their supported-placement rule. These are proposals within eight layouts, not extra combat capacity or forced final
+placements; real simulated leaks/health still decide, and lower-priority old candidates can be displaced.
+
+The six-unit mire diagnostic rerun (`ai-route-block-mire-candidate1-20261014`) saved all six policies:
+baseline/ground/forward/combined/mire-safe/route-block totals were 16/16/17/16/16/15 across eight cases. Versus
+mire-safe, seed 1803 R7 improved 2 → 0, but seed 1804 R7 regressed 6 → 7; do not omit that regression.
+The seven-unit diagnostic (`ai-route-block-seven-candidate1-20261014`) injects Indigo, Vendela, Insider, Underflow,
+Texas and two Caper copies, normal at R3 and elite at R7. Across seven maps, two seen seeds and those two rounds,
+the six totals were 75/62/66/64/61/58. Route-block versus mire-safe improved one case and tied 27; the improvement
+was seed 1802, act1autochess_m04 R7, 17 → 14 leaks, with planned capacity on several routes increasing 5 → 6.
+These are fixed-state mechanism diagnostics, not the screenshot's exact roster, independent validation, or full
+economy/coop trajectories. Candidate plans, route capacities, final battle inputs/results, telemetry, all losing
+policies and source snapshots are retained and indexed. The production policy gate enables this follow-up only
+on the feature branch; deploy and the running remote server have not been changed by this work.

@@ -37,6 +37,7 @@ test('mire rehearsal includes accumulated ASPD loss and can choose equally effec
     try {
       m.round = 3; m.wave = buildNormalWave(m.gd, m.rngWaves, m.factions, 3); m._botPath = null;
       m.botMireSafeCandidates = enabled;
+      m.botRouteBlockCandidates = false; // Isolate dry-ground proposals from the later road-defense family.
       const job = arrange(m, ps, { final: true, defer: true }); job.run();
       outcomes.push(replayPlan(m, ps, job.chosen, job.best));
     } finally { m.dispose(); }
@@ -54,6 +55,7 @@ test('the safer candidate can preserve operators and reduce leaks under the same
     try {
       m.round = 7; m.wave = buildNormalWave(m.gd, m.rngWaves, m.factions, 7); m._botPath = null;
       m.botMireSafeCandidates = enabled;
+      m.botRouteBlockCandidates = false;
       const job = arrange(m, ps, { final: true, defer: true }); job.run();
       outcomes.push(replayPlan(m, ps, job.chosen, job.best));
     } finally { m.dispose(); }

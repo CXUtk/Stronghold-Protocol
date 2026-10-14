@@ -1191,6 +1191,13 @@ export class Layout {
       }
       const fraction = 1 - Math.exp(-exp / (p.kill * rt.hp));
       total += rt.n * fraction;
+      // Optional road-defense proposal: marginal capacity matters on each ground route, even when
+      // the exposure estimate saturates. Diminishing returns favor an uncovered second entrance.
+      // This only generates a candidate; the real rehearsal still measures deaths and leaks.
+      if (p.routeBlock && !rt.fly) {
+        const capacity = [...new Set(rt.tiles)].reduce((n, k) => n + (blockAt.get(k) || 0), 0);
+        total += rt.n * (1 - Math.exp(-capacity / 2));
+      }
       if (rt.n > 0) { routeFloor = Math.min(routeFloor, fraction); routeCount += rt.n; }
     }
     // Offline candidate: avoid buying more coverage on a saturated lane while another entrance remains exposed.
@@ -1302,7 +1309,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     // a blocker whose range is its own tile only (range 0-1: 角峰, 古米, 泡泡, 折桠, 菲莱, 蛇屠箱, 塞雷娅, 余) neither blocks nor
     // hits anything off the enemy road — the official range "0-1" (excel range_table) is the one grid (0,0) — so a free road tile
     // comes first (the kill estimate saturates in a full layout and then cannot tell the tiles apart)
-    const preferRoad = groundRanged.has(p.uid)
+    const preferRoad = groundRanged.has(p.uid) || params.routeBlock && isBlocker(r0)
       || isBlocker(r0) && r0.rangeGrid?.length === 1 && r0.rangeGrid[0].every((v) => v === 0);
     let bestRoad = null;
     let bestRoadV = -Infinity;
@@ -1360,7 +1367,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         }
       }
     }
-    const pick = bestSupported || bestHigh || bestRoad || best;
+    const pick = bestSupported || (params.routeBlock && bestRoad) || bestHigh || bestRoad || best;
     if (!pick) continue;
     taken.add(pick[0]);
     layout.units.push(unitOf(r0, pick[0], pick[1], pick[2], pick[3], model, params.rangedBlock));
@@ -2203,6 +2210,11 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
       // Put dry alternatives inside the budget while retaining unrestricted ground/forward proposals.
       baseVariants = [baseVariants[0], { avoidMire: true },
         { avoidMire: true, rangedBlock: true, groundRangedCount: 1 }, ...baseVariants.slice(1)];
+    }
+    if (m.botRouteBlockCandidates && policyApplies(m, ps) && ctx.model.routes.some(rt => !rt.fly && rt.n > 0)) {
+      const defense = { routeBlock: true, rangedBlock: true, groundRangedCount: 2 };
+      const mire = [...ps.deployMap().keys()].some(k => mireTile(m, ...parseKey(k)));
+      baseVariants = [baseVariants[0], defense, ...(mire ? [{ ...defense, avoidMire: true }] : []), ...baseVariants.slice(1)];
     }
     const variants = policyApplies(m, ps) && m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
     for (const v of variants) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));

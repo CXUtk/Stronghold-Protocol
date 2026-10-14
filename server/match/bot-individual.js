@@ -14,6 +14,7 @@ export function configureIndividualBot(m, requested, rehearsalOption) {
   m.botIndividualPolicy = requested;
   m.botGroundBlockCandidates = true;
   m.botMireSafeCandidates = true;
+  m.botRouteBlockCandidates = true;
   m.botDefaultRehearsal = m.botRehearsal;
   if (rehearsalOption == null) m.botRehearsal = 8; // Effective budget of the evaluated candidate.
   m.botLegacyParity = false;

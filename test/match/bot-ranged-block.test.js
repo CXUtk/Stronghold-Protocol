@@ -7,10 +7,11 @@ import { SUPPORT_MAPS } from '../../tools/botbench/support-runner.mjs';
 
 for (const stage of SUPPORT_MAPS) test(`two Vendelas: ground-blocking rehearsal reduces first-wave leaks on ${stage}`, () => {
   const results = [];
-  for (const enabled of [false, true]) {
+  for (const policy of ['baseline', 'ground', 'route']) {
     const { m, ps, pieces } = openingFixture(stage);
     try {
-      m.botGroundBlockCandidates = enabled;
+      m.botGroundBlockCandidates = policy !== 'baseline';
+      m.botRouteBlockCandidates = policy === 'route';
       m.botMireSafeCandidates = false;
       const job = arrange(m, ps, { final: true, defer: true });
       assert.ok(job.plans.length <= 8, 'keep the existing rehearsal budget');
@@ -18,10 +19,11 @@ for (const stage of SUPPORT_MAPS) test(`two Vendelas: ground-blocking rehearsal 
       for (const piece of pieces) assert.ok(canPlace(ps.deployMap(), placeClass(ps, ps.gd.chess(piece.id)), ...parseKey(job.best.get(piece.uid))));
       const result = replayPlan(m, ps, pieces, job.best);
       results.push(result);
-      if (enabled) assert.ok(result.blocks > 0, 'the selected layout actually blocks enemies');
+      if (policy !== 'baseline') assert.ok(result.blocks > 0, 'the selected layout actually blocks enemies');
     } finally { m.dispose(); }
   }
   assert.ok(results[1].leaks < results[0].leaks, 'compare real battle results, not just a heuristic score');
+  assert.ok(results[2].leaks <= results[1].leaks, 'the route option preserves the opening fix');
   assert.deepEqual(results[1].input.spawns, results[0].input.spawns);
   assert.equal(results[1].input.seed, results[0].input.seed);
 });
@@ -32,6 +34,7 @@ test('mixed lineup: ground proposals add ranged blocking while retaining legal h
   try {
     // This candidate gate applies beyond first-wave starts too (we inspect plans, not a synthetic round's result).
     m.round = 3;
+    m.botRouteBlockCandidates = false; // Isolate the earlier ground/facing proposal family.
     const road = fieldModel(m, ps).ground;
     const ground = planLayout(m, ps, pieces, { ...LAYOUT_PARAMS, rangedBlock: true, groundRangedCount: 2 });
     assert.equal(pieces.slice(1).filter(p => road.has(ground.get(p.uid))).length >= 2, true);
