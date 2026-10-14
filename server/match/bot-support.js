@@ -31,5 +31,6 @@ export function supportLevelCap(m, ps) {
 }
 
 export function supportRehearsals(m, ps) {
+  if (m.botIndividualPolicy && (!ps?.isBot || ps.autoplay)) return m.botDefaultRehearsal;
   return coreTeam(m) && ps?.isBot && !ps.autoplay && m.botRehearsal > 0 ? Math.max(m.botRehearsal, 5) : m.botRehearsal;
 }

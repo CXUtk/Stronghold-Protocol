@@ -71,3 +71,9 @@
 - 修复分支为 `fix/trait-equipment-overflow`，合入 `deploy` 后供开服使用；实际部署状态记录在本地工作区运维文档。
 
 上述规则是否已部署以工作区运维文档中的部署记录为准；正在运行的对局继续使用启动时加载的代码。
+
+## AI personal combat policy (2026-10-14)
+
+The local lobby enables `terrain-parity-v12` for four-player ABYSS rooms with one to three AI teammates. It combines PR 445 personas, measured build scoring, expanded placement candidates and player-legal preparation-end rehearsals. The effective budget is eight layouts and three independent samples per layout. Public draft choices and focus remain reserved; the AI chooses available Russell, Touch, then Amiya fallback bands. Other modes and human autoplay do not receive this selected policy. Set `SP_BOT_POLICY=off` before starting the server to disable it. This does not change combat rules, card costs or player resources.
+
+Selection evidence: 336 controlled full-match comparisons, seven maps and 42 cases across three team compositions, rounds 1–11. Each population is normalized per AI and weighted equally; round 11 has half weight. Selected policy / player-aligned PR 445 / player-aligned baseline mean own-clear rates were 79.9% / 74.8% / 61.4%. The runner controls human leaks and does not model human purchasing. This is the highest point estimate in this sample, not a guarantee of perfect play or a conclusive win over the close second candidate. All raw records and alternate policies remain in the local experiment archive.

@@ -29,7 +29,7 @@ function groups(leaks) {
   return out;
 }
 
-export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rounds = 11, rehearsal = 3, stageId, leakCount = 2, sourceMode = 'single', scenario = 'small', humanFixtures = null, partnerBand = null, botBands = null, nativePolicy = '' } = {}, { configure = null, beforeEndPrep = null, beforeDispose = null, battleSeed = null } = {}) {
+export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rounds = 11, rehearsal = 3, stageId, leakCount = 2, sourceMode = 'single', scenario = 'small', humanFixtures = null, partnerBand = null, botBands = null, nativePolicy = '', individualPolicy = '' } = {}, { configure = null, beforeEndPrep = null, beforeDispose = null, battleSeed = null } = {}) {
   if (!Number.isInteger(humans) || humans < 1 || humans > 3) throw new Error('humans must be 1..3');
   if (!Number.isInteger(rounds) || rounds < 1 || rounds > 11) throw new Error('rounds must be 1..11');
   if (!ANCHOR_BANDS.includes(band)) throw new Error(`Unsupported anchor band: ${band}`);
@@ -41,7 +41,7 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
   const sched = new VirtualScheduler();
   const seats = Array.from({ length: 4 }, (_, seat) => ({ seat, playerId: `p${seat}`, name: `Seat ${seat + 1}`, isBot: seat >= humans, connected: true }));
   const m = new Match({ roomCode: 'SUPPORTBENCH', mode: 'coop', difficulty: 'ABYSS', seed, seats,
-    data: getData(), scheduler: sched, clientCombat: false, aiPicksLast: true, botRehearsal: rehearsal, botSupportPolicy: nativePolicy,
+    data: getData(), scheduler: sched, clientCombat: false, aiPicksLast: true, botRehearsal: rehearsal, botSupportPolicy: nativePolicy, botIndividualPolicy: individualPolicy,
     send: () => true, broadcast() {}, onEnd() {}, log: { info() {}, debug() {}, warn: (...a) => warnings.push(a.map(String).join(' ')), error: (...a) => errors.push(a.map(String).join(' ')) },
   });
   if (stageId) {

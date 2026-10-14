@@ -237,7 +237,21 @@ const DEFAULT_MELEE_RANGE = [[0, 0], [0, 1]];
  * rng draw per call (deterministic per seed); a solo match has no teammate to reserve against.
  */
 const SOFT_BAND_RESERVE = 0.25;
+const INDIVIDUAL_PERSONAS = { band_ioleta: 'ioleta_fallback', band_amedic: 'touch_fallback', band_amiya: 'amiya_fallback' };
+export function bindIndividualPersona(m, ps) {
+  if (!m.botIndividualPolicy || !ps.isBot || ps.autoplay || ps.botPersona && !ps._individualPersona) return;
+  ps.botPersona = INDIVIDUAL_PERSONAS[ps.bandId] || null;
+  ps._individualPersona = true;
+  ps._botPersona = null;
+}
+function policyApplies(m, ps) { return !m.botIndividualPolicy || ps?.isBot && !ps.autoplay; }
 export function botPickBand(m, ps) {
+  if (m.botIndividualPolicy && ps?.isBot && !ps.autoplay && !ps.botPersona) {
+    // Draft only an available tested fallback band. Human choices/focus remain reserved.
+    const focused = new Set(m.draft?.focus ? [...m.draft.focus].filter(([id]) => id !== ps.playerId).map(([, id]) => id) : []);
+    const band = Object.keys(INDIVIDUAL_PERSONAS).find(id => m.gd.bandAllowed(id) && !m.bandTaken(id, ps.playerId) && !focused.has(id));
+    if (band) return band;
+  }
   const support = supportDraftBand(m, ps);
   if (support) return support;
   const gd = ps?.gd || m.gd;
@@ -1305,7 +1319,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         if (seen.has(sig)) continue;
         seen.add(sig);
         layout.units.push(u);
-        const value = layout.value() + (params.tactical && m.botLayoutAdjustment ? m.botLayoutAdjustment(ps, layout.units, model) : 0);
+        const value = layout.value() + (params.tactical && policyApplies(m, ps) && m.botLayoutAdjustment ? m.botLayoutAdjustment(ps, layout.units, model) : 0);
         const v = value + noise;
         layout.units.pop();
         if (v > bestV) { bestV = v; best = [k, r, c, dir]; }
@@ -1508,7 +1522,7 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
               const leaks = (pp.leaked || []).filter((l) => l && l.counted !== false).length;
               const candidate = Math.floor(i / samples);
               const total = totals[candidate];
-              total.score += m.botRehearsalScore ? m.botRehearsalScore(pp) : -leaks * 1000 + (pp.killed || 0);
+              total.score += policyApplies(m, ps) && m.botRehearsalScore ? m.botRehearsalScore(pp) : -leaks * 1000 + (pp.killed || 0);
               total.completed++;
               const score = total.score / samples - candidate * 0.01;
               // Never pick a partial or failed sample group. Legacy pruning is deliberately disabled
@@ -2142,7 +2156,7 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
   }
   yield;
   const plans = [];
-  if (final && m.botKeepCurrentLayout) {
+  if (final && policyApplies(m, ps) && m.botKeepCurrentLayout) {
     const current = new LayoutPlan();
     for (const p of chosen) {
       const loc = ps.find(p.uid);
@@ -2151,8 +2165,8 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
     if (current.size === chosen.length) plans.push(current);
   }
   if (final && m.wave && m.botRehearsal > 0) {
-    const baseVariants = m.botLayoutVariants || REHEARSAL_VARIANTS;
-    const variants = m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
+    const baseVariants = policyApplies(m, ps) && m.botLayoutVariants || REHEARSAL_VARIANTS;
+    const variants = policyApplies(m, ps) && m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
     for (const v of variants) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));
   } else {
     plans.push(yield* planLayoutSteps(m, ps, chosen));
@@ -2269,7 +2283,7 @@ export function stackTake(ease, comboValue, best, before, seated) {
  * the combo is simply skipped — the rehearsed layout survives.
  */
 export function* comboLayoutSteps(m, ps) {
-  if (m.botSkipCombos) return;
+  if (policyApplies(m, ps) && m.botSkipCombos) return;
   const per = personaOf(m, ps);
   if (!per) return;
   const gd = m.gd;

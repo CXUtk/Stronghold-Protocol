@@ -12,6 +12,7 @@
 //   opts.mode        'solo' | 'coop'
 //   opts.difficulty  'FUNNY'|'NORMAL'|'HARD'|'ABYSS'
 //   opts.modeId      string                     modeIdFor(mode, difficulty), e.g. 'mode_multi_hard'
+//   opts.botIndividualPolicy string (optional) local selected AI strategy: terrain-parity-v12 or off; four-seat ABYSS only
 //   opts.aiPicksLast boolean (optional)         the co-op room option 「AI 队友最后选择」 (room.setAiPicksLast, GitHub #338):
 //                                              the strategy and 机变 drafts put every human seat before every AI seat
 //                                              (MatchPhases.humansFirst); only `true` turns it on; ignored in solo
@@ -177,6 +178,7 @@ import { Battle } from '../sim/Battle.js';
 import { DataSource } from '../sim/simdata.js';
 import { createRng, deriveSeed } from '../sim/rng.js';
 import { GameData } from './gamedata.js';
+import { configureIndividualBot } from './bot-individual.js';
 import { SUPPORT_POLICIES } from './bot-support.js';
 import { MEDICAL_POLICIES } from './bot-medical.js';
 import { RealScheduler } from './scheduler.js';
@@ -406,6 +408,7 @@ export class Match {
     this.hiddenReached = false;
     this.outcome = null;
     this._turnToken = 0;
+    configureIndividualBot(this, opts.botIndividualPolicy, opts.botRehearsal);
   }
 }
 

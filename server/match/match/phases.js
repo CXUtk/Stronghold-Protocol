@@ -8,7 +8,7 @@ import { PHASE, ERR } from '../../../shared/constants.js';
 import { buildNormalWave, buildBossWave } from '../waves.js';
 import { pairPlayers } from '../finalAssault.js';
 import { createRng, deriveSeed } from '../../sim/rng.js';
-import { botPickBand, botDefersBand } from '../bot.js';
+import { botPickBand, botDefersBand, bindIndividualPersona } from '../bot.js';
 import { OK, fail, DELAYS, BAND_TURN_SECONDS } from './common.js';
 
 export class MatchPhases {
@@ -210,6 +210,7 @@ export class MatchPhases {
     if (dedupe && this.bandTaken(id, ps.playerId)) id = this.gd.bandIds().find((b) => !this.bandTaken(b, ps.playerId)) || id;
     d.picks[ps.playerId] = id;
     ps.bandId = id;
+    bindIndividualPersona(this, ps);
     ps.lp = this.gd.startLp(id);
     this.markPrivate(ps);
     this.markPublic();
@@ -250,6 +251,7 @@ export class MatchPhases {
         const id = this.defaultBand(ps.playerId);
         this.draft.picks[ps.playerId] = id;
         ps.bandId = id;
+        bindIndividualPersona(this, ps);
         ps.lp = this.gd.startLp(id);
       }
       this.markPrivate(ps);

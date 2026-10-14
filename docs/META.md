@@ -3,7 +3,17 @@
 Experimental AI branch: the foundation evaluation ports supported guard and medic placement, hand-capacity-aware
 purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsals isolate state and never settle
 results; optional local carry/terrain scoring remains independent. See `tools/botbench/README.md` for frozen inputs,
-source snapshots and cross-revision comparison. This does not enable a strategy in the deployment branch.
+source snapshots and cross-revision comparison.
+
+The local lobby selects `terrain-parity-v12` through `opts.botIndividualPolicy` for four-player ABYSS rooms with
+one to three AI seats. `SP_BOT_POLICY=off` disables that selection; direct Match callers keep the default unless
+they explicitly pass the option. `bot-individual.js` installs the measured capability table, tanks build scoring,
+up to eight rehearsed layouts (three independent samples each), retained-layout candidates, carry scoring and the
+disabled legacy combo placement. `bot-tactical.js` is shared with the offline evaluator, without recording production
+diagnostic snapshots. AI drafts prefer free Russell, Touch, then Amiya bands, reserving other players' draft focus;
+the persona follows the actual assigned band. Unavailable fallback bands use ordinary draft selection. Native policy
+layout overrides do not apply to human autoplay. Capability entries are measured scoring hints, never battle stats.
+The evidence is a controlled population comparison through round 11, not guaranteed perfect play in every room.
 
 Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
 
