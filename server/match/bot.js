@@ -86,7 +86,7 @@ import { itemKey } from './gamedata.js';
 import { computeBonds } from './bondsMeta.js';
 import { supportDraftBand, supportLevelCap, supportRehearsals } from './bot-support.js';
 import { medicalPolicy } from './bot-medical.js';
-import { buildContext, buildUnitBonus, buildLineupBonus, buildItemBonus, combatValue } from './bot-build.js';
+import { buildContext, buildUnitBonus, buildLineupBonus, buildItemBonus, combatValue, counterBuyBonus } from './bot-build.js';
 import { isFlyKey } from './waves.js';
 import { mitigate } from '../sim/damage.js';
 import { HOVER_KEYS } from '../sim/content/enemies.js';
@@ -834,6 +834,8 @@ function buyScore(m, ps, id, ctx) {
   if (isHealer(c)) s += ctx.roles.healers === 0 && m.round >= 3 ? 6 : ctx.roles.healers >= 2 ? -14 : -3;
   if (isHealer(c) && ctx.roles.healers === 0) s += ctx.medical?.buy || 0;
   s += buildUnitBonus(ctx.build, c) * 0.6;
+  if (ctx.build?.policy.counterTeam) s += counterBuyBonus(ctx.build, c,
+    [...ps.board.values()].filter((p) => p.kind === 'chess').map((p) => chessRec(m, p.id, ps)));
   if (c.attackKind === 'none' && !isHealer(c)) s -= 4;
   if (ctx.model && !isHealer(c)) s += ARMOR_WEIGHT * 0.6 * (armorFit(ctx.model, c) - 0.6);
   // the player's own 自选 piece (a slotted slot: its composed record carries diyFor) — AI 托管 of a human with picks

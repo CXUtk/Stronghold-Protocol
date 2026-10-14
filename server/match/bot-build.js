@@ -1,5 +1,7 @@
 // Opt-in offline build scoring. These are falsifiable heuristics, never changes to combat rules.
 // The caller supplies an atlas measured with the real kits; no Node APIs or hidden future draws are read here.
+import { HOVER_KEYS } from '../sim/content/enemies.js';
+
 export const BUILD_POLICIES = Object.freeze({
   output: { unit: 7, team: 0, future: 0 },
   matchup: { unit: 7, team: 12, future: 0.2 },
@@ -7,6 +9,10 @@ export const BUILD_POLICIES = Object.freeze({
   tanks: { unit: 7, team: 12, future: 0.2, protectTanks: true },
   sustain: { unit: 7, team: 12, future: 0.2, measuredMapMedic: true },
   resilient: { unit: 7, team: 12, future: 0.2, protectTanks: true, measuredMapMedic: true },
+  'enemy-hover': { unit: 7, team: 12, future: 0.2, protectTanks: true, enemyAware: true },
+  'enemy-window': { unit: 7, team: 12, future: 0.2, protectTanks: true, enemyAware: true, enemyWindows: true },
+  'enemy-cover': { unit: 7, team: 12, future: 0.2, protectTanks: true, enemyAware: true, enemyWindows: true, counterTeam: 8 },
+  'enemy-sustain': { unit: 7, team: 12, future: 0.2, protectTanks: true, enemyAware: true, enemyWindows: true, counterTeam: 8, threatHealing: true },
 });
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const mix = (a, b, t) => a + (b - a) * t;
@@ -46,7 +52,10 @@ export function buildContext(m, ps, model) {
     const s = e.stats, bb = e.talents?.bb || {};
     const reflection = Number(bb['refracting.magic_resistance'] ?? bb['Refracting.magic_resistance']) || 0;
     rows.push({ id, weight, def: (s.def || 0) * (mods.defMul || 1), res: s.res || 0, reflection,
-      fly: e.isFlyEnemy || s.motion === 'FLY', atk: (s.atk || 0) * scale.atkMul * (mods.atkMul || 1),
+      fly: e.isFlyEnemy || s.motion === 'FLY' || (policy.enemyAware && HOVER_KEYS.includes(id)),
+      hp: s.maxHp * scale.hpMul * (mods.hpMul || 1), speed: (s.moveSpeed || 0.8) * scale.speedMul,
+      regen: s.hpRecoveryPerSec || 0, silenciable: !s.immunities?.silence,
+      atk: (s.atk || 0) * scale.atkMul * (mods.atkMul || 1),
       bat: s.bat || 2, type: s.dmgType || 'phys', dot: (e.acTypes || []).includes('DOT') || e.acType === 'DOT' });
   };
   for (const s of m.wave?.spawns || []) if (s.tag !== 'part') add(s.enemyKey, (s.count || 1) * Math.sqrt(gd.enemy(s.enemyKey)?.stats?.maxHp || 1000), s.mods);
@@ -71,11 +80,52 @@ export function combatValue(ctx, c) {
   if (!ctx || !c) return null;
   if (ctx.values.has(c.chessId)) return ctx.values.get(c.chessId);
   const entry = ctx.entries[c.chessId]; if (!entry) return null;
-  const dps = ctx.rows.reduce((n, r) => n + r.weight * atlasDps(entry, r, ctx.crowd), 0);
+  const dps = ctx.rows.reduce((n, r) => n + r.weight * enemyDps(ctx, entry, r), 0);
   const p = entry.profiles;
   const v = { id: c.chessId, dps, hps: p.soft.hps, silence: p.reflection.silenceUptime,
     shred: p.armor800.defReduction || 0, resCut: Math.max(p.resist.resReduction || 0, 70 * p.reflection.silenceUptime), entry };
   ctx.values.set(c.chessId, v); return v;
+}
+
+/** Fast enemies leave less time for slow-start skills. This is a proposal score, not a simulated kill rate. */
+export function enemyDps(ctx, entry, row) {
+  let dps = atlasDps(entry, row, ctx.crowd);
+  if (ctx.policy.enemyWindows) {
+    const p = entry.profiles[row.fly ? 'air' : row.reflection > 0 ? 'reflection' : row.def >= 800 ? 'armor800' : 'soft'];
+    const early = clamp(p.dps20 / Math.max(1, statDps(p)), 0.25, 1.75);
+    dps *= mix(1, early, clamp(((row.speed || 1) - 0.8) / 1.2, 0, 0.75));
+  }
+  return dps;
+}
+
+/** Saturate already-covered enemies; retain a floor for the hardest public matchup. No hidden wave/fixture inputs. */
+export function counterCoverage(ctx, records) {
+  if (!ctx?.policy.counterTeam || !ctx.rows.length) return 0;
+  const units = records.map((c) => combatValue(ctx, c)).filter(Boolean);
+  const silence = units.reduce((s, u) => Math.max(s, u.silence), 0);
+  const shred = units.reduce((s, u) => Math.max(s, u.shred), 0);
+  let mean = 0, floor = 1;
+  for (const row of ctx.rows) {
+    const target = { ...row, def: Math.max(0, row.def - shred * 0.5),
+      reflection: row.reflection * (1 - (row.silenciable ? silence * 0.6 : 0)) };
+    const dps = units.reduce((s, u) => s + enemyDps(ctx, u.entry, target), 0);
+    // Approximate exposure only; actual route, range, control and stacked bonds are still judged by rehearsal.
+    const window = clamp(10 / Math.max(0.25, row.speed || 1), 5, 20);
+    const needed = Math.max(200, (row.hp || 10000) / window + (row.regen || 0));
+    const coverage = Math.min(1, 0.65 * dps / needed);
+    mean += row.weight * coverage;
+    if (row.weight >= 0.02) floor = Math.min(floor, coverage);
+  }
+  return ctx.policy.counterTeam * (mean + 0.5 * floor);
+}
+
+/** A ninth card must replace someone: do not award imaginary extra deployment capacity to a purchase. */
+export function counterBuyBonus(ctx, candidate, fielded) {
+  if (!ctx?.policy.counterTeam) return 0;
+  const current = fielded.filter(Boolean).slice(0, 8), before = counterCoverage(ctx, current);
+  const alternatives = current.length < 8 ? [[...current, candidate]]
+    : current.map((_, i) => current.map((c, j) => i === j ? candidate : c));
+  return clamp(Math.max(...alternatives.map((r) => counterCoverage(ctx, r))) - before, 0, 4);
 }
 
 export function buildUnitBonus(ctx, c) {
@@ -100,11 +150,12 @@ export function buildLineupBonus(ctx, records) {
   }
   pressure += (ctx.infection ? units.length * 35 : 0) + ctx.dot * units.length * 50;
   let hps = units.reduce((n, x) => n + x.v.hps, 0) * 0.65; // measured capacity reduced for imperfect coverage
-  if (ctx.mapMedic && ctx.policy.measuredMapMedic) {
+  const measuredMedic = ctx.policy.measuredMapMedic || (ctx.policy.threatHealing && (ctx.dot > 0.1 || ctx.infection));
+  if (ctx.mapMedic && measuredMedic) {
     const id = records.filter((c) => c?.isGolden).length >= 2 ? 'char_613_acmedc' : 'char_605_cmedic';
     hps += (ctx.mapMedics?.[id] || 0) * 0.65;
   }
-  const healing = ctx.mapMedic && !ctx.policy.measuredMapMedic ? 0 : Math.min(hps, pressure) / Math.max(150, pressure);
+  const healing = ctx.mapMedic && !measuredMedic ? 0 : Math.min(hps, pressure) / Math.max(150, pressure);
   let synergy = 0;
   const total = units.reduce((n, x) => n + x.v.dps, 0);
   for (const { v } of units) {
@@ -117,7 +168,7 @@ export function buildLineupBonus(ctx, records) {
     const improved = ctx.synergy.get(key);
     synergy += Math.max(0, improved - v.dps);
   }
-  return ctx.policy.team * (healing + Math.min(1.5, synergy / Math.max(300, total)));
+  return ctx.policy.team * (healing + Math.min(1.5, synergy / Math.max(300, total))) + counterCoverage(ctx, records);
 }
 
 export function buildItemBonus(ctx, item, ownedItems = []) {
