@@ -6,6 +6,11 @@ import { digest } from '../tools/botbench/support-evaluator.mjs';
 import { getData } from '../server/data.js';
 import { aggregatePolicies, runPolicyCase } from '../tools/botbench-policy-search.mjs';
 
+test('cross-version policy runs reject a reference from a different scenario', () => {
+  assert.throws(() => runPolicyCase({ config: { seed: 1 }, policies: ['baseline'],
+    referenceBaseline: { policyId: 'baseline', modeId: 'mode_multi_abyss', seed: 2 } }), /case mismatch/);
+});
+
 const config = { seed: 11, humans: 2, band: 'band_amiya', rounds: 7, stageId: 'act2autochess_m03', leakCount: 2, sourceMode: 'all' };
 test('policy baseline preserves existing full match results and controlled human inputs', () => {
   const base = runSupportMatch(config), policy = runSupportPolicy(config);

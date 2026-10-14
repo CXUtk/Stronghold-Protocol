@@ -16,10 +16,13 @@ if (!isMainThread && workerData?.policySearch) {
   });
 }
 
-export function runPolicyCase({ config, policies }) {
+export function runPolicyCase({ config, policies, referenceBaseline = null }) {
   // Generate incoming human leaks once from the unmodified policy. AI deaths can otherwise change later battle
   // RNG allocation (e.g. duck replacements) and accidentally give the candidate different enemies to rescue.
-  const baseline = runSupportPolicy(config, 'baseline');
+  const baseline = referenceBaseline || runSupportPolicy(config, 'baseline');
+  if (referenceBaseline && (baseline.policyId !== 'baseline' || baseline.modeId !== 'mode_multi_abyss'
+    || ['seed', 'humans', 'band', 'stageId', 'leakCount', 'sourceMode'].some((k) => baseline[k] !== config[k])
+    || baseline.targetRound !== config.rounds)) throw new Error('Reference baseline case mismatch');
   if (baseline.rounds.length !== config.rounds) throw new Error('Baseline did not reach fixture cutoff');
   return policies.map((policy) => policy === 'baseline' ? baseline
     : runSupportPolicy({ ...config, humanFixtures: baseline.fixtureInputs }, policy));
@@ -36,7 +39,7 @@ export function aggregatePolicies(results) {
 export async function main(argv) {
   const opt = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!['--seed', '--seeds', '--policies', '--maps', '--jobs', '--out', '--label', '--atlas'].includes(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option ${argv[i]}`);
+    if (!['--seed', '--seeds', '--policies', '--maps', '--jobs', '--out', '--label', '--atlas', '--reference'].includes(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option ${argv[i]}`);
     opt[argv[i].slice(2)] = argv[i + 1];
   }
   const seed = Number(opt.seed || 11), count = Number(opt.seeds || 8), jobs = Number(opt.jobs || 8);
@@ -60,6 +63,20 @@ export async function main(argv) {
   const prefix = resolve(opt.out);
   mkdirSync(dirname(prefix), { recursive: true });
   if (['.json', '.jsonl', '.source.json'].some((ext) => existsSync(prefix + ext))) throw new Error('Output already exists; use a new experiment name');
+  if (opt.reference) {
+    const reference = JSON.parse(readFileSync(resolve(opt.reference), 'utf8'));
+    if (reference.manifest.dataHash !== manifest.dataHash || !reference.manifest.fixedHumanFixtures) throw new Error('Incompatible reference data or fixtures');
+    const baselines = reference.results.filter((r) => r.policyId === 'baseline');
+    for (const task of tasks) {
+      const matches = baselines.filter((r) => ['seed', 'humans', 'band', 'stageId', 'leakCount', 'sourceMode'].every((k) => r[k] === task.config[k]) && r.targetRound === task.config.rounds);
+      if (matches.length !== 1) throw new Error('Missing or duplicate reference baseline');
+      task.referenceBaseline = matches[0];
+    }
+    manifest.reference = { file: resolve(opt.reference), sourceHash: reference.manifest.sourceHash,
+      fileHash: hashTree(dirname(resolve(opt.reference)), [resolve(opt.reference)]) };
+    manifest.reusedBaselineMatches = tasks.length;
+  }
+  manifest.newSimulationMatches = tasks.length * (policies.length - (opt.reference ? 1 : 0));
   if (policies.some((p) => POLICIES[p].build)) {
     if (!opt.atlas) throw new Error('Build policies require --atlas');
     const atlas = JSON.parse(readFileSync(resolve(opt.atlas), 'utf8'));

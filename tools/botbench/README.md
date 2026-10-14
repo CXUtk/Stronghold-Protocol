@@ -269,6 +269,20 @@ tools only; absent callbacks preserve the original path. There is no new environ
 Public rehearsal context is a prep snapshot, not a full replay of potentially stateful `onBattleStart` meta hooks;
 effects/grants at prep end remain a known approximation. Formal simulation rules are unchanged.
 
+The foundation comparison revision ports PRs 452 (`6d00ba78`), 606 (`b4e00da5`), 607 (`5bdaa6d8`)
+and 608 (`f82f64c2`): supported guard/medic positions, capacity-aware purchasing and normal-input rehearsals.
+Those fixes apply to every policy in this revision, including baseline. The old context fallback above is used only
+if no normal-battle `contentInfo` exists; the complete foundation context is preserved. The old candidate names now
+mean their decision deltas over this common foundation, not a reproduction of their historical engine version.
+The guard/medic conflict resolution retains the optional terrain proposal adjustment. No deployment branch is changed.
+
+`--reference EXISTING_BATCH.json` reuses its exact baseline records and frozen human inputs for a comparison of
+an alternative source revision. It validates the data hash and complete case keys, records the reference-file hash,
+and counts reused baselines separately from newly simulated matches. This is for explicit code variants; source hashes
+may differ, while data and fixtures must agree. Keep the original batch and both source snapshots. Do not call an
+imported baseline a rerun, or count it twice. A comparison's final objective remains failures first, then round-weighted
+human LP (rounds 1–10: 1, round 11: 0.5); retain raw LP as well.
+
 `runSupportPolicy({ ...config, observe: true }, id)` records actual healing amounts/source-target totals, terrain
 damage, knockdowns and half-second samples of injured/infection exposure. Its uncovered time measures ordinary
 healer target-range eligibility, not all skill/bard healing; use actual received healing alongside it. Observation

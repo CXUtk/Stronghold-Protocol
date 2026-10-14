@@ -43,8 +43,8 @@
 //      and kept on ties, so symmetric ranges and melee units whose front adds nothing stay facing the gates), so
 //      ranged units turn toward the enemy path tiles they cover best and blockers toward the road; on 气流 tiles
 //      (act2 m01 blowers) the DPS is scaled by the blower ATK bonus of that direction (with / against / across). The last
-//      arrangement of a prep REHEARSES up to m.botRehearsal distinct layout variants with the real Battle (rehearsal
-//      seed, no meta dispatch, board restored exactly) and keeps the one with the fewest leaks. The default plan is
+//      arrangement of a prep REHEARSES up to m.botRehearsal distinct layout variants with the real Battle.
+//      It uses normal battle inputs with isolated meta RNG and keeps the one with the fewest leaks. The default plan is
 //      placed first; Match steps the rehearsal in wall-clock-bounded slices (botPrepBegin → job.run → botPrepEnd) so
 //      whole simulated battles never block the server's event loop. The prep routine itself is sliced the same way:
 //      botPrepBeginSteps / botPrepEndSteps (and planLayoutSteps, arrangeSteps, createRehearsalSteps) are step
@@ -77,8 +77,6 @@
 // of kill rate and rehearsal adds ≈ 5 more; see docs/META.md §1.5. Old vs new decisions on the same seeds:
 // tools/botbench.mjs.
 
-import { GEO } from '../../shared/constants.js';
-import { deriveSeed } from '../sim/rng.js';
 import { ASPD_MIN } from '../sim/constants.js';
 import { freeSlot, countFree, legalTiles, canPlace, positionClass, placeClass, basePositionClass, parseKey, tileKey, FIELD, pieceDir, boardTileOf, BOSS_MIRROR_COL } from './board.js';
 import { rotateOffset, normDir, mirrorDir, oppositeDir } from '../sim/dir.js';
@@ -87,7 +85,7 @@ import { computeBonds } from './bondsMeta.js';
 import { supportDraftBand, supportLevelCap, supportRehearsals } from './bot-support.js';
 import { medicalPolicy } from './bot-medical.js';
 import { buildContext, buildUnitBonus, buildLineupBonus, buildItemBonus, combatValue } from './bot-build.js';
-import { withBounties, isFlyKey } from './waves.js';
+import { isFlyKey } from './waves.js';
 import { mitigate } from '../sim/damage.js';
 import { HOVER_KEYS } from '../sim/content/enemies.js';
 import { attackRangeGrid, loadoutRecord, resolveRecordLoadout } from '../../shared/loadoutRecord.js';
@@ -523,12 +521,14 @@ function pieceValue(m, ps, piece, ctx) {
  * Score of a deployed set: unit values + the bonds it activates (exact tiers via bondsMeta.computeBonds, hand
  * members still count for BOARD_AND_DECK bonds) + composition (blockers, anti-air when the wave flies, ≤ 2 healers).
  */
-function lineupScore(m, ps, set, ctx) {
+function lineupScore(m, ps, set, ctx, handSlots = countFree(ps.hand)) {
   const gd = ps?.gd || m.gd;
   const board = new Map();
   set.forEach((p, i) => board.set(`x${i}`, p));
   const inSet = new Set(set.map((p) => p.uid));
-  const hand = ps.hand.map((p) => (p && !inSet.has(p.uid) ? p : null));
+  // arrangeSteps withdraws unchosen board chess before deployment, or sells them when the hand has no room.
+  const withdrawn = [...ps.board.values()].filter((p) => p.kind === 'chess' && !inSet.has(p.uid)).slice(0, handSlots);
+  const hand = [...ps.hand.filter((p) => p && !inSet.has(p.uid)), ...withdrawn];
   const bonds = computeBonds(gd, { board, hand, layers: ps.layers, bondCountBonus: ps.bondCountBonus });
   let v = 0;
   for (const p of set) v += unitBase(m, p, ctx);
@@ -989,7 +989,10 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
   const rec = recOf || ((p) => (p.kind === 'token' ? pgd.token(p.id) : rangeRec(ps, pgd.chess(p.id))));
   const layout = new Layout(model, params);
   const rank = (p) => { const r = rec(p); return isBlocker(r) ? 0 : isHealer(r) ? 2 : 1; };
-  const order = pieces.slice().sort((a, b) => rank(a) - rank(b) || dpsOf(rec(b)) - dpsOf(rec(a)) || a.uid - b.uid);
+  // [ASSUMED] Boss fields have no rehearsal. Place wide-range medics before other medics occupy their useful tiles.
+  // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+  const order = pieces.slice().sort((a, b) => rank(a) - rank(b) || dpsOf(rec(b)) - dpsOf(rec(a))
+    || (!m.wave && isHealer(rec(a)) ? rec(b).rangeGrid.length - rec(a).rangeGrid.length : 0) || a.uid - b.uid);
   const taken = new Set(occupied);
   const out = new LayoutPlan();
   for (const p of order) {
@@ -1014,10 +1017,23 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     const preferRoad = isBlocker(r0) && r0.rangeGrid?.length === 1 && r0.rangeGrid[0].every((v) => v === 0);
     let bestRoad = null;
     let bestRoadV = -Infinity;
+    // [ASSUMED] A ground medic still blocks, but cannot kill what it holds. Prefer a tile off the road or
+    // covered by allied fire at both the tile and its incoming contact; keep a legal fallback on a crowded board.
+    // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+    const needsSupport = isHealer(r0) && (r0.stats?.blockCnt ?? 1) > 0;
+    let bestSupported = null;
+    let bestSupportedV = -Infinity;
+    let bestHealing = -Infinity;
+    let bestNoise = -Infinity;
     for (const [r, c] of legalTiles(map, cls)) {
       const k = tileKey(r, c);
       if (taken.has(k) || (within && !within.has(k)) || (without && without.has(k))) continue;
       const noise = m.rngBots() * 1e-6;
+      const supported = needsSupport && (!model.ground.has(k) || model.index.get(k).every(([ri, i]) => {
+        const rt = model.routes[ri];
+        return rt.fly || layout.units.some((ally) => ally.ground && ally.dps > 0 && ally.cover.has(k)
+          && ally.cover.has(rt.tiles[Math.max(0, i - 1)]));
+      }));
       const seen = new Set();
       for (const dir of PLAN_DIRS) {
         const u = unitOf(r0, k, r, c, dir, model);
@@ -1026,9 +1042,20 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         if (seen.has(sig)) continue;
         seen.add(sig);
         layout.units.push(u);
-        const v = layout.value() + (params.tactical && m.botLayoutAdjustment ? m.botLayoutAdjustment(ps, layout.units, model) : 0) + noise;
+        const value = layout.value() + (params.tactical && m.botLayoutAdjustment ? m.botLayoutAdjustment(ps, layout.units, model) : 0);
+        const v = value + noise;
         layout.units.pop();
         if (v > bestV) { bestV = v; best = [k, r, c, dir]; }
+        // [ASSUMED] Without boss rehearsal, break route-value ties by allied damage in healing range.
+        // The route model otherwise values healing only through a blocker's hold time.
+        // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+        const healing = supported && !m.wave ? layout.units.reduce((sum, ally) => sum + (u.cover.has(ally.key) ? ally.dps : 0), 0) : 0;
+        const supportedV = m.wave ? v : value;
+        if (supported && (supportedV > bestSupportedV || (supportedV === bestSupportedV
+          && (healing > bestHealing || (healing === bestHealing && noise > bestNoise))))) {
+          bestSupportedV = supportedV; bestHealing = healing; bestNoise = noise;
+          bestSupported = [k, r, c, dir];
+        }
         // (the best road tile by the same value)
         if (preferRoad && model.ground.has(k) && v > bestRoadV) { bestRoadV = v; bestRoad = [k, r, c, dir]; }
         if (preferHigh && map.get(k) === 'ranged' && [...u.cover].some((ck) => model.ground.has(ck)) && v > bestHighV) {
@@ -1037,12 +1064,47 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         }
       }
     }
-    const pick = bestHigh || bestRoad || best;
+    const pick = bestSupported || bestHigh || bestRoad || best;
     if (!pick) continue;
     taken.add(pick[0]);
     layout.units.push(unitOf(r0, pick[0], pick[1], pick[2], pick[3], model));
     out.set(p.uid, pick[0]);
     out.dirs.set(p.uid, pick[3]);
+    yield;
+  }
+  // [ASSUMED] Repair isolated self-range guards after the damage dealers have been placed. The route-wide kill
+  // estimate can saturate even when the guard holds enemies out of range of all that downstream damage.
+  // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+  for (const p of order) {
+    const key = out.get(p.uid);
+    const r0 = rec(p);
+    if (p.kind === 'token' || !key || !isBlocker(r0) || r0.rangeGrid?.length !== 1
+      || !r0.rangeGrid[0].every((v) => v === 0) || !model.ground.has(key)) continue;
+    const index = layout.units.findIndex((u) => u.key === key);
+    if (index < 0) continue;
+    const unit = layout.units[index];
+    const support = (k) => model.index.get(k).every(([ri, i]) => {
+      const rt = model.routes[ri];
+      return rt.fly || layout.units.some((ally) => ally !== unit && ally.ground && ally.dps > 0
+        && ally.cover.has(k) && ally.cover.has(rt.tiles[Math.max(0, i - 1)]));
+    });
+    if (support(key)) continue;
+    let best = unit;
+    let bestV = layout.value();
+    for (const [r, c] of legalTiles(map, placeClass(ps, pgd.chess(p.id) || r0))) {
+      const k = tileKey(r, c);
+      if (taken.has(k) || !model.ground.has(k) || !support(k)) continue;
+      const candidate = unitOf(r0, k, r, c, unit.dir, model);
+      layout.units[index] = candidate;
+      const v = layout.value();
+      layout.units[index] = unit;
+      if (v >= bestV) { best = candidate; bestV = v; }
+    }
+    if (best !== unit) {
+      taken.delete(key); taken.add(best.key);
+      layout.units[index] = best;
+      out.set(p.uid, best.key);
+    }
     yield;
   }
   return out;
@@ -1080,8 +1142,9 @@ function countedLeaks(battle, playerId) {
 
 /**
  * Rehearsal job: a player "tries out" candidate layouts — each distinct plan (up to m.botRehearsal) is simulated once
- * against the round's enemies with the real Battle (a rehearsal seed, never the real battle's; no onBattleStart meta
- * dispatch, so it has no side effect on the match) and the plan with the fewest counted leaks (then most kills) wins.
+ * against the round's enemies with the real Battle. Normal battle inputs include battle-start effects and in-battle
+ * layer gains. Meta hooks use an independent RNG copy; no result is settled into the match.
+ * The plan with the fewest counted leaks (then most kills) wins.
  * Every candidate's Battle is built right away (each layout is on the board only while its input is taken; the board
  * is restored exactly before this returns), so the job can be stepped later: `job.run(budgetMs)` simulates until the
  * wall-clock budget is used (checked every 4 ticks) and returns true once every candidate is done. A candidate whose
@@ -1115,12 +1178,8 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
       ps.board.clear();
       for (const [uid, k] of plan) { const p = byUid.get(uid); if (p) { p.dir = planDir(plan, uid); ps.board.set(k, p); } }
       ps.recompute();
-      const spawns = withBounties(m.gd, m.round, wave, ps.bounties, ps.playerId).map((sp) => ({ ...sp, ownerPlayerId: ps.playerId }));
       battles.push(m.newBattle({
-        seed: deriveSeed(m.seed, `rehearse:${m.round}:${ps.seat}`), kind: 'normal', modeId: m.modeId, round: m.round,
-        stageId: m.stageId, rect: { ...GEO.NORMAL_RECT }, timeLimit: wave.timeLimit, players: [ps.battleInput({ side: 'L', colOffset: 0 })],
-        spawns: m._sanitizeSpawns(spawns, ps.playerId), routes: wave.routes, sharedBoss: null,
-        flags: { layerGainsEnabled: false, ...m.gd.dp }, fieldId: `r:${ps.playerId}`, enemyOverrides: wave.overrides, waveId: wave.templateId,
+        ...m._normalOpts(ps, { preview: true }), fieldId: `r:${ps.playerId}`,
       }));
     } catch (e) {
       failed = true;
@@ -1304,7 +1363,8 @@ function lineupGain(m, ps, id, ctx, cur) {
   for (let i = 0; i < cur.set.length; i++) {
     const trial = cur.set.slice();
     trial[i] = probe;
-    best = Math.max(best, lineupScore(m, ps, trial, ctx));
+    // The purchase occupies a hand slot before arrangeSteps can withdraw the replaced operator.
+    best = Math.max(best, lineupScore(m, ps, trial, ctx, Math.max(0, countFree(ps.hand) - 1)));
   }
   return best - cur.score;
 }
@@ -1511,7 +1571,9 @@ function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0 } = {}) {
     // freed: in 20 solo 绝境 昆图斯 matches the shed sold 44 of 222 before the placement step could deploy them). The
     // shed is pre-emptive (one slot is still free), so with only fresh singles it waits for the next prep.
     const used = ps.hand.filter(Boolean).length;
-    if (used >= gd.benchSize - 1) sellWeakestHand(m, ps, { keepFresh: true });
+    // [ASSUMED] Do not underfill the deploy cap merely to reserve a hand slot.
+    // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+    if (used >= gd.benchSize - 1 && ownedN > ps.deployCap) sellWeakestHand(m, ps, { keepFresh: true });
     // a full hand refuses every purchase, the third copy of a held pair too (PlayerState.buy, PRTS 卫戍协议/帮助 §手牌区):
     // an affordable one sheds the weakest hand single first (like the shed above, never one of this prep)
     if (freeSlot(ps.hand) < 0 && ps.shop.slots.some((s) => s && !s.sold && s.kind === 'chess' && ps.priceOf(s) <= ps.funds && ps.completesChessMerge(s.id))) {
@@ -1519,6 +1581,7 @@ function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0 } = {}) {
     }
     let best = -1;
     let bestS = 0;
+    let bestPrice = Infinity;
     let bestMerges = false;
     let cur = null;
     ps.shop.slots.forEach((s, i) => {
@@ -1558,7 +1621,12 @@ function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0 } = {}) {
         sc = 6 + (gd.tierOf(s.id) || 1) * 3 - price + (ps.completesItemMerge(s.id) ? 10 : 0);
         sc += buildItemBonus(ctx.build, gd.item(s.id), [...ps.hand, ...ps.temp, ...[...ps.board.values()].flatMap((u) => u.items || [])].filter(Boolean).map((u) => gd.item(u.id)));
       }
-      if (sc > bestS) { bestS = sc; best = i; bestMerges = s.kind === 'chess' && ps.completesChessMerge(s.id); }
+      // [ASSUMED] Prefer the cheaper purchase when scores tie, including floating-point cancellation noise.
+      // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+      if (sc > bestS + 1e-9 || (best >= 0 && Math.abs(sc - bestS) <= 1e-9 && price < bestPrice)) {
+        bestS = sc; best = i; bestPrice = price;
+        bestMerges = s.kind === 'chess' && ps.completesChessMerge(s.id);
+      }
     });
     // leftover funds are lost at prep end: reroll while a purchase stays affordable (a band that keeps them: down to its
     // reserve — a free refresh is always taken)

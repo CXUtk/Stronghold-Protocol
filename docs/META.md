@@ -1,5 +1,10 @@
 # META.md — match & meta engine (server/match)
 
+Experimental AI branch: the foundation evaluation ports supported guard and medic placement, hand-capacity-aware
+purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsals clone meta RNG and never settle
+results; optional local carry/terrain scoring remains independent. See `tools/botbench/README.md` for frozen inputs,
+source snapshots and cross-revision comparison. This does not enable a strategy in the deployment branch.
+
 Audience: **content authors** writing prep-side ("SERVER_*") effects in `server/sim/content/*.js → registerMeta(registry)`,
 the **UI owner** consuming `m.public` / `m.private` / `m.result`, and anyone driving matches in tests or tools.
 Normative contracts stay in DESIGN.md §6 and §8 ([design/match.md](design/match.md),

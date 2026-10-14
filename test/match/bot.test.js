@@ -4,10 +4,115 @@ import assert from 'node:assert/strict';
 import { PHASE } from '../../shared/constants.js';
 import { fieldModel, planLayout, rehearse, rangeTiles, REHEARSAL_VARIANTS, LAYOUT_PARAMS, botPickCard, botPickBand } from '../../server/match/bot.js';
 import { FIELD, canPlace, placeClass, parseKey, legalTiles, tileKey } from '../../server/match/board.js';
+import { buildNormalWave } from '../../server/match/waves.js';
 import { makeMatch, checkInvariants, give, giveItem, DATA } from './harness.js';
 import { makeBattle } from '../helpers/battleHarness.js';
 
 const soloBot = (o = {}) => makeMatch({ mode: 'solo', difficulty: 'NORMAL', seats: [{ seat: 0, playerId: 'ai_0', name: 'AI', isBot: true, connected: true }], ...o });
+
+for (const [humans, seed] of [[1, 60], [3, 5]]) test(`user: Given a full formation in a ${humans}-seat match, When planning a self-range guard, Then keep its road position covered by allied fire`, () => {
+  const h = makeMatch({ mode: 'coop', humans, difficulty: 'HARD', seed }).start().toPrep().setStage('act1autochess_m02');
+  const m = h.m;
+  const ps = m.order[0];
+  try {
+    const pieces = ['1_02_a', '1_01_b', '2_10_a', '2_14_a', '2_16_b', '1_13_b', '3_17_a', '1_19_b']
+      .map((id) => give(m, ps, `chess_char_${id}`, 'hand'));
+    const plans = REHEARSAL_VARIANTS.slice(0, 3).map((v) => planLayout(m, ps, pieces, { ...LAYOUT_PARAMS, ...v }));
+    for (const [variant, plan] of plans.entries()) {
+      let guardBlocks = 0;
+      let supportedHits = 0;
+      const battle = makeBattle({
+        stageId: m.stageId, routes: m.wave.routes, timeLimit: 100,
+        enemies: [{ key: 'enemy_1006_shield_2', time: 30, route: 0, count: 3, interval: 1 }],
+        units: pieces.map((p) => {
+          const [row, col] = parseKey(plan.get(p.uid));
+          return { chessId: p.id, uid: p.uid, row, col, dir: plan.dirs.get(p.uid) };
+        }),
+        setup(b) {
+          b.on('blocked', ({ blocker }) => { if (blocker.defId === pieces[0].id) guardBlocks++; });
+          b.on('damaged', ({ source, target, amount }) => {
+            if (amount > 0 && target.blockedBy?.defId === pieces[0].id && source?.side === 'ally' && source.defId !== pieces[0].id) supportedHits++;
+          });
+        },
+      });
+      battle.runToEnd();
+      if (variant === 1) assert.ok(guardBlocks > 0, 'the heavy guard actually blocks the enemy');
+      if (guardBlocks > 0) assert.ok(supportedHits > 0, 'other operators damage the enemy while the heavy guard holds it');
+      assert.equal(battle.result().perPlayer.p1.leaked.length, 0);
+      battle.invariants();
+      assert.ok(fieldModel(m, ps).ground.has(plan.get(pieces[0].uid)), 'the guard stays on the enemy road');
+    }
+  } finally { m.dispose(); }
+});
+
+test('user: Given two ground routes meeting at a guard, When planning support, Then allies can kill enemies from either entrance', () => {
+  const { m } = makeMatch({ mode: 'coop', humans: 3, difficulty: 'HARD', seed: 8 }).start().toPrep().setStage('act2autochess_m02');
+  const ps = m.order[0];
+  try {
+    const routes = [[9, 10], [12, 10]].map((start) => ({ motion: 'WALK', start, end: [9, 2], checkpoints: [] }));
+    m.wave = { ...m.wave, routes, spawns: routes.map((_, routeIndex) => ({ enemyKey: 'enemy_1006_shield_2', routeIndex, count: 3 })) };
+    const pieces = ['1_02_a', '1_06_b', '2_07_a', '1_10_b', '2_09_a', '2_01_b', '1_18_a', '2_12_b']
+      .map((id) => give(m, ps, `chess_char_${id}`, 'hand'));
+    const plan = planLayout(m, ps, pieces);
+    for (const route of [0, 1]) {
+      const battle = makeBattle({
+        stageId: m.stageId, routes, timeLimit: 100,
+        enemies: [{ key: 'enemy_1006_shield_2', time: 30, route, count: 3, interval: 1 }],
+        units: pieces.map((p) => {
+          const [row, col] = parseKey(plan.get(p.uid));
+          return { chessId: p.id, uid: p.uid, row, col, dir: plan.dirs.get(p.uid) };
+        }),
+      });
+      battle.runToEnd();
+      assert.equal(battle.result().perPlayer.p1.killed, 3, `kill enemies entering from route ${route}`);
+      assert.equal(battle.result().perPlayer.p1.leaked.length, 0);
+      battle.invariants();
+    }
+  } finally { m.dispose(); }
+});
+
+test('user: Given two medics with different ranges, When planning a boss formation, Then provide healing coverage to both ranged damage dealers', () => {
+  const { m } = makeMatch({ mode: 'coop', humans: 3, difficulty: 'HARD', seed: 204 }).start().toPrep();
+  const ps = m.order[0];
+  try {
+    m.startRound(m.gd.bossRound);
+    const pieces = ['1_19_b', '2_18_b', '4_20_b', '6_01_a', '1_06_b', '4_14_a', '4_21_a', '6_20_a']
+      .map((id) => give(m, ps, `chess_char_${id}`, 'hand'));
+    const plan = planLayout(m, ps, pieces);
+    const coverage = new Set(pieces.slice(6).flatMap((medic) => {
+      const [row, col] = parseKey(plan.get(medic.uid));
+      return rangeTiles(ps.gd.chess(medic.id), row, col, plan.dirs.get(medic.uid));
+    }));
+    for (const ally of pieces.slice(2, 4)) {
+      assert.ok(coverage.has(plan.get(ally.uid)), `${ps.gd.chess(ally.id).name} receives medical coverage`);
+    }
+  } finally { m.dispose(); }
+});
+
+for (const [seed, ids] of [
+  [144, ['1_06_a', '3_05_b', '2_17_b', '2_06_b', '4_18_a', '2_17_a', '1_09_a', '2_04_b']],
+  [173, ['1_04_a', '4_16_a', '1_18_a', '2_06_b', '1_06_b', '4_06_b', '1_01_a', '4_12_a']],
+]) test(`user: Given a ground-capable medic in formation ${seed}, When planning a battle, Then do not hold an enemy outside allied fire until timeout`, () => {
+  const { m } = makeMatch({ mode: 'coop', humans: 4, difficulty: 'HARD', seed }).start().toPrep();
+  const ps = m.order[0];
+  try {
+    const pieces = ids.map((id) => give(m, ps, `chess_char_${id}`, 'hand'));
+    const plan = planLayout(m, ps, pieces);
+    const battle = makeBattle({
+      stageId: m.stageId, routes: m.wave.routes, timeLimit: 100,
+      enemies: [{ key: 'enemy_1006_shield_2', time: 30, route: 0, count: 3, interval: 1 }],
+      units: pieces.map((p) => {
+        const [row, col] = parseKey(plan.get(p.uid));
+        assert.ok(canPlace(ps.deployMap(), placeClass(ps, DATA.chess[p.id]), row, col));
+        return { chessId: p.id, uid: p.uid, row, col, dir: plan.dirs.get(p.uid) };
+      }),
+    });
+    battle.runToEnd();
+    assert.equal(battle.result().perPlayer.p1.killed, 3, 'the medic must not keep the final enemy away from damage');
+    assert.equal(battle.result().perPlayer.p1.leaked.length, 0);
+    battle.invariants();
+  } finally { m.dispose(); }
+});
 
 test('user: Given a saturated layout, When placing a self-range defender, Then prefer a free enemy path tile', () => {
   const h = makeMatch({ mode: 'solo', seed: 11 }).start().toPrep();
@@ -139,25 +244,92 @@ test('layout planner: legal distinct tiles; blockers on the enemy road, ranged u
   m.dispose();
 });
 
-test('rehearsal: candidate layouts are simulated without side effects; the chosen plan is one of them', () => {
+test('user: Given live prep state and a duck band, When rehearsing layouts, Then preserve the board, economy, bonds, layers and meta RNG', () => {
   const h = soloBot({ seed: 4, botRehearsal: 3 }).start();
   const m = h.m;
   h.run(() => m.phase === PHASE.PREP && m.round === 3);
   const ps = m.order[0];
+  // Duck replacements start in round 5 and consume the match's meta RNG.
+  m.round = 7;
+  m.wave = buildNormalWave(m.gd, m.rngWave, m.factions, m.round);
+  ps.bandId = 'band_ducklord';
   const chosen = ps.allChess().slice(0, ps.deployCap);
   assert.ok(chosen.length >= 3);
-  const snap = () => JSON.stringify({ board: [...ps.board.entries()].map(([k, p]) => [k, p.uid, p.dir]), hand: ps.hand.map((p) => p && p.uid), bonds: ps.bonds, pool: m.pool.snapshot(), lp: ps.lp, funds: ps.funds, layers: ps.layers, round: m.round, phase: m.phase, uid: m.uidSeq });
+  const snap = () => JSON.stringify({ board: [...ps.board.entries()].map(([k, p]) => [k, p.uid, p.dir]), hand: ps.hand.map((p) => p && p.uid), bonds: ps.bonds, pool: m.pool.snapshot(), lp: ps.lp, funds: ps.funds, pendingFunds: ps.pendingFunds, layers: ps.layers, pendingLayerGains: ps.pendingLayerGains, rngMeta: m.rngMeta.state(), round: m.round, phase: m.phase, uid: m.uidSeq });
   const before = snap();
   const plans = REHEARSAL_VARIANTS.map((v) => planLayout(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));
   const best = rehearse(m, ps, chosen, plans);
   assert.ok(plans.includes(best));
-  assert.equal(snap(), before, 'board, hand, bonds, pool, economy untouched');
+  assert.equal(snap(), before, 'board, hand, bonds, pool, economy, layers and meta RNG untouched');
   assert.equal(m.errorCount, 0);
   checkInvariants(m);
   // the whole match still runs deterministically with rehearsal on
   const run = () => { const x = soloBot({ seed: 11, botRehearsal: 3, difficulty: 'FUNNY' }).start(); return JSON.stringify({ ...x.runToEnd(), durationMs: 0 }); };
   assert.equal(run(), run());
   m.dispose();
+});
+
+test('user: Given normal battle-start effects, When rehearsing candidate layouts, Then choose the layout with fewer actual battle leaks', async (t) => {
+  // Real round-7 wave from seed 104; no equipment, bench, effects or prior layers are needed.
+  // Blemishine also gains Kazimierz layers in battle; Touch is supplied by the teammate's contentInfo.
+  const lineup = [
+    ['chess_char_4_02_a', '12,4', 'DOWN'],
+    ['chess_char_1_17_a', '12,5', 'DOWN'],
+    ['chess_char_3_17_a', '11,4', 'RIGHT'],
+    ['chess_char_2_18_a', '10,5', 'RIGHT'],
+    ['chess_char_3_12_a', '9,4', 'RIGHT'],
+  ];
+  const prep = () => {
+    const h = makeMatch({ mode: 'coop', humans: 2, difficulty: 'HARD', seed: 104, botRehearsal: 2 }).start().toPrep(1, { band: 'band_ducklord' });
+    const m = h.m, ps = m.order[0];
+    m.round = 7;
+    m.wave = buildNormalWave(m.gd, m.rngWave, m.factions, m.round);
+    ps.bandId = 'band_ducklord';
+    m.order[1].bandId = 'band_amedic';
+    const pieces = lineup.map(([id, key, dir]) => {
+      const p = give(m, ps, id, 'board', parseKey(key));
+      p.dir = dir;
+      return p;
+    });
+    ps.recompute();
+    return { h, m, ps, pieces };
+  };
+  const cases = [
+    { effect: 'in-battle layer gains', keys: ['9,4', '9,8'] },
+    { effect: 'duck replacements and a teammate medic', keys: ['9,9', '9,7'] },
+  ];
+  for (const { effect, keys } of cases) {
+    await t.test(`user: Given ${effect}, When comparing two layouts, Then prefer the second layout's lower leak count`, () => {
+      // Each normal combat starts from a fresh, identical prep state, including the meta RNG.
+      const actual = keys.map((key) => {
+        const { h, m, ps, pieces } = prep();
+        try {
+          ps.board.delete('9,4');
+          ps.board.set(key, pieces.at(-1));
+          ps.recompute();
+          checkInvariants(m);
+          m.startCombat();
+          assert.ok(h.run(() => m.lastResults.has(ps.playerId)));
+          assert.equal(m.errorCount, 0);
+          const result = m.lastResults.get(ps.playerId);
+          return { leaks: result.leaked.filter((l) => l.counted !== false).length, layers: result.layerGains.kazimierzShip };
+        } finally { m.dispose(); }
+      });
+      assert.ok(actual.every((result) => result.layers > 0), 'both battles exercise in-battle layer gains');
+      assert.ok(actual[1].leaks < actual[0].leaks, 'normal combat gives the second layout a strict leak advantage');
+      const { m, ps, pieces } = prep();
+      try {
+        const plans = keys.map((key) => {
+          const plan = new Map(pieces.map((p, i) => [p.uid, i === pieces.length - 1 ? key : lineup[i][1]]));
+          plan.dirs = new Map(pieces.map((p) => [p.uid, p.dir]));
+          return plan;
+        });
+        assert.equal(rehearse(m, ps, pieces, plans), plans[1], `${effect}: choose ${keys[1]} (${actual[1].leaks} leaks), not ${keys[0]} (${actual[0].leaks} leaks)`);
+        assert.equal(m.errorCount, 0);
+        checkInvariants(m);
+      } finally { m.dispose(); }
+    });
+  }
 });
 
 test('rehearsal runs in bounded slices between scheduler callbacks and plays exactly like the one-shot run', () => {

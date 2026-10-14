@@ -54,7 +54,8 @@ export function installTacticalPolicy(m, policy, records) {
   const original = m.newBattle.bind(m);
   m.newBattle = (opts) => {
     if (!opts.fieldId?.startsWith('r:')) return original(opts);
-    const players = opts.players.map((input) => ({ ...input, contentInfo: rehearsalContext(m, m.players.get(input.playerId)) }));
+    // Foundation PR 608 supplies the full normal-battle context; keep it instead of replacing it with our older subset.
+    const players = opts.players.map((input) => ({ ...input, contentInfo: input.contentInfo ?? rehearsalContext(m, m.players.get(input.playerId)) }));
     const b = original({ ...opts, players, flags: { ...opts.flags, layerGainsEnabled: policy.tactical !== 'context' } });
     const result = b.result.bind(b); let saved = false;
     b.result = (...args) => {

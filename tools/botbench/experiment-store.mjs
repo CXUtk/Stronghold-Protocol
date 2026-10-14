@@ -46,7 +46,9 @@ export function registerExperiment(input, registry = resolve(dirname(input), 'ai
     baselineSignature: hash(baselines.map((r) => ({ case: caseOf(r), rounds: r.rounds, survived: r.allHumansSurvived }))),
     cases: baselines.length, seeds: [...new Set(baselines.map((r) => r.seed))],
     maps: [...new Set(baselines.map((r) => r.stageId))], summary: d.summary,
-    elapsedMs: d.manifest.elapsedMs, matches: d.results.length };
+    elapsedMs: d.manifest.elapsedMs, matches: d.results.length,
+    newSimulationMatches: d.manifest.newSimulationMatches ?? d.results.length,
+    reusedBaselineMatches: d.manifest.reusedBaselineMatches || 0, reference: d.manifest.reference };
   mkdirSync(dirname(registry), { recursive: true });
   appendFileSync(registry, JSON.stringify(entry) + '\n');
   return { id, appended: true, entry };
