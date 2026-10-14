@@ -2,7 +2,7 @@
 // is eliminated, Match._quit). Every action goes through the same validated
 // PlayerState handlers a human uses; randomness only from the match's bot rng (deterministic per seed).
 //
-// It reads only what a player can see: its own state, the shop, the shared pool's copies left, the teammates' bond
+// It reads only what a player can see: its own state, the shop, estimated stock from scouted cards, teammates' bond
 // strips, and the round's enemy preview (composition and routes, research 06 §4.3 "查看当前回合即将迎击的敌方单位").
 //
 // Prep routine (botPrep):
@@ -43,8 +43,8 @@
 //      and kept on ties, so symmetric ranges and melee units whose front adds nothing stay facing the gates), so
 //      ranged units turn toward the enemy path tiles they cover best and blockers toward the road; on 气流 tiles
 //      (act2 m01 blowers) the DPS is scaled by the blower ATK bonus of that direction (with / against / across). The last
-//      arrangement of a prep REHEARSES up to m.botRehearsal distinct layout variants with the real Battle (rehearsal
-//      seed, no meta dispatch, board restored exactly) and keeps the one with the fewest leaks. The default plan is
+//      arrangement of a prep REHEARSES up to m.botRehearsal distinct layout variants with the real Battle.
+//      It uses normal battle inputs with isolated meta RNG and keeps the one with the fewest leaks. The default plan is
 //      placed first; Match steps the rehearsal in wall-clock-bounded slices (botPrepBegin → job.run → botPrepEnd) so
 //      whole simulated battles never block the server's event loop. The prep routine itself is sliced the same way:
 //      botPrepBeginSteps / botPrepEndSteps (and planLayoutSteps, arrangeSteps, createRehearsalSteps) are step
@@ -77,14 +77,19 @@
 // of kill rate and rehearsal adds ≈ 5 more; see docs/META.md §1.5. Old vs new decisions on the same seeds:
 // tools/botbench.mjs.
 
-import { GEO } from '../../shared/constants.js';
-import { deriveSeed } from '../sim/rng.js';
+import { BOT_PERSONAS, personaPreferred, personaRefreshTargets } from '../../shared/botPersonas.js';
+import { projectNormalBattleOptions } from './bot-prep-projection.js';
+import { botPool, rehearsalSampleSeed } from './bot-information.js';
+import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
 import { freeSlot, countFree, legalTiles, canPlace, positionClass, placeClass, basePositionClass, parseKey, tileKey, FIELD, pieceDir, boardTileOf, BOSS_MIRROR_COL } from './board.js';
 import { rotateOffset, normDir, mirrorDir, oppositeDir } from '../sim/dir.js';
 import { itemKey } from './gamedata.js';
 import { computeBonds } from './bondsMeta.js';
-import { withBounties, isFlyKey } from './waves.js';
+import { supportDraftBand, supportLevelCap, supportRehearsals } from './bot-support.js';
+import { medicalPolicy } from './bot-medical.js';
+import { buildContext, buildUnitBonus, buildLineupBonus, buildItemBonus, combatValue, counterBuyBonus } from './bot-build.js';
+import { isFlyKey } from './waves.js';
 import { mitigate } from '../sim/damage.js';
 import { HOVER_KEYS } from '../sim/content/enemies.js';
 import { attackRangeGrid, loadoutRecord, resolveRecordLoadout } from '../../shared/loadoutRecord.js';
@@ -99,8 +104,96 @@ export function runSteps(gen) {
   return r.value;
 }
 
-/** Lineup value of each deployed member of the focus bond (up to its top threshold). */
-const FOCUS_MEMBER = 4;
+/**
+ * The seat's preset strategy persona (shared/botPersonas.js; null for a default bot), with its `phases` applied: every
+ * phase whose fromRound has arrived, last one wins, merges bondPref / wanted over the base. Cached per round on ps.
+ */
+export function personaOf(m, ps) {
+  if (!ps || !ps.botPersona) return null;
+  // 随机应变·兜底: resolve ONCE — at its first use (its own botPickBand during the draft, the earliest moment all
+  // earlier picks are known) — and stick to the concrete strategy for the rest of the match.
+  let pid = ps.botPersona;
+  if (BOT_PERSONAS[pid]?.adaptive) {
+    if (!ps._adaptivePersona) ps._adaptivePersona = resolveAdaptivePersona(m, ps);
+    pid = ps._adaptivePersona;
+    if (!pid) return null; // every strategy's band is taken: play the default bot
+  }
+  const cacheKey = `${m.round}`;
+  if (ps._botPersona && ps._botPersona.key === cacheKey && ps._botPersona.pid === pid) return ps._botPersona.per;
+  const base = BOT_PERSONAS[pid] || null;
+  let per = base;
+  if (base && Array.isArray(base.phases)) {
+    for (const ph of base.phases) {
+      if (!(m.round >= ph.fromRound)) continue;
+      per = {
+        ...base, ...ph,
+        bondPref: { ...base.bondPref, ...(ph.bondPref || {}) },
+        wanted: { ...base.wanted, ...(ph.wanted || {}) },
+      };
+    }
+  }
+  ps._botPersona = { key: cacheKey, pid, per };
+  return per;
+}
+
+/** personaPreferred / personaVariantPlan's view of the match: disabled bonds (the per-match draw + the mode's
+ * permanently inactive ones), bondId → how many of its members the bans removed (a chess is banned when every one of
+ * its bonds is off), and the bands teammates claimed or intend (picked bands, humans' g.bandFocus highlight, preset
+ * bots' locked bands; `ps` itself excluded). */
+function personaCtx(m, ps) {
+  const gd = m.gd;
+  const offBonds = new Set([
+    ...(Array.isArray(m.disabledBonds) ? m.disabledBonds : []),
+    ...(Array.isArray(m.staticInactiveBonds) ? m.staticInactiveBonds : []),
+    ...gd.modeInactiveBonds,
+  ]);
+  const bannedChessByBond = new Map();
+  for (const id of Array.isArray(m.bannedChess) ? m.bannedChess : []) {
+    for (const b of gd.chess(id)?.bonds || []) bannedChessByBond.set(b, (bannedChessByBond.get(b) || 0) + 1);
+  }
+  const claimedBands = new Set();
+  const d = m.draft;
+  if (d && d.picks) for (const b of Object.values(d.picks)) if (b) claimedBands.add(b);
+  if (d && d.focus instanceof Map) for (const f of d.focus.values()) if (f) claimedBands.add(f);
+  for (const p of m.alivePlayers()) {
+    if (p === ps) continue;
+    if (p.bandId) claimedBands.add(p.bandId);
+    const per = p.botPersona ? BOT_PERSONAS[p.botPersona] : null;
+    if (per && per.band && !per.adaptive) claimedBands.add(per.band);
+  }
+  return { offBonds, bannedChessByBond, claimedBands };
+}
+
+/**
+ * 随机应变·兜底's one-time choice (shared/botPersonas.js adaptive_fallback): the concrete strategy it becomes for
+ * this match, by the preference conditions (personaPreferred) over the match's disabled bonds and the strategies
+ * teammates claimed — bands already picked, a human's highlighted g.bandFocus, and preset bots' locked bands. Order
+ * 陈 > Touch > 杜遥夜 > 罗素 > 阿米娅 (阿米娅 is the last-resort fallback); a strategy whose band is claimed is skipped. When no
+ * preference holds (or every band is taken) the first free strategy — 阿米娅's breadth first — and at worst null (the
+ * default weighted bot). Resolved during the bot's own draft turn (personaOf → here), so only earlier turns' picks are
+ * visible; a random bot or an undecided human picking after it stays unknown (their g.bandFocus counts as intent).
+ * @returns {string|null} a concrete persona id, or null
+ */
+export function resolveAdaptivePersona(m, ps) {
+  const ctx = personaCtx(m, ps);
+  const { claimedBands } = ctx;
+  // 1) the best-fitting strategy whose band is still free (陈 > Touch > 杜遥夜 > 罗素 > 阿米娅)
+  for (const pid of ['chen_fallback', 'touch_fallback', 'duyao_fallback', 'ioleta_fallback', 'amiya_fallback']) {
+    const per = BOT_PERSONAS[pid];
+    if (claimedBands.has(per.band)) continue;
+    if (personaPreferred(per, ctx)) return pid;
+  }
+  // 2) no preference holds: the first free strategy (阿米娅's five-bond breadth survives bans best)
+  for (const pid of ['amiya_fallback', 'touch_fallback', 'chen_fallback', 'ioleta_fallback']) {
+    if (!claimedBands.has(BOT_PERSONAS[pid].band)) return pid;
+  }
+  return null;
+}
+
+/** Lineup value of each deployed member of the focus bond (up to its top threshold). 6 (owner 2026-10-07): 杜遥夜's
+ * 炎 payoff is the six-member 炎佑 summon — at 4 the transition units outscored the 4th–6th Yan members and the core
+ * stalled at ×3; a same-seed A/B on 陈/Touch showed no downside (their activation was identical at 4 and 6). */
+const FOCUS_MEMBER = 6;
 /** Value per unit of armour fit (the share of a dealer's damage the round's DEF / RES lets through, armorFit). */
 const ARMOR_WEIGHT = 10;
 /** Least buy score of a purchase once the board is full (below it the bot refreshes instead). */
@@ -144,10 +237,32 @@ const DEFAULT_MELEE_RANGE = [[0, 0], [0, 1]];
  * rng draw per call (deterministic per seed); a solo match has no teammate to reserve against.
  */
 const SOFT_BAND_RESERVE = 0.25;
+const INDIVIDUAL_PERSONAS = { band_ioleta: 'ioleta_fallback', band_amedic: 'touch_fallback', band_amiya: 'amiya_fallback' };
+export function bindIndividualPersona(m, ps) {
+  if (!m.botIndividualPolicy || !ps.isBot || ps.autoplay || ps.botPersona && !ps._individualPersona) return;
+  ps.botPersona = INDIVIDUAL_PERSONAS[ps.bandId] || null;
+  ps._individualPersona = true;
+  ps._botPersona = null;
+}
+function policyApplies(m, ps) { return !m.botIndividualPolicy || ps?.isBot && !ps.autoplay; }
 export function botPickBand(m, ps) {
+  if (m.botIndividualPolicy && ps?.isBot && !ps.autoplay && !ps.botPersona) {
+    // Draft only an available tested fallback band. Human choices/focus remain reserved.
+    const focused = new Set(m.draft?.focus ? [...m.draft.focus].filter(([id]) => id !== ps.playerId).map(([, id]) => id) : []);
+    const band = Object.keys(INDIVIDUAL_PERSONAS).find(id => m.gd.bandAllowed(id) && !m.bandTaken(id, ps.playerId) && !focused.has(id));
+    if (band) return band;
+  }
+  const support = supportDraftBand(m, ps);
+  if (support) return support;
   const gd = ps?.gd || m.gd;
   const ids = gd.bandIds();
   if (!ids.length) return gd.defaultBandId;
+  // a preset strategy locks its band in — unless a teammate took it first (the draft dedupes bands), then the default
+  // weighted pick (Match.scheduleBandBot re-draws on bandTaken either way)
+  const per = personaOf(m, ps);
+  if (per && per.band && ids.includes(per.band) && !(typeof m.bandTaken === 'function' && m.bandTaken(per.band, ps.playerId))) {
+    return per.band;
+  }
   const lateFunds = (id) => /暂存/.test(String(gd.band(id)?.desc || ''));
   const reserved = new Set(ps && typeof m.alivePlayers === 'function'
     ? m.alivePlayers().filter((p) => p !== ps).flatMap((p) => gd.bandBondIds(p.bandId))
@@ -173,6 +288,15 @@ export function botPickBand(m, ps) {
 }
 
 /**
+ * Whether this AI seat's strategy choice waits for the humans (owner 2026-10-07): 随机应变·兜底 resolves its identity
+ * from the bands still free — picking before a human would both eat the human's free choice and resolve on partial
+ * information. Match.scheduleBandBot moves such a bot to the back of the draft order while any human hasn't picked.
+ */
+export function botDefersBand(ps) {
+  return !!(ps && ps.botPersona && BOT_PERSONAS[ps.botPersona]?.adaptive);
+}
+
+/**
  * 机变 card pick among the untaken indexes (a draft is one family: generateDraft). Bounties (extra enemies in the own
  * next battles) score their expected payout minus the expected LP lost (bountyScore: the enemy against the own board —
  * an expected-value comparison, so a card the board is unlikely to beat is taken only when no better one is offered or
@@ -187,7 +311,7 @@ export function botPickCard(m, ps, cards, available) {
     const c = cards[i];
     if (!c) continue;
     let s = 0;
-    if (c.kind === 'item') s = 8 + (c.tier || 1) * 4 + (canUseItem(m, ps, { id: c.id }) ? 0 : -8);
+    if (c.kind === 'item') s = 8 + (c.tier || 1) * 4 + (canUseItem(m, ps, { id: c.id }) && personaAllowsItem(m, ps, c.id) ? 0 : -8);
     else if (c.kind === 'bounty') s = bountyScore(m, ps, c);
     else if (c.kind === 'tactic') s = tacticScore(m, ps, c);
     s += m.rngBots() * 0.5;
@@ -294,7 +418,13 @@ function tacticScore(m, ps, card) {
 // evaluation helpers
 
 // a player's record of a chess id (its data view: a human's slotted 自选 slots are its operators, 0.2.0 player/diy.js)
-const chessRec = (m, id, ps = null) => (ps?.gd || m.gd).chess(id);
+const chessRec = (m, id, ps = null) => {
+  const rec = (ps?.gd || m.gd).chess(id);
+  if (!rec || !ps?._botSkillEntries) return rec;
+  const cache = ps._botSkillRecords || (ps._botSkillRecords = new Map());
+  if (!cache.has(id)) cache.set(id, loadoutRecord(rec, resolveRecordLoadout(rec, ps.loadoutFor(rec))));
+  return cache.get(id);
+};
 const isHealer = (c) => !!c && (c.dmgType === 'heal' || c.attackKind === 'heal');
 // the record's own position: a 钩索师 / 推击手 is a MELEE blocker like any other (a 高台 does not block)
 const isBlocker = (c) => !!c && basePositionClass(c) === 'melee' && (c.stats?.blockCnt ?? 1) > 0 && c.attackKind !== 'none';
@@ -326,7 +456,7 @@ function bondPoolStats(m, ps, owned) {
   const reach = new Map();
   const supply = new Map();
   const maxTier = Math.min(6, ps.shop.level + 1);
-  for (const [id, e] of m.pool.entries) {
+  for (const [id, e] of botPool(m, ps).entries) {
     if (!(e.left > 0)) continue;
     const c = m.gd.chess(id);
     if (!c || !Array.isArray(c.bonds)) continue;
@@ -375,17 +505,33 @@ export function bondPlan(m, ps, owned = ownedBonds(m, ps)) {
     if (b) mates.add(b);
     for (const id of m.gd.bandBondIds(p.bandId)) mates.add(id);
   }
+  const per = personaOf(m, ps);
+  const pref = (id) => (per && per.bondPref ? per.bondPref[id] || 0 : 0);
   let focus = null;
   let bestS = 0;
   const pool = bondPoolStats(m, ps, owned);
-  for (const id of m.gd.bondIds) {
-    const b = m.gd.bond(id);
-    if (!b || !b.isCore || m.gd.modeInactiveBonds.has(id)) continue;
-    const k = owned.counts.get(id) || 0;
-    if (!k) continue;
-    const s = k * 10 + Math.min(4, pool.reach.get(id) || 0) + Math.min(6, (ps.layers[id] || 0) / 10)
-      + (id === prev ? 6 : 0) - (mates.has(id) ? 6 : 0) + Math.min(0.9, (pool.supply.get(id) || 0) / 100);
-    if (s > bestS) { bestS = s; focus = id; }
+  if (per && Array.isArray(per.focus)) {
+    // a preset strategy's own focus list (any bond, core or add-on): the candidate with the best owned members +
+    // banked layers + persona preference wins (owned ≥ 1; last round's focus keeps it from flip-flopping). A persona
+    // with noCoreFocus and an empty list chases no focus at all (阿米娅's five-bond breadth).
+    for (const id of per.focus) {
+      const b = m.gd.bond(id);
+      if (!b || m.gd.modeInactiveBonds.has(id)) continue;
+      const k = owned.counts.get(id) || 0;
+      if (!k) continue;
+      const s = k * 10 + Math.min(6, (ps.layers[id] || 0) / 10) + pref(id) + (id === prev ? 6 : 0);
+      if (s > bestS) { bestS = s; focus = id; }
+    }
+  } else if (!per || !per.noCoreFocus) {
+    for (const id of m.gd.bondIds) {
+      const b = m.gd.bond(id);
+      if (!b || !b.isCore || m.gd.modeInactiveBonds.has(id)) continue;
+      const k = owned.counts.get(id) || 0;
+      if (!k) continue;
+      const s = k * 10 + Math.min(4, pool.reach.get(id) || 0) + Math.min(6, (ps.layers[id] || 0) / 10)
+        + (id === prev ? 6 : 0) - (mates.has(id) ? 6 : 0) + Math.min(0.9, (pool.supply.get(id) || 0) / 100);
+      if (s > bestS) { bestS = s; focus = id; }
+    }
   }
   let second = null;
   let bestK = 0;
@@ -393,10 +539,13 @@ export function bondPlan(m, ps, owned = ownedBonds(m, ps)) {
     if (id === focus || m.gd.modeInactiveBonds.has(id)) continue;
     const b = m.gd.bond(id);
     if (!b || b.thresholdTemplate === 'count_threshold_downward' || !Array.isArray(b.thresholds) || !b.thresholds.length) continue;
+    // ③ a preset strategy never opens a second core bond: the second (stacking) direction is an add-on — the one
+    // core it plays is the focus (陈 拉特兰, Touch's round-9 谢拉格 pivot)
+    if (per && b.isCore) continue;
     const k = owned.counts.get(id) || 0;
     if (!k) continue;
     const next = b.thresholds.find((t) => t > k);
-    const s = k * 10 + (next != null && next - k <= 1 ? 5 : 0) + (b.isCore ? 0 : 2);
+    const s = k * 10 + (next != null && next - k <= 1 ? 5 : 0) + (b.isCore ? 0 : 2) + pref(id);
     if (s > bestK) { bestK = s; second = id; }
   }
   if (focus) ps._botFocusId = focus;
@@ -443,7 +592,7 @@ function roles(m, ps) {
  * once the focus has 3 owned members a member of another core bond is worth less unless it reaches a threshold (the
  * deploy cap holds about 6 members of one core bond + 2 others).
  */
-function bondValue(m, c, owned, focus, second = null) {
+function bondValue(m, c, owned, focus, second = null, per = null) {
   let v = 0;
   const committed = focus && (owned.counts.get(focus) || 0) >= 3;
   for (const b of (c && c.bonds) || []) {
@@ -460,6 +609,13 @@ function bondValue(m, c, owned, focus, second = null) {
     if (b === focus) v += 10;
     else if (b === second) v += 4;
     else if (committed && bond.isCore && !hits) v -= 4;
+    // ③ 永不同时开启复数个核心盟约: once members of one core are owned, every OTHER core is closed (a preset
+    // strategy's one core is its focus — 陈 拉特兰, Touch's round-9 谢拉格 pivot; the first core stays open until then)
+    if (per && bond.isCore && b !== focus && (per.bondPref ? (per.bondPref[b] || 0) : 0) < 10) {
+      const otherCoreOwned = [...owned.counts.entries()].some(([id, k]) => k > 0 && id !== b && m.gd.bond(id)?.isCore);
+      if (otherCoreOwned) v -= 22;
+    }
+    if (per && per.bondPref) v += per.bondPref[b] || 0;
   }
   return v;
 }
@@ -503,6 +659,7 @@ function unitBase(m, piece, ctx) {
   if (c.attackKind === 'none' && !isHealer(c)) v -= 6;
   if (ctx.fly > 0 && hitsFly(c)) v += 2;
   if (ctx.model && !isHealer(c)) v += ARMOR_WEIGHT * (armorFit(ctx.model, c) - 0.6);
+  v += buildUnitBonus(ctx.build, c);
   return v;
 }
 
@@ -510,22 +667,39 @@ function unitBase(m, piece, ctx) {
 function pieceValue(m, ps, piece, ctx) {
   const c = chessRec(m, piece.id, ps);
   if (!c) return 0;
-  return unitBase(m, piece, ctx) + bondValue(m, c, ownedBonds(m, ps, piece.uid), ctx.focus, ctx.second) * 0.8;
+  return unitBase(m, piece, ctx) + bondValue(m, c, ownedBonds(m, ps, piece.uid), ctx.focus, ctx.second, ctx.persona) * 0.8;
 }
 
 /**
  * Score of a deployed set: unit values + the bonds it activates (exact tiers via bondsMeta.computeBonds, hand
  * members still count for BOARD_AND_DECK bonds) + composition (blockers, anti-air when the wave flies, ≤ 2 healers).
  */
-function lineupScore(m, ps, set, ctx) {
+function lineupScore(m, ps, set, ctx, handSlots = countFree(ps.hand)) {
   const gd = ps?.gd || m.gd;
   const board = new Map();
   set.forEach((p, i) => board.set(`x${i}`, p));
   const inSet = new Set(set.map((p) => p.uid));
-  const hand = ps.hand.map((p) => (p && !inSet.has(p.uid) ? p : null));
+  // arrangeSteps withdraws unchosen board chess before deployment, or sells them when the hand has no room.
+  const withdrawn = [...ps.board.values()].filter((p) => p.kind === 'chess' && !inSet.has(p.uid)).slice(0, handSlots);
+  const hand = [...ps.hand.filter((p) => p && !inSet.has(p.uid)), ...withdrawn];
   const bonds = computeBonds(gd, { board, hand, layers: ps.layers, bondCountBonus: ps.bondCountBonus });
   let v = 0;
-  for (const p of set) v += unitBase(m, p, ctx);
+  for (const p of set) {
+    v += unitBase(m, p, ctx);
+    if (ctx.persona && ctx.persona.eliteBias && gd.isGolden(p.id)) v += ctx.persona.eliteBias; // 罗素 fields every elite
+  }
+  // 干员使用手册：搭档同时在场（followerBehindAnchor 组合的双方都在集合里）——组合一旦买齐就该上场，
+  // comboLayoutSteps 随后会把它们摆成正确方位；不上场等于白买
+  if (ctx.persona && set.length > 1) {
+    const bases = new Set(set.map((p) => gd.baseIdOf(p.id)));
+    for (const p of set) {
+      for (const { combo, role } of combosOf(gd.baseIdOf(p.id))) {
+        if (combo.rel !== 'followerBehindAnchor') continue;
+        const partner = role === 'follower' ? combo.anchor : combo.follower;
+        if (typeof partner === 'string' && partner.startsWith('chess_') && bases.has(partner)) v += 4;
+      }
+    }
+  }
   for (const [id, b] of Object.entries(bonds)) {
     // every deployed focus member counts on the way to the next threshold (a swap alone never reaches the 6-member tier)
     if (id === ctx.focus) {
@@ -537,6 +711,8 @@ function lineupScore(m, ps, set, ctx) {
     const bond = gd.bond(id);
     const w = bond && bond.isCore ? 14 : 9;
     v += b.tier * w + Math.min(12, (b.layers || 0) * 0.1) + (id === ctx.focus ? 6 : 0);
+    // ③ a preset strategy never fields an activating second core (the activation outweighs the units' base value)
+    if (ctx.persona && bond && bond.isCore && id !== ctx.focus) v -= b.tier * 30;
   }
   let blockers = 0;
   let air = 0;
@@ -545,6 +721,9 @@ function lineupScore(m, ps, set, ctx) {
   v -= Math.max(0, Math.min(2, ctx.roles.blockers) - blockers) * 15;
   if (ctx.fly > 0 && ctx.roles.antiAir > 0 && air === 0) v -= 12;
   v -= Math.max(0, healers - 2) * 10;
+  // A once-per-lineup soft value: it can admit the FIRST medic through lineupGain's full-board purchase gate.
+  if (healers > 0) v += ctx.medical?.lineup || 0;
+  v += buildLineupBonus(ctx.build, set.map((p) => chessRec(m, p.id, ps)));
   return v;
 }
 
@@ -556,29 +735,70 @@ function chooseLineup(m, ps, ctx) {
   const seed = all.slice().sort((a, b) => value.get(b.uid) - value.get(a.uid) || a.uid - b.uid);
   let set = seed.slice(0, cap);
   let bench = seed.slice(cap);
-  let score = lineupScore(m, ps, set, ctx);
   // identical pieces (same chess, same items — a bond can hang on an item pair) score alike: only the first is tried
   const sig = (p) => `${p.id}|${(p.items || []).map((it) => it.id).sort().join('+')}`;
-  for (let iter = 0; iter < 12 && bench.length; iter++) {
-    let best = null;
-    const tried = new Set();
-    for (let j = 0; j < bench.length; j++) {
-      const sj = sig(bench[j]);
-      if (tried.has(sj)) continue;
-      tried.add(sj);
-      for (let i = 0; i < set.length; i++) {
-        if (sig(set[i]) === sj) continue;
-        const trial = set.slice();
-        trial[i] = bench[j];
-        const s = lineupScore(m, ps, trial, ctx);
-        if (s > score + 0.5 && (!best || s > best.s || (s === best.s && (i < best.i || (i === best.i && j < best.j))))) best = { i, j, s };
+  const climb = () => {
+    let score = lineupScore(m, ps, set, ctx);
+    for (let iter = 0; iter < 12 && bench.length; iter++) {
+      let best = null;
+      const tried = new Set();
+      for (let j = 0; j < bench.length; j++) {
+        const sj = sig(bench[j]);
+        if (tried.has(sj)) continue;
+        tried.add(sj);
+        for (let i = 0; i < set.length; i++) {
+          if (sig(set[i]) === sj) continue;
+          const trial = set.slice();
+          trial[i] = bench[j];
+          const s = lineupScore(m, ps, trial, ctx);
+          if (s > score + 0.5 && (!best || s > best.s || (s === best.s && (i < best.i || (i === best.i && j < best.j))))) best = { i, j, s };
+        }
+      }
+      if (!best) break;
+      const out = set[best.i];
+      set[best.i] = bench[best.j];
+      bench[best.j] = out;
+      score = best.s;
+    }
+    return score;
+  };
+  let score = climb();
+  // focus push (owner 2026-10-07): the next focus threshold's payoff only lands when its LAST member joins, so every
+  // single swap toward it can read as a loss and the climb stalls a tier short (杜遥夜's 六炎 炎佑 summon at ×3). Try
+  // the bundle — swap in as many bench focus members as the next threshold needs, for the weakest non-focus seats,
+  // and judge the whole set at once.
+  if (ctx.focus) {
+    const gd = m.gd;
+    const focusBase = new Set();
+    for (const p of all) {
+      const c = chessRec(m, p.id);
+      if ((c?.bonds || []).includes(ctx.focus)) focusBase.add(gd.baseIdOf(p.id));
+    }
+    if (focusBase.size) {
+      const ths = gd.bond(ctx.focus)?.thresholds || [];
+      const distinct = (list) => new Set(list.filter((p) => focusBase.has(gd.baseIdOf(p.id))).map((p) => gd.baseIdOf(p.id))).size;
+      const next = ths.find((t) => t > distinct(set));
+      if (next != null) {
+        const need = next - distinct(set);
+        const benchFocus = bench
+          .filter((p) => focusBase.has(gd.baseIdOf(p.id)) && !set.some((q) => gd.baseIdOf(q.id) === gd.baseIdOf(p.id)))
+          .sort((a, b) => value.get(b.uid) - value.get(a.uid) || a.uid - b.uid);
+        const victims = set
+          .filter((p) => !focusBase.has(gd.baseIdOf(p.id)))
+          .sort((a, b) => value.get(a.uid) - value.get(b.uid) || a.uid - b.uid);
+        if (benchFocus.length >= need && victims.length >= need) {
+          const ins = benchFocus.slice(0, need);
+          const outs = victims.slice(0, need);
+          const trial = set.filter((p) => !outs.includes(p)).concat(ins);
+          const s2 = lineupScore(m, ps, trial, ctx);
+          if (s2 > score + 0.5) {
+            set = trial;
+            bench = all.filter((p) => !set.includes(p));
+            score = climb();
+          }
+        }
       }
     }
-    if (!best) break;
-    const out = set[best.i];
-    set[best.i] = bench[best.j];
-    bench[best.j] = out;
-    score = best.s;
   }
   return { set, bench, score };
 }
@@ -607,11 +827,37 @@ function buyScore(m, ps, id, ctx) {
       else s += keep ? 14 : ctx.pairs < MAX_PAIRS && c.tier <= 3 ? 6 : 1;
     }
   }
-  if (!ctx.owned.bases.has(base)) s += bondValue(m, c, ctx.owned, ctx.focus, ctx.second);
+  if (!ctx.owned.bases.has(base)) s += bondValue(m, c, ctx.owned, ctx.focus, ctx.second, ctx.persona);
+  // a preset strategy's own drafts: preferred professions (kept below a bond threshold hit — bond layering wins),
+  // named operators, extra value on a copy that completes a merge
+  const per = ctx.persona;
+  if (per) {
+    if (per.profBonus && c.profession) s += per.profBonus[c.profession] || 0;
+    if (per.wanted) s += per.wanted[c.chessId] || per.wanted[base] || 0;
+    if (per.mergeBonus && !c.isGolden && (ctx.copies.get(base) || 0) + 1 >= mergeNeed(m, base)) s += per.mergeBonus;
+    // 干员使用手册（shared/operatorManual.js）：叠层引擎按策略的盟约偏好加权；搭档在手时组合件加分
+    // （铃兰+焰尾、白面鸮+空弦、塞雷娅+折桠 …）。默认加权 bot 不读手册——它的行为保持不变。
+    s += engineLayerValue(base, {
+      bondWeight: (b) => (per.bondPref && per.bondPref[b] != null ? per.bondPref[b] : 5),
+      bondsOf: (id) => (chessRec(m, id)?.bonds || []),
+      activeBonds: ctx.activeBonds,
+    });
+    const cbonus = comboCompletionBonus(base, ctx.owned.bases, ctx.hasDps);
+    if (cbonus > 0 && per.bondPref) {
+      // a combo piece is drafted for its trait, not its bonds — its own demoted bonds (铃兰 carries 叙拉古)
+      // must not sink the pickup once the partner is in hand
+      const ownDemotion = (c.bonds || []).reduce((a, b) => a + Math.min(0, per.bondPref[b] ?? 0), 0);
+      s += cbonus - ownDemotion;
+    } else s += cbonus;
+  }
   // role needs
   if (isBlocker(c) && ctx.roles.blockers < 2) s += 10;
   if (hitsFly(c) && ctx.fly > 0 && ctx.roles.antiAir < 2) s += 8;
   if (isHealer(c)) s += ctx.roles.healers === 0 && m.round >= 3 ? 6 : ctx.roles.healers >= 2 ? -14 : -3;
+  if (isHealer(c) && ctx.roles.healers === 0) s += ctx.medical?.buy || 0;
+  s += buildUnitBonus(ctx.build, c) * 0.6;
+  if (ctx.build?.policy.counterTeam) s += counterBuyBonus(ctx.build, c,
+    [...ps.board.values()].filter((p) => p.kind === 'chess').map((p) => chessRec(m, p.id, ps)));
   if (c.attackKind === 'none' && !isHealer(c)) s -= 4;
   if (ctx.model && !isHealer(c)) s += ARMOR_WEIGHT * 0.6 * (armorFit(ctx.model, c) - 0.6);
   // the player's own 自选 piece (a slotted slot: its composed record carries diyFor) — AI 托管 of a human with picks
@@ -848,7 +1094,7 @@ function dpsVs(rec, def, res) {
 export function rangeRec(ps, rec) {
   if (!rec || !rec.chessId || typeof ps.loadoutFor !== 'function') return rec;
   const lo = ps.loadoutFor(rec);
-  const key = `${rec.chessId}|${lo ? `${lo.skill ?? ''}:${lo.module ?? ''}` : ''}`;
+  const key = `${rec.chessId}|${lo ? `${lo.skillIndex ?? ''}:${lo.moduleId ?? ''}` : ''}`;
   const cache = ps._botRangeRecs || (ps._botRangeRecs = new Map());
   if (cache.has(key)) return cache.get(key);
   let out = rec;
@@ -887,15 +1133,20 @@ function armorFit(model, rec) {
 }
 
 /** Tunables of the exposure model (tuned offline against the real simulation, tools/matchrun.mjs sweeps). */
-export const LAYOUT_PARAMS = Object.freeze({ hold: 4, kill: 1.5, secondHold: 0.5, healHold: 0.5, roadPenalty: 0.15, spread: 99 });
+export const LAYOUT_PARAMS = Object.freeze({ hold: 4, kill: 1.5, secondHold: 0.5, healHold: 0.5, roadPenalty: 0.15, spread: 99, blockCap: 99, cohesion: 1.5, blobRadius: 2, healCare: 0.6 });
 
 /**
  * Exposure model of a layout: every enemy of route ρ spends tileTime on each tile of its route (plus the hold time
  * of blockers standing on it: hold × blockCnt, later blockers on the same route secondHold ×, healer-covered
  * blockers (1 + healHold) ×) and takes the DPS of every unit whose range covers that tile (flyers: anti-air only).
  * Value = Σρ n × (1 − e^(−exposure / (kill × hp))) — the expected enemies killed.
+ * On top of the exposure core: a compact formation (集中火力, one blob) — strays beyond blobRadius of their nearest
+ * ally are penalized (cohesion), and operators outside every healer's range are penalized (healCare) so the main
+ * healer picks a tile covering the whole team (owner 2026-10-07: a blob is the strongest formation in practice —
+ * concentrated fire, blockers hold heavy armour in one kill zone, one healer covers everyone; 松果 / 白面鸮 wasted
+ * when scattered outside the blob).
  */
-class Layout {
+export class Layout {
   constructor(model, params) {
     this.model = model;
     this.p = params;
@@ -919,6 +1170,8 @@ class Layout {
     const blockAt = new Map();
     for (const u of this.units) if (u.block > 0 && this.model.ground.has(u.key)) blockAt.set(u.key, (blockAt.get(u.key) || 0) + u.block);
     let total = 0;
+    let routeFloor = 1;
+    let routeCount = 0;
     for (const rt of routes) {
       let exp = 0;
       let lastBlock = -Infinity;
@@ -926,18 +1179,48 @@ class Layout {
         const k = rt.tiles[i];
         let t = rt.tileTime + (i < 2 && rt.dwell ? rt.dwell : 0);
         if (!rt.fly && blockAt.has(k)) {
-          // a blocker right behind another one mostly holds what slipped past; a separate line holds again
+          // the blob: blockers concentrated on the same kill zone hold heavy armour in place for the main DPS.
+          // Later blockers on the same route count at secondHold ×; the tile's block capacity saturates at
+          // blockCap (99 by default — the blob is the intended formation, not a bug to be taxed).
           const fresh = i - lastBlock >= p.spread;
-          t += p.hold * blockAt.get(k) * (fresh ? 1 : p.secondHold) * (1 + p.healHold * Math.min(2, healCover.get(k) || 0));
+          t += p.hold * Math.min(blockAt.get(k), p.blockCap) * (fresh ? 1 : p.secondHold) * (1 + p.healHold * Math.min(2, healCover.get(k) || 0));
           lastBlock = i;
         }
         const c = cover.get(k);
         if (c) exp += t * (rt.fly ? c.a : c.g);
       }
-      total += rt.n * (1 - Math.exp(-exp / (p.kill * rt.hp)));
+      const fraction = 1 - Math.exp(-exp / (p.kill * rt.hp));
+      total += rt.n * fraction;
+      if (rt.n > 0) { routeFloor = Math.min(routeFloor, fraction); routeCount += rt.n; }
     }
+    // Offline candidate: avoid buying more coverage on a saturated lane while another entrance remains exposed.
+    if (p.routeFloor) total += p.routeFloor * routeCount * routeFloor;
     // ranged units standing on a road block and get hit: a small penalty per road tile they occupy
     for (const u of this.units) if (!u.block && this.model.ground.has(u.key)) total -= p.roadPenalty * this.model.ground.get(u.key).flow;
+    // cohesion: a stray beyond blobRadius (Chebyshev) of its nearest ally is penalized per tile of excess —
+    // the whole team should form ONE blob (集中火力), not a main pack plus scattered outposts.
+    // (keys outside the board's "r,c" format — tests / abstract models — are exempt)
+    if (p.cohesion && this.units.length > 1) {
+      const pts = [];
+      for (const u of this.units) { const m = /^(-?\d+),(-?\d+)$/.exec(u.key); if (m) pts.push([+m[1], +m[2]]); }
+      for (let i = 0; i < pts.length; i++) {
+        let d = Infinity;
+        for (let j = 0; j < pts.length; j++) {
+          if (j === i) continue;
+          const dd = Math.max(Math.abs(pts[i][0] - pts[j][0]), Math.abs(pts[i][1] - pts[j][1]));
+          if (dd < d) d = dd;
+        }
+        const excess = d - (p.blobRadius ?? 2);
+        if (excess > 0) total -= p.cohesion * excess;
+      }
+    }
+    // healCare: an operator outside EVERY healer's range is penalized — placing the main healer should choose
+    // a tile that covers the whole blob, and early placements prefer staying inside the future heal network
+    if (p.healCare) {
+      const healed = new Set();
+      for (const u of this.units) if (u.heal) for (const k of u.cover) healed.add(k);
+      for (const u of this.units) if (!u.heal && !healed.has(u.key)) total -= p.healCare;
+    }
     return total;
   }
 }
@@ -972,13 +1255,21 @@ export function planLayout(m, ps, pieces, params = LAYOUT_PARAMS, opts = {}) {
 
 /** planLayout as a step generator: yields after each placed piece (Match slices a bot's prep, see botPrepBeginSteps). */
 export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupied = new Set(), recOf = null } = {}) {
+  // Offline experiments can ablate layout heuristics without changing the frozen PR 445 policy.
+  params = { ...params, ...m.botLayoutParams };
   const model = fieldModel(m, ps);
   const map = ps.deployMap();
   const pgd = ps.gd || m.gd;
   const rec = recOf || ((p) => (p.kind === 'token' ? pgd.token(p.id) : rangeRec(ps, pgd.chess(p.id))));
   const layout = new Layout(model, params);
   const rank = (p) => { const r = rec(p); return isBlocker(r) ? 0 : isHealer(r) ? 2 : 1; };
-  const order = pieces.slice().sort((a, b) => rank(a) - rank(b) || dpsOf(rec(b)) - dpsOf(rec(a)) || a.uid - b.uid);
+  // blockers place first — the tankiest takes the most exposed tile (phys mitigation is a flat subtraction:
+  // hp + def/res weight ≈ effective hp), the rest by DPS, healers last (owner 2026-10-07: a glass cannon used to
+  // claim the front tile while the tank stood behind it)
+  const tank = (r) => (r.stats?.maxHp || 0) + 30 * ((r.stats?.def || 0) + (r.stats?.res || 0));
+  const order = pieces.slice().sort((a, b) => rank(a) - rank(b)
+    || (rank(a) === 0 && params.tankFirst !== false ? tank(rec(b)) - tank(rec(a)) : dpsOf(rec(b)) - dpsOf(rec(a)))
+    || (!m.wave && isHealer(rec(a)) ? rec(b).rangeGrid.length - rec(a).rangeGrid.length : 0) || a.uid - b.uid);
   const taken = new Set(occupied);
   const out = new LayoutPlan();
   for (const p of order) {
@@ -1003,10 +1294,23 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     const preferRoad = isBlocker(r0) && r0.rangeGrid?.length === 1 && r0.rangeGrid[0].every((v) => v === 0);
     let bestRoad = null;
     let bestRoadV = -Infinity;
+    // [ASSUMED] A ground medic still blocks, but cannot kill what it holds. Prefer a tile off the road or
+    // covered by allied fire at both the tile and its incoming contact; keep a legal fallback on a crowded board.
+    // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+    const needsSupport = isHealer(r0) && (r0.stats?.blockCnt ?? 1) > 0;
+    let bestSupported = null;
+    let bestSupportedV = -Infinity;
+    let bestHealing = -Infinity;
+    let bestNoise = -Infinity;
     for (const [r, c] of legalTiles(map, cls)) {
       const k = tileKey(r, c);
       if (taken.has(k) || (within && !within.has(k)) || (without && without.has(k))) continue;
       const noise = m.rngBots() * 1e-6;
+      const supported = needsSupport && (!model.ground.has(k) || model.index.get(k).every(([ri, i]) => {
+        const rt = model.routes[ri];
+        return rt.fly || layout.units.some((ally) => ally.ground && ally.dps > 0 && ally.cover.has(k)
+          && ally.cover.has(rt.tiles[Math.max(0, i - 1)]));
+      }));
       const seen = new Set();
       for (const dir of PLAN_DIRS) {
         const u = unitOf(r0, k, r, c, dir, model);
@@ -1015,9 +1319,20 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         if (seen.has(sig)) continue;
         seen.add(sig);
         layout.units.push(u);
-        const v = layout.value() + noise;
+        const value = layout.value() + (params.tactical && policyApplies(m, ps) && m.botLayoutAdjustment ? m.botLayoutAdjustment(ps, layout.units, model) : 0);
+        const v = value + noise;
         layout.units.pop();
         if (v > bestV) { bestV = v; best = [k, r, c, dir]; }
+        // [ASSUMED] Without boss rehearsal, break route-value ties by allied damage in healing range.
+        // The route model otherwise values healing only through a blocker's hold time.
+        // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+        const healing = supported && !m.wave ? layout.units.reduce((sum, ally) => sum + (u.cover.has(ally.key) ? ally.dps : 0), 0) : 0;
+        const supportedV = m.wave ? v : value;
+        if (supported && (supportedV > bestSupportedV || (supportedV === bestSupportedV
+          && (healing > bestHealing || (healing === bestHealing && noise > bestNoise))))) {
+          bestSupportedV = supportedV; bestHealing = healing; bestNoise = noise;
+          bestSupported = [k, r, c, dir];
+        }
         // (the best road tile by the same value)
         if (preferRoad && model.ground.has(k) && v > bestRoadV) { bestRoadV = v; bestRoad = [k, r, c, dir]; }
         if (preferHigh && map.get(k) === 'ranged' && [...u.cover].some((ck) => model.ground.has(ck)) && v > bestHighV) {
@@ -1026,12 +1341,47 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         }
       }
     }
-    const pick = bestHigh || bestRoad || best;
+    const pick = bestSupported || bestHigh || bestRoad || best;
     if (!pick) continue;
     taken.add(pick[0]);
     layout.units.push(unitOf(r0, pick[0], pick[1], pick[2], pick[3], model));
     out.set(p.uid, pick[0]);
     out.dirs.set(p.uid, pick[3]);
+    yield;
+  }
+  // [ASSUMED] Repair isolated self-range guards after the damage dealers have been placed. The route-wide kill
+  // estimate can saturate even when the guard holds enemies out of range of all that downstream damage.
+  // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+  for (const p of order) {
+    const key = out.get(p.uid);
+    const r0 = rec(p);
+    if (p.kind === 'token' || !key || !isBlocker(r0) || r0.rangeGrid?.length !== 1
+      || !r0.rangeGrid[0].every((v) => v === 0) || !model.ground.has(key)) continue;
+    const index = layout.units.findIndex((u) => u.key === key);
+    if (index < 0) continue;
+    const unit = layout.units[index];
+    const support = (k) => model.index.get(k).every(([ri, i]) => {
+      const rt = model.routes[ri];
+      return rt.fly || layout.units.some((ally) => ally !== unit && ally.ground && ally.dps > 0
+        && ally.cover.has(k) && ally.cover.has(rt.tiles[Math.max(0, i - 1)]));
+    });
+    if (support(key)) continue;
+    let best = unit;
+    let bestV = layout.value();
+    for (const [r, c] of legalTiles(map, placeClass(ps, pgd.chess(p.id) || r0))) {
+      const k = tileKey(r, c);
+      if (taken.has(k) || !model.ground.has(k) || !support(k)) continue;
+      const candidate = unitOf(r0, k, r, c, unit.dir, model);
+      layout.units[index] = candidate;
+      const v = layout.value();
+      layout.units[index] = unit;
+      if (v >= bestV) { best = candidate; bestV = v; }
+    }
+    if (best !== unit) {
+      taken.delete(key); taken.add(best.key);
+      layout.units[index] = best;
+      out.set(p.uid, best.key);
+    }
     yield;
   }
   return out;
@@ -1040,13 +1390,13 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
 /** A plan's direction for a piece (plans without directions ⇒ RIGHT). */
 const planDir = (plan, uid) => (plan && plan.dirs instanceof Map ? plan.dirs.get(uid) : null) ?? 'RIGHT';
 
-/** Layout-model variants the rehearsal compares (the first one is the default plan). */
+/** Layout-model variants the rehearsal compares (the first one is the default plan: the blob). */
 export const REHEARSAL_VARIANTS = Object.freeze([
   {},
-  { spread: 3, secondHold: 0.2 },
-  { hold: 2 },
-  { hold: 8 },
-  { kill: 3 },
+  { hold: 8 }, // wall of shields: even more hold time on the kill zone
+  { kill: 3 }, // glass-cannon blob: value raw concentrated DPS even on fat enemies
+  { secondHold: 1, healHold: 0.75 }, // every stacked blocker holds at full value, heal network boosted
+  { blobRadius: 3, healCare: 0.3 }, // a slightly looser blob when the terrain forces it
 ]);
 
 /** Distinct plans (same unit → tile assignment ⇒ one candidate), in order. */
@@ -1069,8 +1419,9 @@ function countedLeaks(battle, playerId) {
 
 /**
  * Rehearsal job: a player "tries out" candidate layouts — each distinct plan (up to m.botRehearsal) is simulated once
- * against the round's enemies with the real Battle (a rehearsal seed, never the real battle's; no onBattleStart meta
- * dispatch, so it has no side effect on the match) and the plan with the fewest counted leaks (then most kills) wins.
+ * against the round's enemies with the real Battle. Normal battle inputs include battle-start effects and in-battle
+ * layer gains. Meta hooks use an independent RNG copy; no result is settled into the match.
+ * The plan with the fewest counted leaks (then most kills) wins.
  * Every candidate's Battle is built right away (each layout is on the board only while its input is taken; the board
  * is restored exactly before this returns), so the job can be stepped later: `job.run(budgetMs)` simulates until the
  * wall-clock budget is used (checked every 4 ticks) and returns true once every candidate is done. A candidate whose
@@ -1092,10 +1443,26 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
   const wave = m.wave;
   const distinct = distinctPlans(plans);
   if (!wave || distinct.length < 2 || !(m.botRehearsal > 0)) return null;
-  const cands = distinct.slice(0, m.botRehearsal);
+  const cands = distinct.slice(0, supportRehearsals(m, ps));
   const byUid = new Map(chosen.map((p) => [p.uid, p]));
   const battles = [];
+  const fair = !m.botLegacyParity;
+  const samples = fair ? 3 : 1;
+  const totals = cands.map(() => ({ score: 0, completed: 0 }));
   for (const plan of cands) {
+    if (fair || m.botProjectPrepEnd) {
+      for (let sample = 0; sample < samples; sample++) {
+        const opts = projectNormalBattleOptions(m, ps, (trial, player, clone) => {
+          // Use the real placement rules on the fork: no duplicate hand/board ownership,
+          // and summon placement/placement-triggered effects match applying the selected plan.
+          for (const _ of applyPlanSteps(trial, player, chosen.map(clone), plan)) void _;
+          if (fair) finishBotPreparation(trial, player);
+        }, fair ? { sampleSeed: rehearsalSampleSeed(m, ps, sample), deadline: true } : {});
+        battles.push(m.newBattle({ ...opts, fieldId: `r:${ps.playerId}` }));
+        yield;
+      }
+      continue;
+    }
     const saved = [...ps.board.entries()];
     // the candidate's directions are set on the pieces while its input is taken; restored exactly afterwards
     const savedDirs = new Map([...byUid.values(), ...saved.map(([, p]) => p)].map((p) => [p, Object.hasOwn(p, 'dir') ? { v: p.dir } : null]));
@@ -1104,12 +1471,8 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
       ps.board.clear();
       for (const [uid, k] of plan) { const p = byUid.get(uid); if (p) { p.dir = planDir(plan, uid); ps.board.set(k, p); } }
       ps.recompute();
-      const spawns = withBounties(m.gd, m.round, wave, ps.bounties, ps.playerId).map((sp) => ({ ...sp, ownerPlayerId: ps.playerId }));
       battles.push(m.newBattle({
-        seed: deriveSeed(m.seed, `rehearse:${m.round}:${ps.seat}`), kind: 'normal', modeId: m.modeId, round: m.round,
-        stageId: m.stageId, rect: { ...GEO.NORMAL_RECT }, timeLimit: wave.timeLimit, players: [ps.battleInput({ side: 'L', colOffset: 0 })],
-        spawns: m._sanitizeSpawns(spawns, ps.playerId), routes: wave.routes, sharedBoss: null,
-        flags: { layerGainsEnabled: false, ...m.gd.dp }, fieldId: `r:${ps.playerId}`, enemyOverrides: wave.overrides, waveId: wave.templateId,
+        ...m._normalOpts(ps, { preview: true }), fieldId: `r:${ps.playerId}`,
       }));
     } catch (e) {
       failed = true;
@@ -1148,7 +1511,7 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
             battle.step();
             t++;
             n++;
-            if ((t & 63) === 0 && bestLeaks < Infinity && countedLeaks(battle, ps.playerId) > bestLeaks) { beaten = true; break; }
+            if (!fair && (t & 63) === 0 && bestLeaks < Infinity && countedLeaks(battle, ps.playerId) > bestLeaks) { beaten = true; break; }
             if (timed && (n & 3) === 0 && performance.now() - t0 >= budgetMs) return false;
           }
           if (!beaten) {
@@ -1157,8 +1520,16 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
             const pp = r && !r.synthetic && r.perPlayer && r.perPlayer[ps.playerId];
             if (pp) {
               const leaks = (pp.leaked || []).filter((l) => l && l.counted !== false).length;
-              const score = -leaks * 1000 + (pp.killed || 0) - i * 0.01;
-              if (score > bestScore) { bestScore = score; bestLeaks = leaks; job.best = cands[i]; }
+              const candidate = Math.floor(i / samples);
+              const total = totals[candidate];
+              total.score += policyApplies(m, ps) && m.botRehearsalScore ? m.botRehearsalScore(pp) : -leaks * 1000 + (pp.killed || 0);
+              total.completed++;
+              const score = total.score / samples - candidate * 0.01;
+              // Never pick a partial or failed sample group. Legacy pruning is deliberately disabled
+              // for mean scores: one unlucky sample cannot safely eliminate a whole candidate.
+              if (total.completed === samples && score > bestScore) {
+                bestScore = score; bestLeaks = leaks; job.best = cands[candidate];
+              }
             }
           }
         } catch (e) {
@@ -1209,7 +1580,15 @@ function context(m, ps) {
   const copies = copyCounts(m, ps);
   let pairs = 0;
   for (const [b, k] of copies) if (k + 1 >= mergeNeed(m, b)) pairs++;
-  return { ps, owned, focus: plan.focus, second: plan.second, keep: keeperBases(m, ps, plan), copies, pairs, roles: roles(m, ps), fly: model.flyTotal, model };
+  // the operator manual (shared/operatorManual.js): active bonds gate the layer engines, a fielded DPS
+  // makes the battle amplifiers (魔王 / 华法琳 / 寒芒克洛丝) worth drafting
+  const activeBonds = new Set(Object.entries(ps.bonds || {}).filter(([, b]) => b.active).map(([id]) => id));
+  let hasDps = false;
+  for (const p of ps.allChess()) {
+    const c = chessRec(m, p.id);
+    if (c && c.attackKind !== 'none' && !isHealer(c)) { hasDps = true; break; }
+  }
+  return { ps, owned, focus: plan.focus, second: plan.second, keep: keeperBases(m, ps, plan), copies, pairs, roles: roles(m, ps), fly: model.flyTotal, model, persona: personaOf(m, ps), activeBonds, hasDps, medical: medicalPolicy(m, ps), build: buildContext(m, ps, model) };
 }
 
 /** Normal copies owned per base (board, hand, temp). */
@@ -1230,13 +1609,14 @@ function copyCounts(m, ps) {
  */
 function refreshValue(m, ps, ctx) {
   const L = ps.shop.level;
+  const pool = botPool(m, ps);
   let total = 0;
-  for (const e of m.pool.entries.values()) if (e.left > 0 && e.tier <= L) total += e.left;
+  for (const e of pool.entries.values()) if (e.left > 0 && e.tier <= L) total += e.left;
   if (!(total > 0)) return 0;
   const slots = m.gd.shopSlots(L).chess;
   let v = 0;
   for (const [b, k] of ctx.copies) {
-    const e = m.pool.entries.get(b);
+    const e = pool.entries.get(b);
     if (!e || e.left <= 0 || e.tier > L) continue;
     const pShop = 1 - (1 - e.left / total) ** slots;
     if (k + 1 >= mergeNeed(m, b)) v += pShop * MERGE_HIT;
@@ -1259,6 +1639,7 @@ function sellWeakestHand(m, ps, { keepPairs = true, below = Infinity, handOnly =
   let worstV = Infinity;
   for (const p of handOnly ? ps.hand : [...ps.temp, ...ps.hand]) {
     if (!p || p.kind !== 'chess' || (p.items || []).some((it) => isMutationCell(m.gd, it.id))) continue;
+    if (keepLastMedic(m, ps, p, ctx)) continue;
     const base = m.gd.baseIdOf(p.id);
     if (keepPairs && !m.gd.isGolden(p.id) && (ctx.copies.get(base) || 0) >= 2) continue;
     if (keepFresh && (p.boughtRound === m.round || unseen(ps, p))) continue;
@@ -1280,6 +1661,11 @@ function rememberOwned(ps) {
 }
 const unseen = (ps, p) => !!ps._botSeenUids && !ps._botSeenUids.has(p.uid);
 
+function keepLastMedic(m, ps, piece, ctx) {
+  return !!ctx.medical?.keep && isHealer(chessRec(m, piece.id, ps))
+    && ps.allChess().filter((p) => isHealer(chessRec(m, p.id, ps))).length === 1;
+}
+
 /** Lineup gain of one copy of chess `id` (full board): best single swap into the current best lineup `cur`. */
 function lineupGain(m, ps, id, ctx, cur) {
   const probe = { uid: -1, kind: 'chess', id, items: [] };
@@ -1287,7 +1673,8 @@ function lineupGain(m, ps, id, ctx, cur) {
   for (let i = 0; i < cur.set.length; i++) {
     const trial = cur.set.slice();
     trial[i] = probe;
-    best = Math.max(best, lineupScore(m, ps, trial, ctx));
+    // The purchase occupies a hand slot before arrangeSteps can withdraw the replaced operator.
+    best = Math.max(best, lineupScore(m, ps, trial, ctx, Math.max(0, countFree(ps.hand) - 1)));
   }
   return best - cur.score;
 }
@@ -1307,14 +1694,15 @@ function sellJunk(m, ps) {
     const base = m.gd.baseIdOf(p.id);
     const copies = c.isGolden ? 0 : ctx.copies.get(base) || 0;
     // a pair whose third copy can still come (the merge's reward is worth it for any pair)
-    const pairLive = copies + 1 >= mergeNeed(m, base) && (m.pool.left(base) > 0 || !m.pool.has(base));
+    const pool = botPool(m, ps);
+    const pairLive = copies + 1 >= mergeNeed(m, base) && (pool.left(base) > 0 || !pool.has(base));
     const useful = c.isGolden || pairLive || ctx.keep.has(base) || (copies >= 2 && m.round <= 6);
     (useful ? keep : junk).push({ p, v: pieceValue(m, ps, p, ctx) + (pairLive ? 150 : useful ? 100 : 0) });
   }
   // bench budget: at most BENCH_BUDGET spare units beyond the lineup (pairs first)
   const all = keep.concat(junk).sort((a, b) => b.v - a.v);
-  for (const { p } of all.slice(BENCH_BUDGET)) tryDo(() => ps.sell(p.uid));
-  for (const { p } of junk.slice(0, 4)) if (m.round >= 5 && ps.find(p.uid)) tryDo(() => ps.sell(p.uid));
+  for (const { p } of all.slice(BENCH_BUDGET)) if (!keepLastMedic(m, ps, p, ctx)) tryDo(() => ps.sell(p.uid));
+  for (const { p } of junk.slice(0, 4)) if (m.round >= 5 && ps.find(p.uid) && !keepLastMedic(m, ps, p, ctx)) tryDo(() => ps.sell(p.uid));
 }
 
 /** Take the queued pick-one offers (merge rewards, special refreshes — free; they expire at prep end). */
@@ -1323,20 +1711,24 @@ function takeOffers(m, ps) {
   for (let guard = 0; guard < 4 && ps.offers.length; guard++) {
     const offer = ps.offers[0];
     const ctx = context(m, ps);
-    let best = -1;
-    let bestS = -Infinity;
+    const ranked = [];
     offer.slots.forEach((s, i) => {
       if (s.sold) return;
-      const sc = s.kind === 'item' ? (canUseItem(m, ps, s) ? 10 : 1) + gd.tierOf(s.id) * 3 : buyScore(m, ps, s.id, ctx);
-      if (sc > bestS) { bestS = sc; best = i; }
+      const sc = s.kind === 'item'
+        ? (canUseItem(m, ps, s) && personaAllowsItem(m, ps, s.id) ? 10 : 1) + gd.tierOf(s.id) * 3
+        : buyScore(m, ps, s.id, ctx);
+      ranked.push({ i, sc });
     });
-    if (best < 0) break;
+    ranked.sort((a, b) => b.sc - a.sc || a.i - b.i);
+    if (!ranked.length) break;
     if (freeSlot(ps.hand) < 0) sellWeakestHand(m, ps, { keepPairs: false });
-    if (!tryDo(() => ps.pickReward(best))) {
-      // could not take it (sold out / no room): drop the offer
+    const candidates = m.botLegacyParity ? ranked.slice(0, 1) : ranked;
+    if (candidates.some(({ i }) => tryDo(() => ps.pickReward(i)))) continue;
+    if (m.botLegacyParity) {
+      // Frozen offline replay only: preserve the old, invalid queue skip for comparison.
       ps.offers.shift();
       ps.dirty();
-    }
+    } else break; // Like a player, keep the unresolved offer at the head of the queue.
   }
 }
 
@@ -1363,7 +1755,12 @@ export function* botPrepBeginSteps(m, ps) {
   // 2. economy: dead bench weight back to funds, units toward a full board, the level curve, then everything else;
   //    merges completed while buying queue reward offers that expire at prep end — take them right away
   sellJunk(m, ps);
+  // ④ last prep's economy carries pay out first (德克萨斯 +1 fund & +1 free refresh, 至简 +1) — the funds join
+  // this round's level-up / buys
+  sellEconHold(m, ps);
   yield;
+  // a levelEager persona (尽早上本) levels before it spends the round's funds on units
+  if (personaOf(m, ps)?.levelEager) levelUp(m, ps);
   yield* buyLoopSteps(m, ps, { fillOnly: true, maxRefreshes: 0 });
   takeOffers(m, ps);
   levelUp(m, ps);
@@ -1371,6 +1768,8 @@ export function* botPrepBeginSteps(m, ps) {
   yield* buyLoopSteps(m, ps, { fillOnly: false, maxRefreshes: MAX_REFRESHES });
   takeOffers(m, ps);
   levelUp(m, ps, { spare: true });
+  // ④ a doomed 1–2 fund remainder → cross-round value (a carrier held for combat / the doll / a carried fund)
+  salvageFunds(m, ps);
   maybeFreeze(m, ps);
   yield;
   // 3. placement, 4. items, placement again (item carriers gain value; rehearsed when the match allows it)
@@ -1389,12 +1788,18 @@ export function botPrepEnd(m, ps, job = null) {
 export function* botPrepEndSteps(m, ps, job = null) {
   if (!ps.alive || ps.ready) return;
   if (job && job.done && job.best !== job.plans[0]) yield* applyPlanSteps(m, ps, job.chosen, job.best);
+  finishBotPreparation(m, ps);
+}
+
+/** Shared by real preparation, its scheduler fallback and isolated candidate projections. */
+export function finishBotPreparation(m, ps, { choiceMode = 'bot' } = {}) {
+  if (!ps.alive || ps.ready) return;
   // 5. temp → hand / sell / destroy; keep one hand slot free for next round's merges
   resolveTemp(m, ps);
   if (freeSlot(ps.hand) < 0) freeHandSlot(m, ps);
   // what the next prep's bench shed may judge by value: what is owned now (later gains wait for a placement step)
   rememberOwned(ps);
-  m.autoPickPersonalChoice(ps, 'bot');
+  if (ps.personalChoice) m.autoPickPersonalChoice(ps, choiceMode);
   tryDo(() => ps.setReady(true));
 }
 
@@ -1438,24 +1843,155 @@ export function diyOpensAt(ps, lv) {
 /** The 调度中心 level-ups of a bot's prep (exported for tests). */
 export function levelUp(m, ps, { spare = false } = {}) {
   const gd = ps?.gd || m.gd;
+  // a preset strategy's own curve: authoritative (the 14-spare-funds bail-out never runs past its target) and capped
+  // (罗素 stays at level 2 forever)
+  const per = personaOf(m, ps);
+  const curve = per && Array.isArray(per.levelTarget) && per.levelTarget.length ? per.levelTarget : LEVEL_TARGET;
+  const cap = per && Number.isInteger(per.levelCap) ? per.levelCap : Infinity;
+  const targetOf = (r) => curve[Math.min(curve.length - 1, r)];
   for (let guard = 0; guard < 6; guard++) {
-    if (ps.shop.level >= gd.maxShopLevel) return;
+    if (ps.shop.level >= Math.min(gd.maxShopLevel, supportLevelCap(m, ps), cap)) return;
     const price = Math.max(0, ps.shop.upgradePrice);
     if (ps.funds < price) return;
     const r = m.round;
-    const target = LEVEL_TARGET[Math.min(LEVEL_TARGET.length - 1, r)];
-    const nextTarget = LEVEL_TARGET[Math.min(LEVEL_TARGET.length - 1, r + 1)];
-    // early levels only once the board is full (units first); later a 6-unit core is enough
-    const boardReady = ps.allChess().length >= (r <= 4 ? ps.deployCap : Math.min(ps.deployCap, 6));
+    const target = targetOf(r);
+    const nextTarget = targetOf(r + 1);
+    // early levels only once the board is full (units first); later a 6-unit core is enough. A levelEager persona
+    // (尽早上本) levels as soon as the curve and the funds allow — the fill pass before every level-up still buys units
+    const boardReady = per && per.levelEager ? true
+      : ps.allChess().length >= (r <= 4 ? ps.deployCap : Math.min(ps.deployCap, 6));
     let want = price === 0;
     if (!want && ps.shop.level < target && (boardReady || r >= 6)) want = true;
     // a human's 自选 slots of the next level (AI 托管): that step one round earlier (DIY_PIECE_BONUS)
     if (!want && boardReady && ps.shop.level < nextTarget && diyOpensAt(ps, ps.shop.level + 1)) want = true;
     if (!want && ps.shop.level < nextTarget && price <= 2 && boardReady) want = true;
     if (!want && spare && ps.funds >= price + 1 + fundsReserve(m, ps) && ps.shop.level < nextTarget + 1 && boardReady) want = true;
-    if (!want && ps.funds >= price + 14) want = true;
-    if (!want || !tryDo(() => ps.levelUp())) return;
+    if (!want && ps.funds >= price + 14 && (!per || ps.shop.level < target)) want = true;
+    if (!want) return;
+    // ④ the owner's round-2 example (income 5, level 2 costs 4 → 1 fund stranded): buy 德克萨斯/普罗旺斯 first and
+    // sell it right back — the stranded fund becomes a banked free refresh (net cost 1 = one refresh, and
+    // shop.freeRefreshes persist across rounds)
+    if (per && ps.funds - price === 1 && ps.funds >= price + 2) buySellCarrier(m, ps);
+    if (!tryDo(() => ps.levelUp())) return;
   }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// economy salvage (④): leftover funds are lost at prep end (economy.leftoverFundsLost — only 坎诺特 keeps them).
+// garrisons.json: 德克萨斯 sell → +1 free refresh (garrison_120), 普罗旺斯 gain → +1 free refresh (garrison_113),
+// 至简 buy price 1 / sell 1 (garrison_13 — carries one fund across rounds), 格雷伊 sell → +1 next round
+// (garrison_67), 泥岩 sell → +2 next round (garrison_21). Items: 见钱眼开玩偶 equip-destroy → +2 next round,
+// 盟约之币 equip-destroy → +1 (陈's economy keys already cover both). A persona bot converts a doomed 1–2 fund
+// remainder into cross-round value; the held economy chess are sold at the next prep (or mid-prep, to fund a
+// pickup the shop just showed).
+const ECON_CHESS = new Set(['chess_char_1_08_a', 'chess_char_1_07_a', 'chess_char_3_13_a', 'chess_char_1_14_a', 'chess_char_4_18_a']);
+/** 德克萨斯 / 普罗旺斯: price 2, sell 1 — buy & instant-sell banks a free refresh for 1 fund. */
+const REFRESH_CARRIERS = new Set(['chess_char_1_08_a', 'chess_char_1_07_a']);
+/** 至简: garrison prices it at 1 and it sells for 1 — the cleanest single-fund carry across rounds. */
+const ECON_CARRY = 'chess_char_3_13_a';
+/** 见钱眼开玩偶: price 1, equip-destroy → +2 funds next round (bought and equipped in one move — the equipItems
+ * whitelist never sees it, so it is safe for every persona). */
+const ECON_DOLL = 'chess_item_2_07_e_a';
+
+const markEconHold = (ps, uid) => { (ps._econHold || (ps._econHold = [])).push(uid); };
+
+/** The uid a buy just added to the hand (null: it merged instantly / went elsewhere). */
+function lastBoughtUid(ps, before) {
+  return [...ps.hand, ...ps.temp].reverse().find((p) => p && p.kind === 'chess' && !before.has(p.uid))?.uid ?? null;
+}
+
+/** Buy a refresh carrier and sell it right back: net −1 fund, +1 banked free refresh (德克萨斯 on sale,
+ * 普罗旺斯 on gain). false: none in the shop / no hand slot / the actions failed. */
+export function buySellCarrier(m, ps) {
+  const i = ps.shop.slots.findIndex((s) => s && !s.sold && s.kind === 'chess'
+    && REFRESH_CARRIERS.has(m.gd.baseIdOf(s.id)) && ps.priceOf(s) <= ps.funds);
+  if (i < 0 || freeSlot(ps.hand) < 0) return false;
+  const before = new Set(ps.hand.filter(Boolean).map((p) => p.uid));
+  if (!tryDo(() => ps.buy(i))) return false;
+  const uid = lastBoughtUid(ps, before);
+  return uid != null && tryDo(() => ps.sell(uid));
+}
+
+/** A carrier on the bench for this round's combat, sold in a later prep (紧急补充战力，之后卖出). */
+function holdCarrier(m, ps) {
+  const i = ps.shop.slots.findIndex((s) => s && !s.sold && s.kind === 'chess'
+    && REFRESH_CARRIERS.has(m.gd.baseIdOf(s.id)) && ps.priceOf(s) <= ps.funds);
+  if (i < 0 || freeSlot(ps.hand) < 0) return false;
+  const before = new Set(ps.hand.filter(Boolean).map((p) => p.uid));
+  if (!tryDo(() => ps.buy(i))) return false;
+  const uid = lastBoughtUid(ps, before);
+  if (uid == null) return true; // merged on arrival (a held pair's third copy) — kept, no hold to track
+  markEconHold(ps, uid);
+  return true;
+}
+
+/** The doll: buy + equip in one move (it destroys itself, +2 funds next round). Needs a carrier with a free slot. */
+function useDoll(m, ps) {
+  const hasCarrier = [...ps.board.values()].some((p) => p.kind === 'chess' && (p.items || []).length < m.gd.equipPerChess);
+  if (!hasCarrier || !canUseItem(m, ps, { id: ECON_DOLL })) return false;
+  const i = ps.shop.slots.findIndex((s) => s && !s.sold && s.kind === 'item' && s.id === ECON_DOLL && ps.priceOf(s) <= ps.funds);
+  if (i < 0 || freeSlot(ps.hand) < 0) return false;
+  const before = new Set(ps.hand.filter(Boolean).map((p) => p.uid));
+  if (!tryDo(() => ps.buy(i))) return false;
+  const piece = [...ps.hand, ...ps.temp].reverse().find((p) => p && p.kind === 'item' && !before.has(p.uid));
+  if (!piece) return false;
+  const target = itemTarget(m, ps, piece, context(m, ps));
+  return target ? tryDo(() => ps.equip(piece.uid, target.uid)) : false;
+}
+
+/** 至简 (price 1, sells 1): the fund rides to the next prep on the bench. */
+function holdCarry(m, ps) {
+  const i = ps.shop.slots.findIndex((s) => s && !s.sold && s.kind === 'chess'
+    && m.gd.baseIdOf(s.id) === ECON_CARRY && ps.priceOf(s) <= ps.funds);
+  if (i < 0 || freeSlot(ps.hand) < 0) return false;
+  const before = new Set(ps.hand.filter(Boolean).map((p) => p.uid));
+  if (!tryDo(() => ps.buy(i))) return false;
+  const uid = lastBoughtUid(ps, before);
+  if (uid != null) markEconHold(ps, uid);
+  return true;
+}
+
+/**
+ * End of a persona prep: the buy loop leaves at most 2 funds (a refresh keeps the buy money, 3, back) — everything
+ * below that is lost at the prep end. Convert the doomed remainder: 2 funds → a refresh carrier held for this
+ * round's combat; 1 fund → the doll (+2 next round) or 至简 (a fund carried across).
+ */
+export function salvageFunds(m, ps) {
+  const per = personaOf(m, ps);
+  if (!per || m.gd.leftoverKeptBands.includes(ps.bandId)) return; // 坎诺特 keeps its leftover: nothing is doomed
+  if (ps.funds >= 2 && holdCarrier(m, ps)) return;
+  if (ps.funds >= 1) {
+    if (useDoll(m, ps)) return;
+    holdCarry(m, ps);
+  }
+}
+
+/** Sell the economy chess held from the last prep (德克萨斯 +1 fund & +1 free refresh, 至简 +1) — their pay-out
+ * is the point; a carrier that merged into an elite is gone (nothing to sell, nothing owed). */
+export function sellEconHold(m, ps) {
+  const held = ps._econHold;
+  if (!held || !held.length) return 0;
+  ps._econHold = [];
+  let n = 0;
+  for (const uid of held) {
+    if (ps.find(uid)?.piece?.kind !== 'chess') continue;
+    if (tryDo(() => ps.sell(uid))) n++;
+  }
+  return n;
+}
+
+/** Sell held economy chess (1 fund each) to cover a pickup the shop just showed — at most what is short. */
+export function bridgeEconFunds(m, ps, price) {
+  const held = (ps._econHold || []).filter((uid) => ps.find(uid)?.piece?.kind === 'chess');
+  let need = price - ps.funds;
+  for (const uid of held) {
+    if (need <= 0) break;
+    if (tryDo(() => ps.sell(uid))) {
+      need--;
+      ps._econHold = (ps._econHold || []).filter((x) => x !== uid);
+    }
+  }
+  return ps.funds >= price;
 }
 
 /**
@@ -1494,7 +2030,9 @@ function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0 } = {}) {
     // freed: in 20 solo 绝境 昆图斯 matches the shed sold 44 of 222 before the placement step could deploy them). The
     // shed is pre-emptive (one slot is still free), so with only fresh singles it waits for the next prep.
     const used = ps.hand.filter(Boolean).length;
-    if (used >= gd.benchSize - 1) sellWeakestHand(m, ps, { keepFresh: true });
+    // [ASSUMED] Do not underfill the deploy cap merely to reserve a hand slot.
+    // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+    if (used >= gd.benchSize - 1 && ownedN > ps.deployCap) sellWeakestHand(m, ps, { keepFresh: true });
     // a full hand refuses every purchase, the third copy of a held pair too (PlayerState.buy, PRTS 卫戍协议/帮助 §手牌区):
     // an affordable one sheds the weakest hand single first (like the shed above, never one of this prep)
     if (freeSlot(ps.hand) < 0 && ps.shop.slots.some((s) => s && !s.sold && s.kind === 'chess' && ps.priceOf(s) <= ps.funds && ps.completesChessMerge(s.id))) {
@@ -1502,17 +2040,27 @@ function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0 } = {}) {
     }
     let best = -1;
     let bestS = 0;
+    let bestPrice = Infinity;
     let bestMerges = false;
+    let anyTarget = false; // ② does the shop show anything on-strategy for this persona?
+    const targets = personaRefreshTargets(ctx.persona);
     let cur = null;
     ps.shop.slots.forEach((s, i) => {
       if (!s || s.sold) return;
       const price = ps.priceOf(s);
-      if (price > ps.funds) return;
+      if (price > ps.funds) {
+        // ④ held economy chess (1 fund each) may cover the gap for a pickup the shop just showed
+        if (!(ctx.persona && ps._econHold && ps._econHold.length && price <= ps.funds + ps._econHold.length
+          && bridgeEconFunds(m, ps, price))) return;
+      }
       let sc;
       if (s.kind === 'chess') {
         const merges = ps.completesChessMerge(s.id);
         if (freeSlot(ps.hand) < 0 || (mergesOnly && !merges)) return;
         const base = gd.baseIdOf(s.id);
+        if (ctx.persona && (merges || ECON_CHESS.has(base)
+          || (ctx.persona.wanted && (ctx.persona.wanted[s.id] != null || ctx.persona.wanted[base] != null))
+          || (chessRec(m, s.id)?.bonds || []).some((b) => targets.has(b)))) anyTarget = true;
         if (boardFull && !merges && ps.funds - price < reserve) return; // banked (坎诺特)
         sc = buyScore(m, ps, s.id, ctx) - price;
         if (boardFull && !merges) {
@@ -1534,13 +2082,27 @@ function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0 } = {}) {
       } else {
         if (fillOnly) return;
         if (!canUseItem(m, ps, { id: s.id })) return;
-        if (freeSlot(ps.hand) < 0) return;
+        if (!personaAllowsItem(m, ps, s.id)) return; // a preset strategy's equipment whitelist
+        if (ctx.persona) anyTarget = true; // the whitelist already gated it: an on-strategy pickup
+        if (freeSlot(ps.hand) < 0 && !ps.completesItemMerge(s.id)) return;
         if (ps.funds - price < reserve && !ps.completesItemMerge(s.id)) return;
         const carriers = [...ps.board.values()].filter((p) => p.kind === 'chess' && (p.items || []).length < gd.equipPerChess).length;
         if (!carriers) return;
         sc = 6 + (gd.tierOf(s.id) || 1) * 3 - price + (ps.completesItemMerge(s.id) ? 10 : 0);
+        // an economy persona (陈: economy items + 坚守盾牌) values its coin items over the refreshes the price would buy
+        const iper = personaOf(m, ps);
+        if (iper && iper.items && Array.isArray(iper.items.econKeys)) {
+          const rec = gd.item(s.id);
+          if (rec && (Array.isArray(rec.buffs) ? rec.buffs : []).some((b) => b && iper.items.econKeys.includes(b.key))) sc += 5;
+        }
+        sc += buildItemBonus(ctx.build, gd.item(s.id), [...ps.hand, ...ps.temp, ...[...ps.board.values()].flatMap((u) => u.items || [])].filter(Boolean).map((u) => gd.item(u.id)));
       }
-      if (sc > bestS) { bestS = sc; best = i; bestMerges = s.kind === 'chess' && ps.completesChessMerge(s.id); }
+      // [ASSUMED] Prefer the cheaper purchase when scores tie, including floating-point cancellation noise.
+      // Product-policy tracking: https://github.com/sganggs/Stronghold-Protocol/issues/315
+      if (sc > bestS + 1e-9 || (best >= 0 && Math.abs(sc - bestS) <= 1e-9 && price < bestPrice)) {
+        bestS = sc; best = i; bestPrice = price;
+        bestMerges = s.kind === 'chess' && ps.completesChessMerge(s.id);
+      }
     });
     // leftover funds are lost at prep end: reroll while a purchase stays affordable (a band that keeps them: down to its
     // reserve — a free refresh is always taken)
@@ -1549,6 +2111,10 @@ function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0 } = {}) {
     // a full board buys only what improves it (merge progress, a lineup upgrade), and only when it is worth more than
     // the refreshes its price would pay for (each may show the third copy of a held pair, refreshValue)
     let buy = best >= 0 && bestS >= (boardFull ? BUY_FULL_MIN : 3);
+    // ② 善用刷新: once a fighting core exists (≥ 6 chess), a persona bot rerolls a shop that shows nothing
+    // on-strategy — no target-bond operator, no wanted / merge / economy pickup, no whitelisted item — instead of
+    // drafting off-target units; the funds gate (canRefresh) keeps the buy money for the next roll
+    if (buy && ctx.persona && !anyTarget && ownedN >= 6) buy = false;
     if (buy && boardFull && canRefresh && !bestMerges) {
       const price = Math.max(1, ps.priceOf(ps.shop.slots[best]));
       if (bestS < refreshValue(m, ps, ctx) * price / Math.max(1, refreshCost)) buy = false;
@@ -1590,8 +2156,18 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
   }
   yield;
   const plans = [];
+  if (final && policyApplies(m, ps) && m.botKeepCurrentLayout) {
+    const current = new LayoutPlan();
+    for (const p of chosen) {
+      const loc = ps.find(p.uid);
+      if (loc?.area === 'board') { current.set(p.uid, loc.key); current.dirs.set(p.uid, pieceDir(p)); }
+    }
+    if (current.size === chosen.length) plans.push(current);
+  }
   if (final && m.wave && m.botRehearsal > 0) {
-    for (const v of REHEARSAL_VARIANTS) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));
+    const baseVariants = policyApplies(m, ps) && m.botLayoutVariants || REHEARSAL_VARIANTS;
+    const variants = policyApplies(m, ps) && m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
+    for (const v of variants) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));
   } else {
     plans.push(yield* planLayoutSteps(m, ps, chosen));
   }
@@ -1643,6 +2219,208 @@ function* applyPlanSteps(m, ps, chosen, target) {
     if (!refused.size) break;
   }
   yield* placeTokensSteps(m, ps);
+  yield* comboLayoutSteps(m, ps);
+}
+
+/**
+ * 上回合战况 → 叠层容错度（owner 2026-10-07）：轻松全收（没漏怪且过半干员存活）= 1，中庸 = 0.5，
+ * 吃紧（漏了怪）= 0，无数据（首回合 / 快照缺失）= 0.5。comboLayoutSteps 用它决定为特质叠层搬家时
+ * 可以容忍多少布阵价值损失——赢得轻松就多顾叠层，赢得吃劲就回归防守。快照由 Match.settle 记在
+ * `_lastRoundLeaked` / `_lastSurvivors` 上（纯读取，不消耗 rng）。
+ */
+/**
+ * A battle result's survivor snapshot of `ps`'s own fielded operators ({ total, alive }) — the count the prep-side
+ * layout reads (stackEaseOf) after every settle. null when the result carries no unit list or the player fielded
+ * nothing. Pure read of the result, consumes no rng.
+ */
+export function survivorSnapshot(r, ps) {
+  if (!r || !Array.isArray(r.unitsEnd) || !r.unitsEnd.length) return null;
+  const opUids = new Set([...ps.board.values()].filter((p) => p.kind === 'chess').map((p) => p.uid));
+  if (!opUids.size) return null;
+  let total = 0, alive = 0;
+  for (const u of r.unitsEnd) {
+    if (!u || !opUids.has(u.uid)) continue;
+    total++;
+    if (u.alive) alive++;
+  }
+  return total > 0 ? { total, alive } : null;
+}
+
+export function stackEaseOf(ps) {
+  if (!ps) return 0.5;
+  const leaked = ps._lastRoundLeaked;
+  const s = ps._lastSurvivors;
+  if (leaked == null && !s) return 0.5;
+  if (leaked > 0) return 0;
+  if (!s || s.total === 0) return 0.5;
+  return s.alive * 2 > s.total ? 1 : 0.5;
+}
+
+/** 每点组合价值（买入评分口径）可容忍的期望击杀损失，满容错时 = combo.value × 0.25。 */
+const STACK_TOL = 0.25;
+
+/**
+ * 这次要不要为组合搬家（comboLayoutSteps 的动态门）：未落座 → 最优合规摆法损失 ≤ ease×value×STACK_TOL 才叠
+ * （轻松全收时容得下为叠层付一点代价，吃紧时只接受不降值的摆法）；已落座 → 仅当增益 > 同一容差才挪窝
+ * （已合规的组合不为小利乱动）。best/before 同为曝光模型口径的布阵价值。
+ */
+export function stackTake(ease, comboValue, best, before, seated) {
+  const tol = ease * comboValue * STACK_TOL;
+  return seated ? best > before + tol : best >= before - tol;
+}
+
+/**
+ * 干员使用手册的站位执行（shared/operatorManual.js COMBOS；preset strategy personas only — the default
+ * weighted bot never re-arranges for traits）。After the combat layout is placed, nudge each live combo into its
+ * required shape: the follower moves to the tile directly behind its anchor (same row, facing RIGHT — the engine's
+ * 身前 = col + 1). A same-row-of-3 combo pulls the follower into the anchor's row.
+ * 落点选择（owner 2026-10-07）：满足组合形状的候选整对位置全部用曝光模型（Layout）打分，取布阵价值最高的
+ * 落点——塞雷娅可以继续站在路中间阻挡敌人，调香师挪到她身前即可，不必为叠层躲进没人经过的角落。
+ * 动态容差（stackEaseOf）：上回合轻松全收 → 允许为叠层牺牲一点布阵价值；上回合漏怪 → 只接受不降值的摆法。
+ * Combos apply in value order and lock their members: a follower shared by several combos (铃兰, 塞雷娅, 白面鸮)
+ * seats only for its best anchor, and no lower-value combo pulls an already-seated pair apart. Every step is a plain
+ * move / board swap (free in prep; a move onto its own tile is an in-place re-orientation); if a tile is unplaceable
+ * the combo is simply skipped — the rehearsed layout survives.
+ */
+export function* comboLayoutSteps(m, ps) {
+  if (policyApplies(m, ps) && m.botSkipCombos) return;
+  const per = personaOf(m, ps);
+  if (!per) return;
+  const gd = m.gd;
+  const boardChess = [...ps.board.values()].filter((p) => p.kind === 'chess');
+  if (boardChess.length < 2) return;
+  const byBase = new Map();
+  for (const p of boardChess) {
+    const b = gd.baseIdOf(p.id);
+    if (!byBase.has(b)) byBase.set(b, []);
+    byBase.get(b).push(p);
+  }
+  const loc = (uid) => {
+    const l = ps.find(uid);
+    if (!l || l.area !== 'board' || typeof l.key !== 'string') return null;
+    const [r, c] = parseKey(l.key);
+    return { r, c, piece: l.piece };
+  };
+  // 价值降序 + 成员锁定：一条组合成立（含本来就摆对的）后，它的成员不再被更低价值的组合拆走——铃兰/塞雷娅/
+  // 白面鸮这类一人配多名锚点的跟随者只落座最值钱的那一组；没摆成的组合不锁定成员，后面的组合仍可尝试。
+  const used = new Set();
+  const free = (list) => list.find((p) => !used.has(p.uid)) || null;
+  // —— 兼顾叠层与防守（owner 2026-10-07）：整对搬家候选不再按"离原位最近"排序，而是用曝光模型给每个
+  // 满足组合形状的整对位置打分，取布阵价值最高者；再按动态容差决定这次要不要为叠层付代价。
+  const ease = stackEaseOf(ps);
+  const model = fieldModel(m, ps);
+  const boardValue = (spots) => { // spots: Map uid → {r, c, dir}（虚拟摆位，其余干员维持现状）
+    const layout = new Layout(model, LAYOUT_PARAMS);
+    for (const p of boardChess) {
+      const l = ps.find(p.uid);
+      if (!l || l.area !== 'board' || typeof l.key !== 'string') continue;
+      const rec = rangeRec(ps, gd.chess(p.id));
+      if (!rec) continue;
+      const s = spots.get(p.uid);
+      const [r, c] = s ? [s.r, s.c] : parseKey(l.key);
+      layout.units.push(unitOf(rec, tileKey(r, c), r, c, s ? s.dir : pieceDir(l.piece), model));
+    }
+    return layout.value();
+  };
+  for (const combo of [...COMBOS].sort((a, b) => b.value - a.value)) {
+    const follower = free(byBase.get(combo.follower) || []);
+    if (!follower) continue;
+    // resolve the anchor: a literal chess id, or a tag (battleEngine / dpsFront / kjeragChess)
+    let anchor = null;
+    if (typeof combo.anchor === 'string' && combo.anchor.startsWith('chess_')) anchor = free(byBase.get(combo.anchor) || []);
+    else if (combo.anchor === 'battleEngine') anchor = free(ANCHOR_TAGS.battleEngine.map((id) => (byBase.get(id) || [])[0]).filter(Boolean));
+    else if (combo.anchor === 'kjeragChess') anchor = free(boardChess.filter((p) => KJERAG_CHESS.has(gd.baseIdOf(p.id))));
+    else if (combo.anchor === 'dpsFront') {
+      anchor = boardChess
+        .filter((p) => { const c = chessRec(m, p.id); return c && c.attackKind !== 'none' && !isHealer(c); })
+        .sort((a, b) => dpsOf(chessRec(m, b.id)) - dpsOf(chessRec(m, a.id)))
+        .find((p) => !used.has(p.uid)) || null;
+    }
+    if (!anchor || anchor.uid === follower.uid) continue;
+    const fa = loc(anchor.uid);
+    const ff = loc(follower.uid);
+    if (!fa || !ff) continue;
+    yield;
+    let ok = false;
+    if (combo.rel === 'followerBehindAnchor') {
+      // desired: follower at (r, c − 1) facing RIGHT — then its 身前 is the anchor's tile. Field tiles are not all
+      // deployable (enemy path columns have no class), so the pair may have to relocate; every compliant placement
+      // (the anchor's own tile included) is scored by the exposure model and the best-value one wins — the pair
+      // keeps blocking the road whenever some compliant placement lets it (塞雷娅 on the line, 调香师 in front).
+      const seated = ff.r === fa.r && ff.c === fa.c - 1 && pieceDir(ff.piece) === 'RIGHT';
+      {
+        const seatFollowerBehind = (ar, ac, _adir) => {
+          const c = ac - 1;
+          if (c < FIELD.c0) return false;
+          const occ = ps.board.get(tileKey(ar, c));
+          // an empty seat, or the follower already standing on it (a move onto its own tile is an in-place re-orient)
+          if (!occ || occ.uid === follower.uid) return tryDo(() => ps.move(follower.uid, { area: 'board', row: ar, col: c }, 'RIGHT'));
+          if (occ.kind !== 'chess') return false;
+          const [or, oc] = [ff.r, ff.c];
+          if (!tryDo(() => ps.move(follower.uid, { area: 'board', row: ar, col: c }, 'RIGHT'))) return false;
+          tryDo(() => ps.move(occ.uid, { area: 'board', row: or, col: oc }));
+          return true;
+        };
+        const fPos = positionClass(chessRec(m, follower.id));
+        const aPos = positionClass(chessRec(m, anchor.id));
+        const fMap = ps.deployMap();
+        const adir = pieceDir(fa.piece) || 'RIGHT';
+        const before = boardValue(new Map());
+        const dirOf = (uid) => { const l = loc(uid); return (l && pieceDir(l.piece)) || 'RIGHT'; };
+        const est = (r, c) => { // expected layout value with the pair seated at (r, c) / (r, c − 1)
+          const spots = new Map([[follower.uid, { r, c: c - 1, dir: 'RIGHT' }], [anchor.uid, { r, c, dir: adir }]]);
+          const occA = ps.board.get(tileKey(r, c));
+          if (occA && occA.uid !== anchor.uid && occA.uid !== follower.uid && occA.kind === 'chess') spots.set(occA.uid, { r: fa.r, c: fa.c, dir: dirOf(occA.uid) });
+          const occF = ps.board.get(tileKey(r, c - 1));
+          if (occF && occF.uid !== follower.uid && occF.uid !== anchor.uid && occF.kind === 'chess') spots.set(occF.uid, { r: ff.r, c: ff.c, dir: dirOf(occF.uid) });
+          return boardValue(spots);
+        };
+        // 候选按 (价值 − 微小的移动距离惩罚) 排序：价值几乎并驾齐驱时留在原地，避免无谓搬家
+        const cands = legalTiles(fMap, aPos)
+          .filter(([r, c]) => canPlace(fMap, fPos, r, c - 1))
+          .map(([r, c]) => { const d = Math.abs(r - fa.r) + Math.abs(c - fa.c); return { r, c, d, s: est(r, c) - 0.01 * d }; })
+          .sort((a, b) => b.s - a.s);
+        // 动态容差（stackEaseOf / stackTake）：轻松全收时允许为叠层损失 ease × combo.value × STACK_TOL 的
+        // 期望击杀；吃紧（上回合漏怪）时只接受不降值的摆法。已落座的组合仅在明显更优时才搬家。
+        const take = cands.length > 0 && stackTake(ease, combo.value, cands[0].s, before, seated);
+        if (!take && seated) ok = true;
+        if (!take) continue;
+        for (const { r, c } of cands.slice(0, 6)) {
+          if (r === fa.r && c === fa.c) { if (seatFollowerBehind(r, c, adir)) { ok = true; break; } continue; }
+          const anchorOcc = ps.board.get(tileKey(r, c));
+          const followerTileFree = !ps.board.get(tileKey(r, c - 1));
+          if (anchorOcc && (anchorOcc.kind !== 'chess' || anchorOcc.uid === follower.uid)) continue;
+          if (!anchorOcc && !followerTileFree) {
+            // the follower itself blocks the seat: seat it first, then the anchor
+            if (!tryDo(() => ps.move(follower.uid, { area: 'board', row: r, col: c - 1 }, 'RIGHT'))) continue;
+            if (tryDo(() => ps.move(anchor.uid, { area: 'board', row: r, col: c }, adir))) { ok = true; break; }
+            continue;
+          }
+          if (anchorOcc) {
+            // swap the anchor in; the displaced piece takes the anchor's old tile
+            const [ar, ac] = [fa.r, fa.c];
+            if (!tryDo(() => ps.move(anchor.uid, { area: 'board', row: r, col: c }, adir))) continue;
+            tryDo(() => ps.move(anchorOcc.uid, { area: 'board', row: ar, col: ac }));
+            if (seatFollowerBehind(r, c, adir)) { ok = true; break; }
+          } else if (tryDo(() => ps.move(anchor.uid, { area: 'board', row: r, col: c }, adir))) {
+            if (seatFollowerBehind(r, c, adir)) { ok = true; break; }
+          }
+        }
+        // seated pairs whose relocation attempt failed keep their (already compliant) seat
+        if (seated && !ok) { const l2 = loc(follower.uid); if (l2 && l2.r === fa.r && l2.c === fa.c - 1) ok = true; }
+      }
+    } else if (combo.rel === 'sameRow3') {
+      if (ff.r === fa.r) ok = true; // already in the anchor's row
+      else {
+        // pull the follower into the anchor's row (a free tile only — never break the anchor line)
+        for (let c = FIELD.c0; c <= FIELD.c1; c++) {
+          if (ps.board.has(tileKey(fa.r, c))) continue;
+          if (tryDo(() => ps.move(follower.uid, { area: 'board', row: fa.r, col: c }, 'RIGHT'))) { ok = true; break; }
+        }
+      }
+    }
+    if (ok) { used.add(follower.uid); used.add(anchor.uid); }
+  }
 }
 
 /** Board summons back to their hand stacks (or a free hand slot). */
@@ -1730,6 +2508,52 @@ const itemEffect = (rec) => (rec && Array.isArray(rec.buffs) && rec.buffs[0] && 
 const isMutationCell = (gd, itemId) => itemEffect(gd.item(itemId)) === 'char_chess_transformation_equip';
 
 /**
+ * Whether the round's wave (the enemy preview the prep plans against — boss fields included) holds a 折射 enemy (its
+ * ability text; the trait the 奥术法阵's silence attachment switches off).
+ */
+function waveHasRefraction(m, ps) {
+  const wave = m.wave || (bossWaveOf(m, ps) && bossWaveOf(m, ps).wave);
+  const spawns = wave && Array.isArray(wave.spawns) ? wave.spawns : [];
+  for (const s of spawns) {
+    const e = m.gd.enemy(s.enemyKey);
+    if (e && Array.isArray(e.abilities) && e.abilities.some((a) => a && (a.text === '折射' || String(a.textRaw || '').includes('refraction')))) return true;
+  }
+  return false;
+}
+
+// Offline candidate: public faction pools can justify keeping a counter before its first wave appears.
+function publicRefraction(m) {
+  return (m.factions || []).some((f) => (m.gd.factions.types?.[f]?.pool || []).some((id) => {
+    const e = m.gd.enemy(id), bb = e?.talents?.bb || {};
+    return !e?.stats?.immunities?.silence && Number(bb['refracting.magic_resistance'] ?? bb['Refracting.magic_resistance']) > 0;
+  }));
+}
+
+/**
+ * A preset strategy's equipment whitelist (persona.items, shared/botPersonas.js): `econKeys` = economy item buff keys
+ * bought; `allow` = base item ids always bought; `conditional` = only while `when` holds ('refraction' = the round's
+ * wave has a 折射 enemy). The two modes stack — an item passes on either list (陈: economy keys + 坚守盾牌). Golden
+ * variants count as their base. null persona: everything.
+ */
+export function personaAllowsItem(m, ps, itemId) {
+  const per = personaOf(m, ps);
+  if (!per || !per.items) return true;
+  const rec = m.gd.item(itemId);
+  if (!rec) return false;
+  const buffs = Array.isArray(rec.buffs) ? rec.buffs : [];
+  if (Array.isArray(per.items.econKeys) && buffs.some((b) => b && per.items.econKeys.includes(b.key))) return true;
+  if (Array.isArray(per.items.allow)) {
+    const base = m.gd.baseIdOf(itemId);
+    if (per.items.allow.includes(base)) return true;
+    const cond = (Array.isArray(per.items.conditional) ? per.items.conditional : []).find((c) => c && c.id === base);
+    if (cond && (cond.when !== 'refraction' || waveHasRefraction(m, ps)
+      || (m.botCounterEquipment?.early && publicRefraction(m)))) return true;
+  }
+  if (Array.isArray(per.items.econKeys) || Array.isArray(per.items.allow)) return false;
+  return true;
+}
+
+/**
  * Whom the bot injects with 突变细胞 (after the battle its carrier — deployed or on the bench: every owned carrier's item
  * hooks run — is destroyed and a random operator one tier higher joins the bench, PlayerState.transformChess; the next
  * prep's lineup step deploys it like any owned unit, so a deployed carrier only costs a re-placement): the least
@@ -1792,7 +2616,12 @@ export function itemTarget(m, ps, item, ctx = context(m, ps)) {
     case 'use_equip_reward_char_chess': {
       // with 2 copies owned and none left in the pool the item gives nothing (GitHub #207): such a pair is no carrier
       const counts = copyCounts(m, ps);
-      const live = (base) => { const pool = typeof ps.poolOf === 'function' ? ps.poolOf(base) : m.pool; return pool.left(base) > 0 || !pool.has(base); };
+      const shared = botPool(m, ps);
+      const live = (base) => {
+        const own = typeof ps.poolOf === 'function' ? ps.poolOf(base) : m.pool;
+        const pool = own === m.pool ? shared : own; // Own DIY stock is known to this player.
+        return pool.left(base) > 0 || !pool.has(base);
+      };
       const dead = (p) => (counts.get(gd.baseIdOf(p.id)) || 0) >= 2 && !live(gd.baseIdOf(p.id));
       const pair = owned.filter((p) => normal(p) && !dead(p) && (counts.get(gd.baseIdOf(p.id)) || 0) + 1 >= mergeNeed(m, gd.baseIdOf(p.id)))
         .sort((a, b) => (chessRec(m, b.id, ps)?.tier || 0) - (chessRec(m, a.id, ps)?.tier || 0) || a.uid - b.uid);
@@ -1822,8 +2651,57 @@ export function itemTarget(m, ps, item, ctx = context(m, ps)) {
     const member = list.find((p) => free(p) && (chessRec(m, p.id, ps)?.bonds || []).includes(rec.requiresBondId));
     if (member) return member;
   }
+  if (m.botCounterEquipment?.routes && ctx.build && rec.params?.silence > 0) {
+    const model = fieldModel(m, ps), tiles = new Map([...ps.board].map(([k, p]) => [p.uid, k]));
+    const carriers = list.map((p) => {
+      const c = rangeRec(ps, chessRec(m, p.id, ps)), k = tiles.get(p.uid);
+      if (!k || !c || isHealer(c) || c.attackKind === 'none') return null;
+      const [r, col] = parseKey(k), u = unitOf(c, k, r, col, pieceDir(p), model);
+      const intrinsic = combatValue(ctx.build, c)?.silence || 0;
+      const equipped = (p.items || []).some((it) => gd.item(it.id)?.params?.silence > 0);
+      return { p, c, u, silence: equipped ? 1 : intrinsic };
+    }).filter(Boolean);
+    const score = ({ c, u, silence }) => {
+      let total = 0;
+      for (const route of model.routes) {
+        if (route.fly && !u.air) continue;
+        let exposed = 0;
+        for (const tile of route.tiles) if (u.cover.has(tile)) {
+          const existing = carriers.reduce((v, other) => Math.max(v,
+            (!route.fly || other.u.air) && other.u.cover.has(tile) ? other.silence : 0), 0);
+          exposed += 1 - existing;
+        }
+        total += (route.n || 1) * exposed / Math.max(1, route.tiles.length);
+      }
+      return total * (1 - silence) * Math.min(1, rec.params.silence / Math.max(.2, c.stats.bat))
+        * Math.min(2, crowdOf(c));
+    };
+    const candidates = carriers.filter(({ p }) => free(p));
+    candidates.sort((a, b) => score(b) - score(a) || a.p.uid - b.p.uid);
+    if (candidates.length) return candidates[0].p;
+  }
+  // a preset strategy's carrier rules (persona.items.carrier): 坚守盾牌 on a 重装 (TANK) first, 奥术法阵 on the
+  // strongest 群攻 dealer (crowdOf: 阵法/轰击术师, splash / chain)
+  const per = personaOf(m, ps);
+  const carrierRule = per && per.items && per.items.carrier ? per.items.carrier[gd.baseIdOf(item.id)] : null;
+  if (carrierRule === 'TANK') {
+    const tank = list.find((p) => free(p) && chessRec(m, p.id)?.profession === 'TANK');
+    if (tank) return tank;
+  } else if (carrierRule === 'AOE') {
+    const dealerFn = (p) => { const c = chessRec(m, p.id); return c && !isHealer(c) && c.attackKind !== 'none' && crowdOf(c) > 1; };
+    const aoe = list.filter((p) => free(p) && dealerFn(p)).sort((a, b) => crowdOf(chessRec(m, b.id)) - crowdOf(chessRec(m, a.id)) || a.uid - b.uid);
+    if (aoe.length) return aoe[0];
+  }
   // damage dealers carry equipment first (healers / non-attackers last); survival items on blockers first
   const dealer = (p) => { const c = chessRec(m, p.id, ps); return c && !isHealer(c) && c.attackKind !== 'none'; };
+  if (ctx.build?.policy.team && rec.params?.silence > 0) {
+    const candidates = list.filter((p) => free(p) && dealer(p));
+    // A frequent attacker spreads reliable silence; already-silencing carriers waste this utility.
+    const uptime = (p) => { const c = chessRec(m, p.id, ps), v = combatValue(ctx.build, c);
+      return (1 - (v?.silence || 0)) * Math.min(1, rec.params.silence / Math.max(0.2, c.stats.bat)) + (c.canHitFly ? 0.1 : 0); };
+    candidates.sort((a, b) => uptime(b) - uptime(a) || a.uid - b.uid);
+    if (candidates.length) return candidates[0];
+  }
   const blocker = (p) => isBlocker(chessRec(m, p.id, ps));
   const order = rec.category === 'SURVIVAL'
     ? [...list.filter(blocker), ...list.filter((p) => !blocker(p) && dealer(p)), ...list.filter((p) => !blocker(p) && !dealer(p))]
@@ -1874,6 +2752,12 @@ function equipItems(m, ps) {
     const ctx = context(m, ps);
     const rec = gd.item(item.id);
     if (rec && rec.itemType === 'MAGIC') { useArt(m, ps, item, ctx); continue; }
+    // a preset strategy never equips (nor keeps) an item outside its whitelist: destroyed at once (盟约之币-style
+    // items pay out on destroy; the whitelist already gated every purchase, this only catches reward leftovers)
+    if (rec && !personaAllowsItem(m, ps, item.id)) {
+      if (ps.isBot && !ps.autoplay) tryDo(() => ps.destroy(item.uid));
+      continue;
+    }
     const target = itemTarget(m, ps, item, ctx);
     if (!target) continue;
     tryDo(() => ps.equip(item.uid, target.uid));
@@ -1910,6 +2794,16 @@ function resolveTemp(m, ps) {
     if (!p) continue;
     const idx = freeSlot(ps.hand); // (a recompute pulls it in; a state set up without one)
     if (idx >= 0 && tryDo(() => ps.move(p.uid, { area: 'hand', idx }))) continue;
+    if (!m.botLegacyParity && p.kind === 'token') {
+      const stack = ps.hand.findIndex(x => x?.kind === 'token' && x.ownerUid === p.ownerUid && x.id === p.id);
+      if (stack >= 0 && tryDo(() => ps.move(p.uid, { area: 'hand', idx: stack }))) continue;
+      // Sacrifice a legal bench card/item to store the summon, just as a player can.
+      // If no such action succeeds, remain unready until the real preparation deadline.
+      if (makeHandRoom(m, ps, p) && ps.temp.includes(p)) {
+        const j = freeSlot(ps.hand);
+        if (j >= 0) tryDo(() => ps.move(p.uid, { area: 'hand', idx: j }));
+      }
+    }
     if (p.kind === 'chess') {
       if (!sellWeakestHand(m, ps)) tryDo(() => ps.sell(p.uid));
     } else if (p.kind === 'item') {
@@ -1923,13 +2817,12 @@ function resolveTemp(m, ps) {
       tryDo(() => ps.destroy(p.uid));
     }
   }
-  // anything left (e.g. sells failed): final sweep — tokens cannot be sold, they are dropped with the temp slot (and
-  // come back at the next round start, PlayerState.startRound)
+  // Final legal sweep. Unresolved summons are retained; deadline cleanup belongs to MatchPrep.
   for (let i = 0; i < ps.temp.length; i++) {
     const p = ps.temp[i];
     if (!p) continue;
     if (p.kind === 'chess') tryDo(() => ps.sell(p.uid));
     else if (p.kind === 'item') tryDo(() => ps.destroy(p.uid));
   }
-  if (!ps.tempEmpty) ps.resolveTemp();
+  if (m.botLegacyParity && !ps.tempEmpty) ps.resolveTemp();
 }

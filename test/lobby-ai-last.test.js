@@ -120,6 +120,7 @@ describe('room.setAiPicksLast (lobby)', () => {
     await guest.waitFor('room.state', (s) => s.inMatch && s.aiPicksLast === true);
     assert.equal(started.length, n + 1);
     assert.equal(started[n].aiPicksLast, true, 'opts.aiPicksLast');
+    assert.equal(started[n].botIndividualPolicy, process.env.SP_BOT_POLICY || 'terrain-parity-v12', 'selected AI reaches the Match entry point');
     await err(host, { t: 'room.setAiPicksLast', on: false }, ERR.ROOM_STARTED);
     await err(guest, { t: 'room.setAiPicksLast', on: false }, ERR.NOT_HOST);
     // the stub match ends once every human confirmed the briefing → back in the lobby with the option kept

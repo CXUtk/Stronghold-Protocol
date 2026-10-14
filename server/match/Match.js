@@ -13,6 +13,7 @@
 //   opts.difficulty  'FUNNY'|'NORMAL'|'HARD'|'ABYSS'
 //   opts.modeId      string                     modeIdFor(mode, difficulty), e.g. 'mode_multi_hard'
 //   opts.activeBondShopBoost boolean (optional) local opt-in: active-alliance shop cards have 1.2x weight, off by default
+//   opts.botIndividualPolicy string (optional) local selected AI strategy: terrain-parity-v12 or off; four-seat ABYSS only
 //   opts.aiPicksLast boolean (optional)         the co-op room option 「AI 队友最后选择」 (room.setAiPicksLast, GitHub #338):
 //                                              the strategy and 机变 drafts put every human seat before every AI seat
 //                                              (MatchPhases.humansFirst); only `true` turns it on; ignored in solo
@@ -178,6 +179,9 @@ import { Battle } from '../sim/Battle.js';
 import { DataSource } from '../sim/simdata.js';
 import { createRng, deriveSeed } from '../sim/rng.js';
 import { GameData } from './gamedata.js';
+import { configureIndividualBot } from './bot-individual.js';
+import { SUPPORT_POLICIES } from './bot-support.js';
+import { MEDICAL_POLICIES } from './bot-medical.js';
 import { RealScheduler } from './scheduler.js';
 import { SharedPool, SharedItemPool, drawDisabledBonds } from './pool.js';
 import { PlayerState } from './PlayerState.js';
@@ -259,6 +263,12 @@ export class Match {
     this.gameSpeed = Number.isFinite(opts.combatSpeed) && opts.combatSpeed > 0 ? Math.min(opts.combatSpeed, 200) : GAME_SPEED;
     /** layouts a bot rehearses per prep with the real simulation (bot.js; 0 = heuristic placement only) */
     this.botRehearsal = Number.isInteger(opts.botRehearsal) && opts.botRehearsal >= 0 ? Math.min(opts.botRehearsal, 8) : BOT_REHEARSAL_DEFAULT;
+    /** opt-in 2H2AI ABYSS support experiment; empty by default */
+    this.botSupportPolicy = opts.botSupportPolicy ?? env('SP_BOT_SUPPORT_POLICY') ?? '';
+    if (!SUPPORT_POLICIES.includes(this.botSupportPolicy)) throw new Error('Unknown bot support policy');
+    /** separate opt-in buying / lineup experiment; no draft or shop-level change */
+    this.botMedicalPolicy = opts.botMedicalPolicy ?? '';
+    if (!Object.hasOwn(MEDICAL_POLICIES, this.botMedicalPolicy)) throw new Error('Unknown bot medical policy');
     /** wall-clock budget of one rehearsal slice (scheduleBotPrep) */
     this.botSliceMs = Number.isFinite(opts.botSliceMs) && opts.botSliceMs > 0 ? opts.botSliceMs : this.sched.virtual ? Infinity : BOT_SLICE_MS;
     this.ds = dataSourceFor(this.data);
@@ -400,6 +410,7 @@ export class Match {
     this.hiddenReached = false;
     this.outcome = null;
     this._turnToken = 0;
+    configureIndividualBot(this, opts.botIndividualPolicy, opts.botRehearsal);
   }
 }
 

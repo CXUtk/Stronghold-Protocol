@@ -756,6 +756,8 @@ export class Lobby {
         mode: room.mode,
         difficulty: room.difficulty,
         modeId: modeIdFor(room.mode, room.difficulty),
+        // Local selected AI strategy; Match scopes it to four-seat ABYSS. Set SP_BOT_POLICY=off to opt out.
+        botIndividualPolicy: process.env.SP_BOT_POLICY || 'terrain-parity-v12',
         // 「AI 队友最后选择」 (GitHub #338): fixed for the match
         aiPicksLast: room.mode !== 'solo' && room.aiPicksLast === true,
         activeBondShopBoost: room.activeBondShopBoost === true,

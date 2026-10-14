@@ -4,7 +4,7 @@
 // Installed on Match.prototype by server/match/Match.js (a method container: never instantiated; `this` is the match).
 
 import { PHASE } from '../../../shared/constants.js';
-import { botPrepBeginSteps, botPrepEndSteps } from '../bot.js';
+import { botPrepBeginSteps, botPrepEndSteps, finishBotPreparation } from '../bot.js';
 import { DELAYS } from './common.js';
 
 export class MatchPrep {
@@ -62,6 +62,7 @@ export class MatchPrep {
     };
     const ready = () => {
       if (!ps.ready) {
+        if (!this.botLegacyParity) { finishBotPreparation(this, ps, { choiceMode: 'random' }); return; }
         this.autoPickPersonalChoice(ps, 'random');
         ps.resolveTemp();
         ps.setReady(true);

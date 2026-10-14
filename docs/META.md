@@ -1,5 +1,35 @@
 # META.md — match & meta engine (server/match)
 
+Experimental AI branch: the foundation evaluation ports supported guard and medic placement, hand-capacity-aware
+purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsals isolate state and never settle
+results; optional local carry/terrain scoring remains independent. See `tools/botbench/README.md` for frozen inputs,
+source snapshots and cross-revision comparison.
+
+The local lobby selects `terrain-parity-v12` through `opts.botIndividualPolicy` for four-player ABYSS rooms with
+one to three AI seats. `SP_BOT_POLICY=off` disables that selection; direct Match callers keep the default unless
+they explicitly pass the option. `bot-individual.js` installs the measured capability table, tanks build scoring,
+up to eight rehearsed layouts (three independent samples each), retained-layout candidates, carry scoring and the
+disabled legacy combo placement. `bot-tactical.js` is shared with the offline evaluator, without recording production
+diagnostic snapshots. AI drafts prefer free Russell, Touch, then Amiya bands, reserving other players' draft focus;
+the persona follows the actual assigned band. Unavailable fallback bands use ordinary draft selection. Native policy
+layout overrides do not apply to human autoplay. Capability entries are measured scoring hints, never battle stats.
+The evidence is a controlled population comparison through round 11, not guaranteed perfect play in every room.
+
+Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
+
+The offline `botProjectPrepEnd` flag forks preparation state for each candidate, applies its legal placement,
+runs every alive seat's `onPrepEnd`, then every player's cleanup and the ordered normal-battle-start hooks.
+Inventories, stocks, counters and RNG streams are private to the fork; callbacks and live timers are not retained.
+Only immutable data/handler definitions are shared. This projects ending prep now, not future teammate actions.
+The frozen comparison policies retain their original rehearsal path via the offline-only `botLegacyParity` flag.
+The experimental branch's default now includes the same legal bot preparation tail (temporary row, hand room,
+personal choice and Ready) in both projection and execution. A failed reward remains at the head of its queue;
+unresolved summons cannot be removed by AI-only deadline cleanup. The scheduler fallback obeys the same rules.
+Shared-stock scoring estimates copies from public capacities and scouted normal/elite cards, excluding hidden
+`left` and `poolCopies` accounting. This is an estimate: gifts and unknown card history can differ from actual stock.
+Candidate projections replace formal seed/RNG streams with independent samples, use estimated shared stock and
+omit teammates' private shop/reward slots. Exact-seed projection remains a diagnostic API, not the default selector.
+
 Audience: **content authors** writing prep-side ("SERVER_*") effects in `server/sim/content/*.js → registerMeta(registry)`,
 the **UI owner** consuming `m.public` / `m.private` / `m.result`, and anyone driving matches in tests or tools.
 Normative contracts stay in DESIGN.md §6 and §8 ([design/match.md](design/match.md),
@@ -290,11 +320,28 @@ report #9 after 0.1.0), and a tile the server's `g.move` refuses is skipped for 
 rounds: the player's boss-field template (`Match.bossWaves`) is mapped onto the own board (rows −7, the right player
 of a pair mirrored, only the routes that end on its half) and the leader counts as 10 tough enemies with a 30 s dwell
 on its first tiles, so the damage dealers reach stationary leaders.
+**Experimental cooperative support:** `opts.botSupportPolicy` / `SP_BOT_SUPPORT_POLICY` is empty by default.
+Offline build experiments can additionally inject `botBuildPolicy` and `botCombatAtlas` to use real-kit capability
+measurements in buy/bench/lineup/item scoring; `opts.botMedicalPolicy` is a separate, default-empty medical ablation.
+Offline tactical experiments can inject `botLayoutAdjustment` / `botRehearsalScore` callbacks to add a terrain proposal
+or compare remaining helper health. Their tool wrapper supplies public teammate context and optional trial-only
+layer growth. These have no server/environment defaults and never settle rehearsal gains into the actual match.
+Both are restricted to actual 2H2AI ABYSS through round 11 (medical starts at round 3). They are decision heuristics,
+not game rules, and are not enabled by normal matches. Definitions, limitations and paired validation are in
+[`tools/botbench/README.md`](../tools/botbench/README.md#capability-driven-build-experiments).
+In four-seat ABYSS with exactly two actual AI seats, `team-medic` prefers an available 阿米娅 (otherwise 罗素) + Touch
+pair, falling back to the original picker when the required bands are taken. `team-medic-core` also keeps the anchor
+AI at shop level 3 through round 11 and tries 5 layouts for both AI seats when rehearsal is enabled and the pair was
+actually selected. Ordinary upgrading/rehearsal limits resume in round 12; prior choices persist. Human autoplay,
+other modes and other seat mixes use the original policy. This is an opt-in bot-decision experiment, not a rule
+change or a claim about later rounds. See [the controlled support benchmark](../tools/botbench/README.md).
+
 **Rehearsal:** with `opts.botRehearsal = N` (default 3) the bot simulates the N best
-distinct layout variants once each with the real `Battle` (a rehearsal seed, no meta dispatch, board restored exactly)
-and keeps the one with the fewest leaks; a candidate whose counted leaks already exceed the best finished one's stops
-early. A candidate is a whole battle — ≈ 20–300 ms of CPU (late rounds, 4 bots: 0.2–1 s per bot prep, about twice the
-CPU of the real battles), so it never runs in one go on a real server: `Match.scheduleBotPrep` runs `botPrepBegin`
+distinct layout variants with the real `Battle`. On this experimental branch, each candidate uses three common
+independent samples derived from public stage/round/seat and sample index, and is ranked by mean score. A partial
+or failed sample group cannot win. Single-sample leak pruning applies only to the frozen historical path, since an
+unlucky sample cannot eliminate a candidate scored by its mean. Sampling increases CPU work; measure current prep
+latency before enabling it on a server. `Match.scheduleBotPrep` runs `botPrepBegin`
 (economy + the default layout on the board), then steps the rehearsal in slices of ≤ `opts.botSliceMs` (default 8 ms of
 wall clock, checked every 4 ticks; one scheduler callback each, so other rooms' battles and every request keep
 flowing), then `botPrepEnd` (the rehearsed layout when it won, temp, Ready). The prep ending first drops the job (the

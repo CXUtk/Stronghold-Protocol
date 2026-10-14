@@ -8,7 +8,7 @@ import { PHASE, ERR } from '../../../shared/constants.js';
 import { buildNormalWave, buildBossWave } from '../waves.js';
 import { pairPlayers } from '../finalAssault.js';
 import { createRng, deriveSeed } from '../../sim/rng.js';
-import { botPickBand } from '../bot.js';
+import { botPickBand, botDefersBand, bindIndividualPersona } from '../bot.js';
 import { OK, fail, DELAYS, BAND_TURN_SECONDS } from './common.js';
 
 export class MatchPhases {
@@ -122,6 +122,17 @@ export class MatchPhases {
       if (this.phase !== PHASE.BAND_DRAFT || token !== this._turnToken) return;
       const ps = this.players.get(this.draftTurn());
       if (!ps || !ps.botControlled) return;
+      // 随机应变 defers to the humans (owner 2026-10-07): while any human seat hasn't picked, the bot moves to the
+      // back of the order (a free reorder — no skip quota spent) so the humans keep the free choice and its one-time
+      // resolve sees every human's band; when only bots remain (or the bot is the last unpicked) it picks at once
+      const d = this.draft;
+      if (botDefersBand(ps) && d.order.length - d.idx > 1
+        && this.order.some((p) => !p.isBot && !d.picks[p.playerId])) {
+        d.order.splice(d.idx, 1);
+        d.order.push(ps.playerId);
+        this.startDraftTurn();
+        return;
+      }
       // a strategy a teammate already took is not selectable (队友已选): the bot re-draws, else the first free one
       let id = botPickBand(this, ps);
       for (let k = 0; k < 8 && this.bandTaken(id, ps.playerId); k++) id = botPickBand(this, ps);
@@ -199,6 +210,7 @@ export class MatchPhases {
     if (dedupe && this.bandTaken(id, ps.playerId)) id = this.gd.bandIds().find((b) => !this.bandTaken(b, ps.playerId)) || id;
     d.picks[ps.playerId] = id;
     ps.bandId = id;
+    bindIndividualPersona(this, ps);
     ps.lp = this.gd.startLp(id);
     this.markPrivate(ps);
     this.markPublic();
@@ -239,6 +251,7 @@ export class MatchPhases {
         const id = this.defaultBand(ps.playerId);
         this.draft.picks[ps.playerId] = id;
         ps.bandId = id;
+        bindIndividualPersona(this, ps);
         ps.lp = this.gd.startLp(id);
       }
       this.markPrivate(ps);
