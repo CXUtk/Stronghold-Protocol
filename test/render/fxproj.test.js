@@ -162,25 +162,50 @@ describe('shots', () => {
     const a = unit(1, 3, 10), b = unit(2, 6, 10, { isEnemy: true }), c = unit(3, 6, 9, { isEnemy: true });
     const { fx } = makeFx({ views: [a, b, c] });
     a.dir = 'RIGHT';
-    fx.attack(a, b, 'arrow', 2, 'shotgunWave', 1.5);
+    a.info.defId = 'chess_char_2_01_a'; // 送葬人
+    const random = Math.random;
+    try {
+      Math.random = () => 0.5;
+      fx.attack(a, b, 'arrow', 2, 'shotgunWave', 1.5);
+    } finally { Math.random = random; }
     fx.attack(a, c, 'arrow', 2, 'shotgunWaveSkip');
     assert.equal(fx.projs.length, 0);
     assert.equal(fx.shotgunWaves.length, 1);
     const wave = fx.shotgunWaves[0];
-    fx.attack(a, c, 'arrow', 1, 'shotgunWave', 3.5);
+    assert.equal(wave.pellets.length, 5, 'Executor gets five cosmetic pellet streaks');
+    assert.ok(wave.pellets.every(p => p.angle === wave.angle), 'angles are sampled independently rather than forced into evenly spaced slots');
+    assert.ok(wave.pellets.every(p => Math.abs(p.angle - wave.angle) <= 0.52 && p.reach < 1 && p.start < 0.22 && p.duration <= 0.8),
+      'each pellet stays within the facing fan and attack reach');
+    assert.ok(wave.pellets[0].size > 1.45 && wave.pellets.slice(1, 3).every(p => p.size >= 0.75) &&
+      wave.pellets.slice(3).every(p => p.size < 0.6), 'one large, two medium and two small pellets');
+    assert.ok(wave.pellets[0].length >= 1.25 && wave.pellets.slice(3).every(p => p.length < 0.7));
+    const pelletAngles = wave.pellets.map(p => p.angle);
+    try {
+      const sequence = [0, 0.25, 0.5, 0.75, 0.99];
+      let index = 0;
+      Math.random = () => sequence[index++ % sequence.length];
+      fx.attack(a, c, 'arrow', 1, 'shotgunWave', 3.5);
+    } finally { Math.random = random; }
     assert.equal(fx.shotgunWaves[1].angle, wave.angle, 'a side target cannot steer the wave');
     assert.ok(fx.shotgunWaves[1].range > wave.range * 1.8, 'longer range extends the wave');
+    assert.ok(new Set(fx.shotgunWaves[1].pellets.map(p => p.start)).size > 1, 'pellets do not appear in lockstep');
+    assert.ok(new Set(fx.shotgunWaves[1].pellets.map(p => p.offset)).size > 1, 'pellets do not share a rigid muzzle origin');
     a.dir = 'UP';
     fx.attack(a, b, 'arrow', 1, 'shotgunWave', 1.5);
     assert.ok(Math.abs(fx.shotgunWaves[2].angle - wave.angle) > 0.3, 'turning the operator rotates the wave');
     assert.equal(fx.projs.length, 0);
     fx.update(0.04);
+    assert.deepEqual(wave.pellets.map(p => p.angle), pelletAngles, 'the sampled directions do not jitter between frames');
     const earlyRadius = wave.range * (0.07 + 0.93 * (1 - (1 - wave.t / wave.dur) ** 2));
     fx.update(0.04);
     const lateRadius = wave.range * (0.07 + 0.93 * (1 - (1 - wave.t / wave.dur) ** 2));
     assert.ok(lateRadius > earlyRadius, 'the light front spreads outward');
     run(fx, 0.2);
     assert.equal(fx.shotgunWaves.length, 0, 'the wave clears quickly');
+    fx.clear();
+    a.info.defId = 'chess_char_3_10_a'; // 松果 keeps the plain wave
+    fx.attack(a, b, 'arrow', 1, 'shotgunWave', 1.5);
+    assert.equal(fx.shotgunWaves[0].pellets.length, 0);
     fx.clear();
     fx.attack(a, b, 'arrow');
     assert.equal(fx.projs.length, 1, 'ordinary archers still launch arrows');

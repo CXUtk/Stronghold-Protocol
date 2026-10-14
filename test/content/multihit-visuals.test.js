@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeBattle, enemyRec } from '../helpers/battleHarness.js';
+import { makeBattle, enemyRec, chessRec } from '../helpers/battleHarness.js';
 
 const cases = [
   ['chess_char_2_01', 1, 'arrow', 2], // 送葬人 S2
@@ -81,4 +81,38 @@ test('松果 S2 shortened attack range also shortens the visual wave', () => {
   const skillShot = h.eventsOf('atk').slice(before).find(e => e[1] === u.id);
   assert.equal(skillShot?.[5], 'shotgunWave');
   assert.equal(skillShot?.[6], 1.5, 'the active one-tile range replaces the normal two-tile reach');
+});
+
+test('a generic scattershooter hits multiple targets without inheriting the referenced operators\' wave', () => {
+  const id = 't_scatter';
+  const h = makeBattle({
+    defs: { chess: { [id]: chessRec({ id, profession: 'SNIPER', subProfessionId: 'reaperrange',
+      rangeGrid: [[0, 0], [0, 1], [0, 2], [1, 2]], skill: null }) },
+    enemies: { dummy: enemyRec({ key: 'dummy', hp: 1e8, speed: 0 }) } },
+    units: [{ chessId: id, row: 10, col: 3 }],
+    enemies: [{ key: 'dummy', pos: [10, 5] }, { key: 'dummy', pos: [11, 5] }], timeLimit: 10,
+  });
+  h.step();
+  const attacks = h.eventsOf('atk').filter((e) => e[1] === h.unit(id).id);
+  assert.equal(attacks.length, 2);
+  assert.ok(attacks.every((e) => e[5] === undefined), 'the shared profession retains ordinary per-target visuals');
+});
+
+test('Ch\'en the Holungday keeps her existing effects in normal attacks and all three skills', () => {
+  for (const skillIndex of [0, 1, 2]) for (const elite of [false, true]) {
+    const h = makeBattle({
+      defs: { enemies: { dummy: enemyRec({ key: 'dummy', hp: 1e8, speed: 0 }) } },
+      units: [{ uid: 1, diy: { slot: 'chess_char_6_diy1_a', charId: 'char_1013_chen2', skillIndex }, elite, row: 10, col: 3 }],
+      enemies: [{ key: 'dummy', pos: [10, 5] }, { key: 'dummy', pos: [9, 5] }], timeLimit: 10,
+    });
+    const u = h.unit(1);
+    h.step();
+    assert.ok(u.skill.activate('test', { free: true }));
+    u.atkCd = 0;
+    h.step();
+    const attacks = h.eventsOf('atk').filter((e) => e[1] === u.id);
+    assert.ok(attacks.length >= 4, 'the normal and skill attacks hit both targets');
+    assert.ok(attacks.every((e) => e[5] !== 'shotgunWave' && e[5] !== 'shotgunWaveSkip'));
+    assert.equal(h.b.errors.length, 0);
+  }
 });

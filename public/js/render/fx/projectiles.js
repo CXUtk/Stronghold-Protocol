@@ -29,6 +29,7 @@ const ARCHET_STORM = Object.freeze({ ...PROJ.arrow, tint: 0xffffff, glow: 0xffdf
   muzzle: 0xfff07a, len: 7, width: 0.31, head: 0.62, hit: 'archetStorm', storm: true });
 
 const SHOTGUN_DIR = Object.freeze({ RIGHT: [1, 0], LEFT: [-1, 0], UP: [0, 1], DOWN: [0, -1] });
+const EXECUTOR_ID = /^chess_char_2_01_[ab]$/;
 
 export class FxProjectiles {
   // ---- helpers ------------------------------------------------------------------------------------------
@@ -74,7 +75,7 @@ export class FxProjectiles {
   }
 
   /** Scattershooter blast: one luminous expanding fan per attack, regardless of target count.
-   * [ASSUMED] The fan's spread and 0.17 s lifetime approximate the supplied gameplay reference. */
+   * [ASSUMED] The fan's spread, lifetime and Executor's tiny scattered pellets approximate the supplied gameplay reference. */
   _shotgunWave(src, rangeTiles) {
     const reach = clamp(Number(rangeTiles) || 2.5, 0.5, 8);
     const dir = SHOTGUN_DIR[src.dir] || (src.facing === -1 ? SHOTGUN_DIR.LEFT : SHOTGUN_DIR.RIGHT);
@@ -84,7 +85,19 @@ export class FxProjectiles {
     const q = this._proj(src.x + dir[0] * reach, src.y + dir[1] * reach, z, this._q);
     const angle = Math.atan2(q.y - y, q.x - x);
     const range = Math.hypot(q.x - x, q.y - y);
-    this.shotgunWaves.push({ x, y, s, angle, range, t: 0, dur: 0.17 });
+    // Cosmetic only: sample once per blast, so the little streaks do not jitter when a frame is redrawn.
+    // Independent angles may cluster naturally; each pellet also starts and fades on its own schedule.
+    // One heavy tracer, two medium ones and two tiny sparks break up the otherwise even wave front.
+    const pellets = EXECUTOR_ID.test(src.info?.defId || '') ? Array.from({ length: 5 }, (_, i) => ({
+      angle: angle + (Math.random() - 0.5) * 1.04,
+      reach: 0.48 + Math.random() * 0.5,
+      start: Math.random() * 0.22,
+      duration: 0.45 + Math.random() * 0.35,
+      offset: (Math.random() - 0.5) * s * 0.22,
+      size: i === 0 ? 1.45 + Math.random() * 0.45 : i < 3 ? 0.75 + Math.random() * 0.4 : 0.3 + Math.random() * 0.3,
+      length: i === 0 ? 1.25 + Math.random() * 0.55 : i < 3 ? 0.6 + Math.random() * 0.65 : 0.3 + Math.random() * 0.4,
+    })) : [];
+    this.shotgunWaves.push({ x, y, s, angle, range, pellets, t: 0, dur: 0.17 });
     if (this.shotgunWaves.length > 24) this.shotgunWaves.shift();
     this.particle('flare', x, y, { tint: 0xffe7a0, life: 0.12, s0: s / 128 * 0.55, s1: s / 128 * 0.12, a0: 0.9, a1: 0 });
   }
@@ -120,6 +133,22 @@ export class FxProjectiles {
           const px = wave.x + Math.cos(a) * r, py = wave.y + Math.sin(a) * r;
           if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
         }
+      }
+      for (const pellet of wave.pellets) {
+        const progress = (k - pellet.start) / pellet.duration;
+        if (progress <= 0 || progress >= 1) continue;
+        const travel = wave.range * pellet.reach * (1 - (1 - progress) ** 2);
+        const trail = Math.min(travel, clamp(wave.s * 0.14 * pellet.length, 2, 20));
+        const dx = Math.cos(pellet.angle), dy = Math.sin(pellet.angle);
+        const ox = wave.x - Math.sin(wave.angle) * pellet.offset;
+        const oy = wave.y + Math.cos(wave.angle) * pellet.offset;
+        const px = ox + dx * travel, py = oy + dy * travel;
+        const tailX = px - dx * trail, tailY = py - dy * trail;
+        const pelletFade = Math.min(1, (1 - progress) * 4) * (1 - k) ** 0.4;
+        g.lineStyle(clamp(wave.s * 0.055 * pellet.size, 1, 6), 0xffaa49, pelletFade * 0.55);
+        g.moveTo(tailX, tailY); g.lineTo(px, py);
+        g.lineStyle(clamp(wave.s * 0.025 * pellet.size, 0.8, 3), 0xfff4c0, pelletFade * 0.95);
+        g.moveTo(tailX, tailY); g.lineTo(px, py);
       }
       this.shotgunWaves[w++] = wave;
     }
