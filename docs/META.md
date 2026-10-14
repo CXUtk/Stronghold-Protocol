@@ -5,6 +5,12 @@ purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsa
 results; optional local carry/terrain scoring remains independent. See `tools/botbench/README.md` for frozen inputs,
 source snapshots and cross-revision comparison. This does not enable a strategy in the deployment branch.
 
+The offline `botProjectPrepEnd` flag forks preparation state for each candidate, applies its legal placement,
+runs every alive seat's `onPrepEnd`, then every player's cleanup and the ordered normal-battle-start hooks.
+Inventories, stocks, counters and RNG streams are private to the fork; callbacks and live timers are not retained.
+Only immutable data/handler definitions are shared. This projects ending prep now, not future teammate actions.
+The default/frozen comparison policies retain their original rehearsal path.
+
 Audience: **content authors** writing prep-side ("SERVER_*") effects in `server/sim/content/*.js → registerMeta(registry)`,
 the **UI owner** consuming `m.public` / `m.private` / `m.result`, and anyone driving matches in tests or tools.
 Normative contracts stay in DESIGN.md §6 and §8 ([design/match.md](design/match.md),

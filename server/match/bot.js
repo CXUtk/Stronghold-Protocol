@@ -78,6 +78,7 @@
 // tools/botbench.mjs.
 
 import { BOT_PERSONAS, personaPreferred, personaRefreshTargets } from '../../shared/botPersonas.js';
+import { projectNormalBattleOptions } from './bot-prep-projection.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
 import { freeSlot, countFree, legalTiles, canPlace, positionClass, placeClass, basePositionClass, parseKey, tileKey, FIELD, pieceDir, boardTileOf, BOSS_MIRROR_COL } from './board.js';
@@ -1431,6 +1432,16 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
   const byUid = new Map(chosen.map((p) => [p.uid, p]));
   const battles = [];
   for (const plan of cands) {
+    if (m.botProjectPrepEnd) {
+      const opts = projectNormalBattleOptions(m, ps, (trial, player, clone) => {
+        // Use the real placement rules on the fork: no duplicate hand/board ownership,
+        // and summon placement/placement-triggered effects match applying the selected plan.
+        for (const _ of applyPlanSteps(trial, player, chosen.map(clone), plan)) void _;
+      });
+      battles.push(m.newBattle({ ...opts, fieldId: `r:${ps.playerId}` }));
+      yield;
+      continue;
+    }
     const saved = [...ps.board.entries()];
     // the candidate's directions are set on the pieces while its input is taken; restored exactly afterwards
     const savedDirs = new Map([...byUid.values(), ...saved.map(([, p]) => p)].map((p) => [p, Object.hasOwn(p, 'dir') ? { v: p.dir } : null]));

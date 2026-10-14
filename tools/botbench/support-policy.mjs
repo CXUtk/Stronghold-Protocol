@@ -40,6 +40,10 @@ export const POLICIES = Object.freeze({
     build: 'enemy-cover', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true },
   'enemy-sustain-v9': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
     build: 'enemy-sustain', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true },
+  'enemy-projection-v11': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'enemy-sustain', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true, projectPrepEnd: true },
+  'terrain-projection-v11': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'tanks', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true, projectPrepEnd: true },
   'enemy-skill-v10': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
     build: 'enemy-sustain', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true, counterSkills: true },
   'terrain-skill-v10': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
@@ -116,6 +120,7 @@ export function runSupportPolicy(config, policyId = 'baseline') {
         }
       }
       m.botLayoutParams = policy.layoutParams;
+      m.botProjectPrepEnd = !!policy.projectPrepEnd;
       m.botSkipCombos = policy.skipCombos;
       m.botKeepCurrentLayout = policy.keepLayout;
       m.botCounterEquipment = policy.counterEquipment;

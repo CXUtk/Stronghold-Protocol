@@ -269,6 +269,16 @@ tools only; absent callbacks preserve the original path. There is no new environ
 Public rehearsal context is a prep snapshot, not a full replay of potentially stateful `onBattleStart` meta hooks;
 effects/grants at prep end remain a known approximation. Formal simulation rules are unchanged.
 
+`enemy-projection-v11` and `terrain-projection-v11` now isolate this approximation as a paired experiment against
+`enemy-sustain-v9` and `dual-terrain-v8`. Their optional `botProjectPrepEnd` flag uses `bot-prep-projection.js` to fork
+all seats, inventories, shared stock, mutable counters and RNG streams. Each candidate is placed through the real
+placement code in the fork before all `onPrepEnd` hooks, all player cleanup, then normal battle-start hooks run in
+formal seat order. The fork permits the real mutating hooks; nothing is settled back into the live match. No live
+callbacks or timer jobs are copied. Hook failures invalidate projection rather than silently score a partial state.
+This is a forecast of ending preparation with current public preparations; later player actions are not predicted.
+Historical policy IDs remain unchanged, and this flag has no lobby or server default. Keep full-run raw outcomes,
+rounds 7–10 comparisons, raw LP, the round-11-discounted objective and losing maps/candidates.
+
 The foundation comparison revision ports PRs 452 (`6d00ba78`), 606 (`b4e00da5`), 607 (`5bdaa6d8`)
 and 608 (`f82f64c2`): supported guard/medic positions, capacity-aware purchasing and normal-input rehearsals.
 Those fixes apply to every policy in this revision, including baseline. The old context fallback above is used only
