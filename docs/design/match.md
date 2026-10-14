@@ -37,6 +37,13 @@ LOBBY(room) → INFO_CHECK (co-op 25 s; solo and any single-human match untimed 
 ```
 Solo FUNNY has 9 rounds (boss at R9); everything is read from `data/config.json → modes[modeId]`.
 
+Local deploy rule (owner request, 2026-10-14): if a counted enemy re-entering 联防 retains a positive kill bounty,
+eligible perfect human seats precede AI seats both when selecting up to two helpers and when ordering their fields.
+The first helper occupies the right-hand field and meets the enemies first; an AI selected second covers the rear.
+Within each group the ordinary helper ranking is retained. Humans who leaked are ineligible; without an eligible
+human or a valid leaked bounty the normal ranking applies. This reorders the whole 联防 field, not only bounty routes,
+and keeps actual-killer bounty attribution and source-player LP attribution unchanged. See DEPLOY-OVERRIDES.md.
+
 ### 6.2 Player state (PlayerState.js) — authoritative per player
 
 ```js

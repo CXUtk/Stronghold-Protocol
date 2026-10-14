@@ -81,6 +81,14 @@
 
 上述规则是否已部署以工作区运维文档中的部署记录为准；正在运行的对局继续使用启动时加载的代码。
 
+## 悬赏联防真人优先（2026-10-14，本地规则）
+
+- 用户要求：漏出的敌人中有仍携带正数击杀赏金的悬赏怪时，优先让本轮没漏怪的真人参与联防，并在右侧先接敌；AI 排在后方兜底。
+- 最多两名协防者。两名合格真人可占据两个名额；只有一名时搭配原排序最优的合格 AI。真人之间、AI 之间沿用原场上人数、盟约、存活数等排序；漏怪或已淘汰的真人没有协防资格。
+- 没有有效悬赏怪漏出时沿用原规则；不计数漏怪、失去赏金的分裂子怪、无法重新入场的未知敌人、按完美防守结算的悬赏不会误触发。
+- 调整整场联防的人员和前后场顺序，不另改悬赏怪路线。赏金仍按实际击杀归属，漏怪扣血仍归来源玩家，不保证 AI 完全无法击杀悬赏怪。
+- 本次仅本地实现，不属于上游原版规则；未增加房间选项，不修改版本号或为此增加版本历史记录。
+
 ## AI personal combat policy (2026-10-14)
 
 The local lobby enables `terrain-parity-v12` for four-player ABYSS rooms with one to three AI teammates. It combines PR 445 personas, measured build scoring, expanded placement candidates and player-legal preparation-end rehearsals. The effective budget is eight layouts and three independent samples per layout. Public draft choices and focus remain reserved; the AI chooses available Russell, Touch, then Amiya fallback bands. Other modes and human autoplay do not receive this selected policy. Set `SP_BOT_POLICY=off` before starting the server to disable it. This does not change combat rules, card costs or player resources.

@@ -837,7 +837,13 @@ Forced-down carry still participates in attribute chains and stays down without 
 without carry and other battle kinds retain normal devour damage; later redeploys do not reuse the old carry.
 Planned after the normal combats, at the end of the COMBAT_END pause from the players still in (`Match._afterCombat`, so a
 player who quit during the last field or the pause is neither a helper nor a leaker whose enemies re-enter; unite.js):
-helpers = `unite.js helperOrder` (research 08 §5, PRTS 卫戍协议/帮助 §联防阶段): ≤ `unite.maxHelpers` (2) perfect players
+Local deploy exception (owner request, 2026-10-14): `planUnite` resolves each counted re-entry's valid kill bounty.
+If any has positive coins, `helperOrder(..., { humansFirst: true })` prioritizes perfect human seats before slicing
+the helper list and again when ordering the selected pair. Two perfect humans can take both slots; with one, the
+best eligible AI covers the rear. Ordinary leaks, invalid bounty bodies, perfect-payout cards and uncounted enemies
+do not trigger this preference. Reward attribution, helper eligibility and source-player LP costs are unchanged.
+
+Otherwise helpers = `unite.js helperOrder` (research 08 §5, PRTS 卫戍协议/帮助 §联防阶段): ≤ `unite.maxHelpers` (2) perfect players
 chosen by most units on the field (downed included) > an active bond > most standing units > seat; the pair ordered by
 units > active bond > Σ active layers > standing > seat (LP plays no part), the first one on the right-hand field
 (colOffset +8, where escaped_multi enters), the other colOffset 0; the escaped template of that size routes the leaked

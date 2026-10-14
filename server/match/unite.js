@@ -34,6 +34,8 @@
 // LP: an enemy still alive at the end (leaked in the unite battle, or never spawned before the limit) costs its
 // SOURCE player 1 LP; each player's round loss = min(lpCap, survivors attributed to them + leaks that could not
 // re-enter) — the same 10 cap as a normal round.
+// Local deploy rule (owner request): when a re-entering enemy retains a kill bounty, perfect human seats precede
+// AI seats in both helper selection and field order. Within each group the ordinary ranking stays unchanged.
 
 import { buildUniteWave } from './waves.js';
 import { layerGainRoom } from '../../shared/constants.js';
@@ -56,7 +58,6 @@ export function planUnite(m, results) {
     else if (r.perfect !== false) perfects.push(ps);
   }
   if (!leakers.length || !perfects.length) return null;
-  const helpers = helperOrder(m, perfects, results);
   const leaked = [];
   const notReentered = new Map();
   for (const ps of leakers) {
@@ -79,6 +80,7 @@ export function planUnite(m, results) {
       leaked.push({ enemyKey: l.enemyKey, mods: l.mods ? { ...l.mods } : null, lpr: l.lpr ?? 1, sourcePlayerId: ps.playerId, tag: l.tag ?? null, bounty });
     }
   }
+  const helpers = helperOrder(m, perfects, results, { humansFirst: leaked.some(l => l.bounty?.coins > 0) });
   return { helpers, leakers, leaked, notReentered };
 }
 
@@ -116,12 +118,13 @@ export function helperStats(m, ps, results) {
  * The ≤ maxHelpers helpers, first = the one that meets the enemies first (right-hand field): selection by units >
  * active bond > standing units > seat, then the pair ordered by units > active bond > layers > standing > seat.
  */
-export function helperOrder(m, perfects, results) {
+export function helperOrder(m, perfects, results, { humansFirst = false } = {}) {
   const st = new Map(perfects.map((ps) => [ps.playerId, helperStats(m, ps, results)]));
   const S = (ps) => st.get(ps.playerId);
-  const select = perfects.slice().sort((a, b) => S(b).units - S(a).units || (S(b).active - S(a).active) || S(b).standing - S(a).standing || a.seat - b.seat)
+  const priority = (a, b) => humansFirst ? Number(!!a.isBot) - Number(!!b.isBot) : 0;
+  const select = perfects.slice().sort((a, b) => priority(a, b) || S(b).units - S(a).units || (S(b).active - S(a).active) || S(b).standing - S(a).standing || a.seat - b.seat)
     .slice(0, m.gd.unite.maxHelpers);
-  return select.sort((a, b) => S(b).units - S(a).units || (S(b).active - S(a).active) || S(b).layers - S(a).layers || S(b).standing - S(a).standing || a.seat - b.seat);
+  return select.sort((a, b) => priority(a, b) || S(b).units - S(a).units || (S(b).active - S(a).active) || S(b).layers - S(a).layers || S(b).standing - S(a).standing || a.seat - b.seat);
 }
 
 /** Battle options for the unite field (without data/logger, added by the match). */
