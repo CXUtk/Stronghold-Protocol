@@ -68,7 +68,7 @@ export function buildContext(m, ps, model) {
   const total = rows.reduce((n, x) => n + x.weight, 0) || 1;
   rows.forEach((r) => { r.weight /= total; });
   const count = (m.wave?.spawns || []).reduce((n, s) => n + (s.count || 1), 0);
-  const out = { policy, rows, entries: m.botCombatAtlas.entries, values: new Map(), synergy: new Map(), crowd: clamp((count - 8) / 50, 0, 0.65),
+  const out = { policy, rows, entries: ps._botSkillEntries || m.botCombatAtlas.entries, values: new Map(), synergy: new Map(), crowd: clamp((count - 8) / 50, 0, 0.65),
     reflection: rows.reduce((n, r) => n + (r.reflection > 0 ? r.weight : 0), 0),
     dot: rows.reduce((n, r) => n + (r.dot ? r.weight : 0), 0),
     infection: (m.stage?.rows || []).slice(9, 13).join('').includes('i'),

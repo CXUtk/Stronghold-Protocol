@@ -7,6 +7,7 @@ import { fieldModel, REHEARSAL_VARIANTS } from '../../server/match/bot.js';
 import { observeBattle } from './battle-observer.mjs';
 import { observeRoutes } from './route-observer.mjs';
 import { installTacticalPolicy } from './tactical-policy.mjs';
+import { installCounterSkills } from './skill-policy.mjs';
 const atlases = new Map();
 
 export const POLICIES = Object.freeze({
@@ -39,6 +40,19 @@ export const POLICIES = Object.freeze({
     build: 'enemy-cover', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true },
   'enemy-sustain-v9': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
     build: 'enemy-sustain', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true },
+  'enemy-skill-v10': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'enemy-sustain', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true, counterSkills: true },
+  'terrain-skill-v10': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'tanks', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true, counterSkills: true },
+  'enemy-item-early-v10': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'enemy-sustain', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true,
+    counterEquipment: { early: true } },
+  'enemy-item-route-v10': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'enemy-sustain', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true,
+    counterEquipment: { routes: true } },
+  'enemy-counter-v10': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'enemy-sustain', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true,
+    counterSkills: true, counterEquipment: { early: true, routes: true } },
   'wider-layout': { rehearsal: 5 },
   'core3-both': { rehearsal: 3, levelCap: 3, role: 'both' },
   'core4-both': { rehearsal: 3, levelCap: 4, role: 'both' },
@@ -79,7 +93,7 @@ export const POLICIES = Object.freeze({
 export function runSupportPolicy(config, policyId = 'baseline') {
   const policy = POLICIES[policyId];
   if (!policy || config.humans !== 2) throw new Error('Unknown policy or non-2H2AI configuration');
-  const skipped = [], preparation = [], rehearsalLayers = [], observations = [], tacticalTrials = [];
+  const skipped = [], preparation = [], rehearsalLayers = [], observations = [], tacticalTrials = [], equipmentActions = [];
   const economy = new Map();
   const partnerBand = policy.partnerBand === 'other-anchor' ? (config.band === 'band_amiya' ? 'band_ioleta' : 'band_amiya') : policy.partnerBand;
   const result = runSupportMatch({ ...config, rehearsal: policy.rehearsal, partnerBand }, {
@@ -104,6 +118,7 @@ export function runSupportPolicy(config, policyId = 'baseline') {
       m.botLayoutParams = policy.layoutParams;
       m.botSkipCombos = policy.skipCombos;
       m.botKeepCurrentLayout = policy.keepLayout;
+      m.botCounterEquipment = policy.counterEquipment;
       if (policy.routeVariants) m.botLayoutVariants = [...REHEARSAL_VARIANTS.slice(0, 4),
         { tankFirst: false }, { tankFirst: false, spread: 3, secondHold: 0.2, cohesion: 0 }];
       if (policy.dualRoutes) m.botLayoutVariants.push({ routeFloor: 0.5, cohesion: 0 },
@@ -128,6 +143,7 @@ export function runSupportPolicy(config, policyId = 'baseline') {
         if (!config.atlasPath) throw new Error('Build policy requires --atlas');
         if (!atlases.has(config.atlasPath)) atlases.set(config.atlasPath, JSON.parse(readFileSync(config.atlasPath, 'utf8')));
         m.botCombatAtlas = atlases.get(config.atlasPath);
+        if (policy.counterSkills) installCounterSkills(m, m.botCombatAtlas, rec);
       }
       for (const p of m.order.filter((p) => p.isBot)) {
         const healer = (id) => { const c = p.gd.chess(id); return c?.attackKind === 'heal' || c?.dmgType === 'heal'; };
@@ -139,8 +155,21 @@ export function runSupportPolicy(config, policyId = 'baseline') {
         const buy = p.buy.bind(p), sell = p.sell.bind(p), refresh = p.refresh.bind(p);
         p.buy = (slot) => {
           const s = p.shop.slots[slot], isHeal = s?.kind === 'chess' && healer(s.id);
-          const r = buy(slot); if (r.ok && isHeal) counts().medicalBought++; return r;
+          const r = buy(slot); if (r.ok && isHeal) counts().medicalBought++;
+          if (policy.counterEquipment && r.ok && s?.kind === 'item' && p.gd.item(s.id)?.params?.silence > 0)
+            equipmentActions.push({ round: m.round, pid: p.playerId, action: 'buy', id: s.id });
+          return r;
         };
+        if (policy.counterEquipment) {
+          const equip = p.equip.bind(p);
+          p.equip = (itemUid, unitUid) => {
+            const item = [...p.hand, ...p.temp].find((u) => u?.uid === itemUid), unit = p.allChess().find((u) => u.uid === unitUid);
+            const r = equip(itemUid, unitUid);
+            if (r.ok && p.gd.item(item?.id)?.params?.silence > 0)
+              equipmentActions.push({ round: m.round, pid: p.playerId, action: 'equip', id: item.id, carrier: unit?.id });
+            return r;
+          };
+        }
         p.sell = (uid) => {
           const owned = p.allChess().find((x) => x.uid === uid), isHeal = owned && healer(owned.id);
           const r = sell(uid); if (r.ok && isHeal) counts().medicalSold++; return r;
@@ -207,6 +236,7 @@ export function runSupportPolicy(config, policyId = 'baseline') {
     },
   });
   return { policyId, policy, ...result, policyDiagnostics: { skipped, preparation, rehearsalLayers,
+    ...(policy.counterEquipment ? { equipmentActions } : {}),
     ...(policy.tactical ? { tacticalTrials } : {}),
     ...(config.observe ? { observations: observations.map(({ snapshot, ...meta }) => ({ ...meta, ...snapshot() })) } : {}) } };
 }

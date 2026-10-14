@@ -402,7 +402,13 @@ function tacticScore(m, ps, card) {
 // evaluation helpers
 
 // a player's record of a chess id (its data view: a human's slotted 自选 slots are its operators, 0.2.0 player/diy.js)
-const chessRec = (m, id, ps = null) => (ps?.gd || m.gd).chess(id);
+const chessRec = (m, id, ps = null) => {
+  const rec = (ps?.gd || m.gd).chess(id);
+  if (!rec || !ps?._botSkillEntries) return rec;
+  const cache = ps._botSkillRecords || (ps._botSkillRecords = new Map());
+  if (!cache.has(id)) cache.set(id, loadoutRecord(rec, resolveRecordLoadout(rec, ps.loadoutFor(rec))));
+  return cache.get(id);
+};
 const isHealer = (c) => !!c && (c.dmgType === 'heal' || c.attackKind === 'heal');
 // the record's own position: a 钩索师 / 推击手 is a MELEE blocker like any other (a 高台 does not block)
 const isBlocker = (c) => !!c && basePositionClass(c) === 'melee' && (c.stats?.blockCnt ?? 1) > 0 && c.attackKind !== 'none';
@@ -1072,7 +1078,7 @@ function dpsVs(rec, def, res) {
 export function rangeRec(ps, rec) {
   if (!rec || !rec.chessId || typeof ps.loadoutFor !== 'function') return rec;
   const lo = ps.loadoutFor(rec);
-  const key = `${rec.chessId}|${lo ? `${lo.skill ?? ''}:${lo.module ?? ''}` : ''}`;
+  const key = `${rec.chessId}|${lo ? `${lo.skillIndex ?? ''}:${lo.moduleId ?? ''}` : ''}`;
   const cache = ps._botRangeRecs || (ps._botRangeRecs = new Map());
   if (cache.has(key)) return cache.get(key);
   let out = rec;
@@ -2465,6 +2471,14 @@ function waveHasRefraction(m, ps) {
   return false;
 }
 
+// Offline candidate: public faction pools can justify keeping a counter before its first wave appears.
+function publicRefraction(m) {
+  return (m.factions || []).some((f) => (m.gd.factions.types?.[f]?.pool || []).some((id) => {
+    const e = m.gd.enemy(id), bb = e?.talents?.bb || {};
+    return !e?.stats?.immunities?.silence && Number(bb['refracting.magic_resistance'] ?? bb['Refracting.magic_resistance']) > 0;
+  }));
+}
+
 /**
  * A preset strategy's equipment whitelist (persona.items, shared/botPersonas.js): `econKeys` = economy item buff keys
  * bought; `allow` = base item ids always bought; `conditional` = only while `when` holds ('refraction' = the round's
@@ -2482,7 +2496,8 @@ export function personaAllowsItem(m, ps, itemId) {
     const base = m.gd.baseIdOf(itemId);
     if (per.items.allow.includes(base)) return true;
     const cond = (Array.isArray(per.items.conditional) ? per.items.conditional : []).find((c) => c && c.id === base);
-    if (cond && (cond.when !== 'refraction' || waveHasRefraction(m, ps))) return true;
+    if (cond && (cond.when !== 'refraction' || waveHasRefraction(m, ps)
+      || (m.botCounterEquipment?.early && publicRefraction(m)))) return true;
   }
   if (Array.isArray(per.items.econKeys) || Array.isArray(per.items.allow)) return false;
   return true;
@@ -2580,6 +2595,35 @@ export function itemTarget(m, ps, item, ctx = context(m, ps)) {
   if (rec.requiresBondId) {
     const member = list.find((p) => free(p) && (chessRec(m, p.id, ps)?.bonds || []).includes(rec.requiresBondId));
     if (member) return member;
+  }
+  if (m.botCounterEquipment?.routes && ctx.build && rec.params?.silence > 0) {
+    const model = fieldModel(m, ps), tiles = new Map([...ps.board].map(([k, p]) => [p.uid, k]));
+    const carriers = list.map((p) => {
+      const c = rangeRec(ps, chessRec(m, p.id, ps)), k = tiles.get(p.uid);
+      if (!k || !c || isHealer(c) || c.attackKind === 'none') return null;
+      const [r, col] = parseKey(k), u = unitOf(c, k, r, col, pieceDir(p), model);
+      const intrinsic = combatValue(ctx.build, c)?.silence || 0;
+      const equipped = (p.items || []).some((it) => gd.item(it.id)?.params?.silence > 0);
+      return { p, c, u, silence: equipped ? 1 : intrinsic };
+    }).filter(Boolean);
+    const score = ({ c, u, silence }) => {
+      let total = 0;
+      for (const route of model.routes) {
+        if (route.fly && !u.air) continue;
+        let exposed = 0;
+        for (const tile of route.tiles) if (u.cover.has(tile)) {
+          const existing = carriers.reduce((v, other) => Math.max(v,
+            (!route.fly || other.u.air) && other.u.cover.has(tile) ? other.silence : 0), 0);
+          exposed += 1 - existing;
+        }
+        total += (route.n || 1) * exposed / Math.max(1, route.tiles.length);
+      }
+      return total * (1 - silence) * Math.min(1, rec.params.silence / Math.max(.2, c.stats.bat))
+        * Math.min(2, crowdOf(c));
+    };
+    const candidates = carriers.filter(({ p }) => free(p));
+    candidates.sort((a, b) => score(b) - score(a) || a.p.uid - b.p.uid);
+    if (candidates.length) return candidates[0].p;
   }
   // a preset strategy's carrier rules (persona.items.carrier): 坚守盾牌 on a 重装 (TANK) first, 奥术法阵 on the
   // strongest 群攻 dealer (crowdOf: 阵法/轰击术师, splash / chain)

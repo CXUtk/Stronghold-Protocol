@@ -13,11 +13,12 @@ export const PROBES = Object.freeze({
   air: { def: 300, res: 20, fly: true },
 });
 
-export function probeUnit(id, profile, { seed = 17, duration = 60, items = [] } = {}) {
+export function probeUnit(id, profile, { seed = 17, duration = 60, items = [], skillIndex } = {}) {
   const p = PROBES[profile];
   if (!p) throw new Error('Unknown capability probe');
   const data = getData(), original = data.chess[id];
   if (!original) throw new Error('Unknown operator');
+  if (skillIndex !== undefined && !original.skills?.some((s) => s.index === skillIndex)) throw new Error('Unknown skill');
   const key = p.reflection ? 'enemy_1166_dusbr' : 'botbench_dummy';
   const foe = p.reflection ? structuredClone(data.enemies[key]) : enemyRec({ key });
   Object.assign(foe.stats, { maxHp: 1e8, atk: 0, def: p.def, res: p.res, moveSpeed: 0 });
@@ -29,7 +30,7 @@ export function probeUnit(id, profile, { seed = 17, duration = 60, items = [] } 
   const h = makeBattle({ seed, modeId: 'mode_multi_abyss', round: 5, timeLimit: duration + 1,
     flags: { startOpCooldown: 3 }, autoFinish: false, hooks: [], recordEvents: false,
     defs: { enemies: { [key]: foe }, chess: { botbench_patient: patient } },
-    units: [{ chessId: id, uid: 1, row: 9, col: 5, dir: 'RIGHT', items },
+    units: [{ chessId: id, uid: 1, row: 9, col: 5, dir: 'RIGHT', items, ...(skillIndex === undefined ? {} : { skillIndex }) },
       ...[[9, 6], [10, 5], [10, 6]].map(([row, col], i) => ({ chessId: 'botbench_patient', uid: 100 + i, row, col }))],
     enemies: [{ key, route: p.fly ? 2 : 0, pos: [9, 5], count: p.count || 1 }],
     setup(b) {
@@ -52,7 +53,9 @@ export function probeUnit(id, profile, { seed = 17, duration = 60, items = [] } 
     hps: h.allies().reduce((n, a) => n + (a.stats.heal || 0), 0) / duration,
     silenceUptime: silenceTicks / totalTicks, defReduction: Math.max(0, p.def - defSum / totalTicks),
     resReduction: Math.max(0, p.res + (p.reflection ? 70 : 0) - resSum / totalTicks),
-    damageTypes, maxPhysHit, alive: u.alive, skill: original.skill?.skillId };
+    damageTypes, maxPhysHit, alive: u.alive,
+    skill: skillIndex === undefined ? original.skill?.skillId : original.skills.find((s) => s.index === skillIndex).skillId,
+    ...(skillIndex === undefined ? {} : { skillIndex, actualSkill: u.def.skill?.id }) };
 }
 
 export function loadAtlas(path) { return JSON.parse(readFileSync(path, 'utf8')); }
