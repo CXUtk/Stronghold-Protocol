@@ -340,3 +340,7 @@ damage, knockdowns and half-second samples of injured/infection exposure. Its un
 healer target-range eligibility, not all skill/bard healing; use actual received healing alongside it. Observation
 is opt-in and tested for complete-match parity. Rehearsal diagnostics include candidate boards, map medics, carry
 state and per-bond gains. All raw batches, including regressions, remain in the experiment archive.
+
+## Population comparisons
+
+`botbench-policy-search.mjs --humans 1,2,3` runs separate four-seat ABYSS configurations. Each policy gets the same legal draft roster: selected anchor, Touch when a second AI exists, and the other anchor when a third exists. Human fixtures reserve these bands and supply 1–2 leaks; full enemy objects are frozen per case. Summaries are grouped by human count. Explicit cases may specify `humans`; omit it to replay historical cases unchanged. Build scoring is opt-in for actual AI seats in four-player ABYSS through round 11, regardless of AI count. It never applies to human autoplay. Existing legacy medical/support experiments retain their own scope. Interrupted batches retain their journal and are registered, not silently discarded.

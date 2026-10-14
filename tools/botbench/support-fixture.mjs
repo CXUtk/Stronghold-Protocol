@@ -2,8 +2,8 @@
 export const FIXTURE_VERSION = 2;
 export const ANCHOR_BANDS = ['band_amiya', 'band_ioleta'];
 
-export function humanBand(m, ps) {
-  return m.gd.bandIds().find((id) => !ANCHOR_BANDS.includes(id) && !m.bandTaken(id, ps.playerId));
+export function humanBand(m, ps, reservedBands = ANCHOR_BANDS) {
+  return m.gd.bandIds().find((id) => !reservedBands.includes(id) && !m.bandTaken(id, ps.playerId));
 }
 
 export function humanCard(m) {

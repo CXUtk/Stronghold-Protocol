@@ -29,13 +29,14 @@ function groups(leaks) {
   return out;
 }
 
-export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rounds = 11, rehearsal = 3, stageId, leakCount = 2, sourceMode = 'single', scenario = 'small', humanFixtures = null, partnerBand = null, nativePolicy = '' } = {}, { configure = null, beforeEndPrep = null, beforeDispose = null, battleSeed = null } = {}) {
+export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rounds = 11, rehearsal = 3, stageId, leakCount = 2, sourceMode = 'single', scenario = 'small', humanFixtures = null, partnerBand = null, botBands = null, nativePolicy = '' } = {}, { configure = null, beforeEndPrep = null, beforeDispose = null, battleSeed = null } = {}) {
   if (!Number.isInteger(humans) || humans < 1 || humans > 3) throw new Error('humans must be 1..3');
   if (!Number.isInteger(rounds) || rounds < 1 || rounds > 11) throw new Error('rounds must be 1..11');
   if (!ANCHOR_BANDS.includes(band)) throw new Error(`Unsupported anchor band: ${band}`);
   if (stageId && !SUPPORT_MAPS.includes(stageId)) throw new Error(`Unsupported map: ${stageId}`);
   if (!Number.isInteger(leakCount) || leakCount < 1 || leakCount > 30) throw new Error('leakCount must be 1..30');
   if (!['single', 'all'].includes(sourceMode)) throw new Error('sourceMode must be single or all');
+  if (botBands && (botBands.length !== 4 - humans || new Set(botBands).size !== botBands.length || botBands[0] !== band)) throw new Error('Invalid fixed AI draft roster');
   const errors = [], warnings = [];
   const sched = new VirtualScheduler();
   const seats = Array.from({ length: 4 }, (_, seat) => ({ seat, playerId: `p${seat}`, name: `Seat ${seat + 1}`, isBot: seat >= humans, connected: true }));
@@ -50,6 +51,7 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
     for (const ps of m.order) ps.invalidateDeployMap();
   }
   const rec = { seed, humans, band, targetRound: rounds, rehearsal, fixtureVersion: FIXTURE_VERSION, leakCount, sourceMode, scenario,
+    ...(botBands ? { botBands: [...botBands] } : {}),
     modeId: m.modeId, seats: seats.map(({ playerId, isBot }) => ({ playerId, isBot })),
     stageId: m.stageId, factions: [...m.factions], bossId: m.bossId, anchorPid: null,
     rounds: [], preps: [], fixtureInputs: [], startedRounds: [], errors, warnings,
@@ -151,7 +153,14 @@ export function runSupportMatch({ seed = 1, humans = 1, band = 'band_amiya', rou
       if (m.phase === 'INFO_CHECK') for (const p of m.order.filter((p) => !p.isBot && !p.infoReady)) act(p, { t: 'g.infoReady' });
       if (m.phase === 'BAND_DRAFT') {
         const p = m.players.get(m.draftTurn());
-        if (p && !p.isBot) { act(p, { t: 'g.band', bandId: humanBand(m, p) }); continue; }
+        if (p && !p.isBot) { act(p, { t: 'g.band', bandId: humanBand(m, p, botBands || undefined) }); continue; }
+        if (p?.isBot && botBands) {
+          const drafted = m.order.filter((mate) => mate.isBot && mate.bandId).length;
+          const res = m.pickBand(p, botBands[drafted]);
+          if (!res.ok) throw new Error(`Fixed AI draft unavailable: ${JSON.stringify(res)}`);
+          if (!rec.anchorPid) rec.anchorPid = p.playerId;
+          continue;
+        }
         if (p?.isBot && !rec.anchorPid) {
           const res = m.pickBand(p, band); // Same validated draft operation; network handle deliberately refuses bots.
           if (!res.ok) throw new Error(`Anchor strategy unavailable: ${JSON.stringify(res)}`);

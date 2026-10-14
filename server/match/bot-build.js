@@ -44,7 +44,7 @@ export function buildContext(m, ps, model) {
   const policyId = m.botBuildPolicyByBand?.[ps.bandId] ?? m.botBuildPolicy;
   const policy = BUILD_POLICIES[policyId];
   if (!policy || !m.botCombatAtlas || !ps.isBot || ps.autoplay || m.isSolo || m.modeId !== 'mode_multi_abyss'
-    || m.order.length !== 4 || m.order.filter((p) => p.isBot).length !== 2 || m.round > 11) return null;
+    || m.order.length !== 4 || m.round > 11) return null;
   const key = `${m.round}|${m.stageId}|${ps.playerId}|${policyId}`;
   const cache = m._botBuildCache || (m._botBuildCache = new Map());
   if (cache.has(key)) return cache.get(key);

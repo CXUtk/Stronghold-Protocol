@@ -29,6 +29,8 @@ export function runPolicyCase({ config, policies, referenceBaseline = null }) {
 }
 
 export function aggregatePolicies(results) {
+  if (new Set(results.map((r) => r.humans)).size > 1) return [...new Set(results.map((r) => r.humans))].sort()
+    .flatMap((humans) => aggregatePolicies(results.filter((r) => r.humans === humans)).map((s) => ({ humans, ...s })));
   return [...new Set(results.map((r) => r.policyId))].map((policy) => {
     const rows = results.filter((r) => r.policyId === policy), metrics = rows.map(policyMetrics);
     const totals = Object.fromEntries(Object.keys(metrics[0]).map((key) => [key, metrics.reduce((n, x) => n + x[key], 0)]));
@@ -39,19 +41,23 @@ export function aggregatePolicies(results) {
 export async function main(argv) {
   const opt = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!['--seed', '--seeds', '--policies', '--maps', '--jobs', '--out', '--label', '--atlas', '--reference', '--cases'].includes(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option ${argv[i]}`);
+    if (!['--seed', '--seeds', '--policies', '--maps', '--jobs', '--out', '--label', '--atlas', '--reference', '--cases', '--humans'].includes(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option ${argv[i]}`);
     opt[argv[i].slice(2)] = argv[i + 1];
   }
   const seed = Number(opt.seed || 11), count = Number(opt.seeds || 8), jobs = Number(opt.jobs || 8);
   const policies = (opt.policies || Object.keys(POLICIES).join(',')).split(',');
   const maps = opt.maps === 'all' ? SUPPORT_MAPS : opt.maps ? opt.maps.split(',') : null;
+  const humanCounts = opt.humans ? opt.humans.split(',').map(Number) : [2];
+  const fixedRoster = (band, humans) => [band, 'band_amedic', band === 'band_amiya' ? 'band_ioleta' : 'band_amiya'].slice(0, 4 - humans);
   if (!opt.out || !Number.isSafeInteger(seed) || seed < 1 || !Number.isInteger(count) || count < 1 || count > 1000
     || !Number.isInteger(jobs) || jobs < 1 || jobs > 32 || policies.some((p) => !POLICIES[p])
-    || !policies.includes('baseline') || new Set(policies).size !== policies.length || maps?.some((m) => !SUPPORT_MAPS.includes(m))) throw new Error('Invalid policy search configuration');
+    || !policies.includes('baseline') || new Set(policies).size !== policies.length || maps?.some((m) => !SUPPORT_MAPS.includes(m))
+    || humanCounts.some((n) => ![1, 2, 3].includes(n)) || new Set(humanCounts).size !== humanCounts.length) throw new Error('Invalid policy search configuration');
   const tasks = [];
-  for (let s = seed; s < seed + count; s++) for (const band of ['band_amiya', 'band_ioleta']) for (const stageId of maps || [SUPPORT_MAPS[(s - 1) % SUPPORT_MAPS.length]]) {
-    tasks.push({ policies, config: { seed: s, humans: 2, band, rounds: 11, stageId,
-      leakCount: 1 + (s - 1) % 3, sourceMode: Math.floor((s - 1) / 3) % 2 ? 'all' : 'single', atlasPath: opt.atlas ? resolve(opt.atlas) : null } });
+  for (let s = seed; s < seed + count; s++) for (const band of ['band_amiya', 'band_ioleta']) for (const stageId of maps || [SUPPORT_MAPS[(s - 1) % SUPPORT_MAPS.length]]) for (const humans of humanCounts) {
+    tasks.push({ policies, config: { seed: s, humans, band, rounds: 11, stageId,
+      ...(opt.humans ? { botBands: fixedRoster(band, humans) } : {}),
+      leakCount: 1 + (s - 1) % (opt.humans ? 2 : 3), sourceMode: Math.floor((s - 1) / 3) % 2 ? 'all' : 'single', atlasPath: opt.atlas ? resolve(opt.atlas) : null } });
   }
   if (opt.cases) {
     const cases = JSON.parse(readFileSync(resolve(opt.cases), 'utf8'));
@@ -60,17 +66,20 @@ export async function main(argv) {
     const seen = new Set();
     for (const c of cases) {
       if (!Number.isSafeInteger(c.seed) || c.seed < 1 || !['band_amiya', 'band_ioleta'].includes(c.band)
-        || !SUPPORT_MAPS.includes(c.stageId) || ![1, 2, 3].includes(c.leakCount) || !['single', 'all'].includes(c.sourceMode)) throw new Error('Invalid explicit case');
-      const key = [c.seed, c.band, c.stageId, c.leakCount, c.sourceMode].join('|');
+        || !SUPPORT_MAPS.includes(c.stageId) || ![1, 2, 3].includes(c.leakCount) || !['single', 'all'].includes(c.sourceMode)
+        || ![1, 2, 3].includes(c.humans ?? 2)) throw new Error('Invalid explicit case');
+      const humans = c.humans ?? 2;
+      const key = [c.seed, c.band, c.stageId, c.leakCount, c.sourceMode, humans].join('|');
       if (seen.has(key)) throw new Error('Duplicate explicit case');
       seen.add(key);
       tasks.push({ policies, config: { seed: c.seed, band: c.band, stageId: c.stageId, leakCount: c.leakCount,
-        sourceMode: c.sourceMode, humans: 2, rounds: 11, atlasPath: opt.atlas ? resolve(opt.atlas) : null } });
+        sourceMode: c.sourceMode, humans, ...(c.humans ? { botBands: fixedRoster(c.band, humans) } : {}), rounds: 11, atlasPath: opt.atlas ? resolve(opt.atlas) : null } });
     }
   }
   const root = fileURLToPath(new URL('../', import.meta.url));
   const git = (...args) => execFileSync('git', ['-c', `safe.directory=${root.replaceAll('\\', '/')}`, '-C', root, ...args], { encoding: 'utf8' }).trim();
   const manifest = { schemaVersion: 2, fixedHumanFixtures: true, seed, count, jobs, policies, maps: maps || 'balanced', label: opt.label || 'development',
+    humanCounts, fixedBotRoster: !!opt.humans || tasks.some((t) => t.config.botBands),
     gitHead: git('rev-parse', 'HEAD'), gitStatus: git('status', '--short'),
     sourceHash: hashTree(root, ['server', 'shared', 'tools/botbench', 'tools/botbench-policy-search.mjs']),
     dataHash: hashTree(root, ['data']), atlasHash: opt.atlas ? hashTree(dirname(resolve(opt.atlas)), [resolve(opt.atlas)]) : null,
@@ -127,6 +136,13 @@ export async function main(argv) {
         dispatch(w);
       }
     });
+  } catch (error) {
+    appendFileSync(`${prefix}.jsonl`, JSON.stringify({ status: 'interrupted', error: error.stack, completedRecords: done }) + '\n');
+    appendFileSync(resolve(dirname(prefix), 'ai-experiment-index.jsonl'), JSON.stringify({ status: 'interrupted',
+      kind: 'policy-batch', label: manifest.label, sourceSnapshot: manifest.sourceSnapshot,
+      journalFile: basename(prefix + '.jsonl'), completedRecords: done, plannedMatches: total,
+      sourceHash: manifest.sourceHash, dataHash: manifest.dataHash, registeredAt: new Date().toISOString(), error: error.message }) + '\n');
+    throw error;
   } finally { await Promise.all(workers.map((w) => w.terminate())); }
   manifest.elapsedMs = performance.now() - started;
   const summary = aggregatePolicies(results);

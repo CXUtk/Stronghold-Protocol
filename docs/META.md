@@ -5,6 +5,8 @@ purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsa
 results; optional local carry/terrain scoring remains independent. See `tools/botbench/README.md` for frozen inputs,
 source snapshots and cross-revision comparison. This does not enable a strategy in the deployment branch.
 
+Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
+
 The offline `botProjectPrepEnd` flag forks preparation state for each candidate, applies its legal placement,
 runs every alive seat's `onPrepEnd`, then every player's cleanup and the ordered normal-battle-start hooks.
 Inventories, stocks, counters and RNG streams are private to the fork; callbacks and live timers are not retained.

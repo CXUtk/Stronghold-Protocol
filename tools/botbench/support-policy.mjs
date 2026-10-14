@@ -107,7 +107,7 @@ export const POLICIES = Object.freeze({
 
 export function runSupportPolicy(config, policyId = 'baseline') {
   const policy = POLICIES[policyId];
-  if (!policy || config.humans !== 2) throw new Error('Unknown policy or non-2H2AI configuration');
+  if (!policy || ![1, 2, 3].includes(config.humans)) throw new Error('Unknown policy or invalid human count');
   const skipped = [], preparation = [], rehearsalLayers = [], observations = [], tacticalTrials = [], equipmentActions = [], economyActions = [];
   const economy = new Map();
   const partnerBand = policy.partnerBand === 'other-anchor' ? (config.band === 'band_amiya' ? 'band_ioleta' : 'band_amiya') : policy.partnerBand;
@@ -119,7 +119,7 @@ export function runSupportPolicy(config, policyId = 'baseline') {
       if (policy.personas) {
         const bots = m.order.filter((p) => p.isBot);
         bots[0].botPersona = config.band === 'band_amiya' ? 'amiya_fallback' : 'ioleta_fallback';
-        bots[1].botPersona = 'touch_fallback';
+        if (bots[1]) bots[1].botPersona = 'touch_fallback';
         rec.personas = bots.map((p) => ({ pid: p.playerId, persona: p.botPersona }));
         if (policy.alignPersonas) {
           const pickBand = m.pickBand.bind(m);
