@@ -26,7 +26,7 @@ for (const humans of [1, 2, 3]) test(`selected individual policy supports ${4-hu
 
 test('selected policy is opt-in at Match and excluded outside the evaluated mode', () => {
   for (const config of [{ humans: 1, bots: 3, difficulty: 'NORMAL' }, { humans: 1, bots: 1, difficulty: 'ABYSS' },
-    { humans: 4, bots: 0, difficulty: 'ABYSS' }]) {
+    { humans: 4, bots: 0, difficulty: 'ABYSS' }, { humans: 0, bots: 4, difficulty: 'ABYSS' }]) {
     const { m } = makeMatch(config);
     try { assert.equal(configureIndividualBot(m, INDIVIDUAL_BOT_POLICY), false); assert.equal(m.botIndividualPolicy, undefined); }
     finally { m.dispose(); }
