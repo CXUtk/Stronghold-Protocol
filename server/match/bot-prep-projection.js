@@ -6,6 +6,8 @@ import { EffectDispatcher } from './effectsMeta.js';
 import { SharedItemPool } from './pool.js';
 import { VirtualScheduler } from './scheduler.js';
 import { diyGameData } from './player/diy.js';
+import { createRng, deriveSeed } from '../sim/rng.js';
+import { botPool } from './bot-information.js';
 
 const runtime = new Set(['opts', 'log', 'sched', 'dispatcher', 'registry', 'ds', 'BattleClass',
   'itemPool', 'fields', 'runner', 'pacer', 'bossPool', '_timers', '_privDirty',
@@ -49,6 +51,8 @@ export function forkPreparation(m) {
   Object.assign(copy, { gd, opts: {}, registry: m.registry, ds: m.ds, BattleClass: m.BattleClass,
     log: { info: noop, warn: noop, error: noop, debug: noop },
     sendFn: noop, broadcastFn: noop, onEndFn: noop,
+    // Ready still runs PlayerState validation; the projection below owns the phase transition.
+    onReadyChanged: noop,
     sched: new VirtualScheduler({ start: m.sched.now() }), ownsScheduler: true,
     fields: [], runner: null, pacer: null, bossPool: null, _timers: new Set(), _privDirty: new Set() });
   copy.itemPool = new SharedItemPool(gd, () => copy.order);
@@ -60,12 +64,31 @@ export function forkPreparation(m) {
  * hooks for ALL alive seats, cleanup for ALL seats, then battle-start hooks in seat order.
  * Running real hooks (preview:false) is safe here and preserves shared meta-RNG consumption.
  */
-export function projectNormalBattleOptions(m, ps, prepare = null) {
+export function projectNormalBattleOptions(m, ps, prepare = null, { sampleSeed = null, deadline = false } = {}) {
   const { match: projected, clone } = forkPreparation(m);
   try {
     const target = projected.players.get(ps.playerId);
+    if (sampleSeed != null) {
+      projected.seed = sampleSeed;
+      for (const key of Object.keys(projected)) if (key.startsWith('rng') && typeof projected[key] === 'function')
+        projected[key] = createRng(deriveSeed(sampleSeed, key));
+      projected.pool = botPool(m, ps, { allowLegacy: false });
+      // The estimator returns an independent pool bound to the fork's game data.
+      projected.pool.gd = projected.gd;
+      for (const p of projected.order) if (p !== target) {
+        p.shop.slots = [];
+        p.offers = [];
+      }
+    }
     prepare?.(projected, target, clone);
     const alive = projected.alivePlayers();
+    // An unresolved temporary row cannot Ready. Only the actual deadline may clean it up;
+    // model that boundary on the fork, never use it as an AI action on the live match.
+    if (deadline) for (const p of alive) if (!p.ready) {
+      projected.autoPickPersonalChoice(p, 'random');
+      p.resolveTemp();
+      p.ready = true;
+    }
     for (const p of alive) projected.dispatch(p, 'onPrepEnd', { round: projected.round });
     for (const p of alive) p.endPrep();
     projected.phase = PHASE.COMBAT;

@@ -1,7 +1,7 @@
 # META.md — match & meta engine (server/match)
 
 Experimental AI branch: the foundation evaluation ports supported guard and medic placement, hand-capacity-aware
-purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsals clone meta RNG and never settle
+purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsals isolate state and never settle
 results; optional local carry/terrain scoring remains independent. See `tools/botbench/README.md` for frozen inputs,
 source snapshots and cross-revision comparison. This does not enable a strategy in the deployment branch.
 
@@ -9,7 +9,14 @@ The offline `botProjectPrepEnd` flag forks preparation state for each candidate,
 runs every alive seat's `onPrepEnd`, then every player's cleanup and the ordered normal-battle-start hooks.
 Inventories, stocks, counters and RNG streams are private to the fork; callbacks and live timers are not retained.
 Only immutable data/handler definitions are shared. This projects ending prep now, not future teammate actions.
-The default/frozen comparison policies retain their original rehearsal path.
+The frozen comparison policies retain their original rehearsal path via the offline-only `botLegacyParity` flag.
+The experimental branch's default now includes the same legal bot preparation tail (temporary row, hand room,
+personal choice and Ready) in both projection and execution. A failed reward remains at the head of its queue;
+unresolved summons cannot be removed by AI-only deadline cleanup. The scheduler fallback obeys the same rules.
+Shared-stock scoring estimates copies from public capacities and scouted normal/elite cards, excluding hidden
+`left` and `poolCopies` accounting. This is an estimate: gifts and unknown card history can differ from actual stock.
+Candidate projections replace formal seed/RNG streams with independent samples, use estimated shared stock and
+omit teammates' private shop/reward slots. Exact-seed projection remains a diagnostic API, not the default selector.
 
 Audience: **content authors** writing prep-side ("SERVER_*") effects in `server/sim/content/*.js → registerMeta(registry)`,
 the **UI owner** consuming `m.public` / `m.private` / `m.result`, and anyone driving matches in tests or tools.
@@ -318,10 +325,11 @@ other modes and other seat mixes use the original policy. This is an opt-in bot-
 change or a claim about later rounds. See [the controlled support benchmark](../tools/botbench/README.md).
 
 **Rehearsal:** with `opts.botRehearsal = N` (default 3) the bot simulates the N best
-distinct layout variants once each with the real `Battle` (a rehearsal seed, no meta dispatch, board restored exactly)
-and keeps the one with the fewest leaks; a candidate whose counted leaks already exceed the best finished one's stops
-early. A candidate is a whole battle — ≈ 20–300 ms of CPU (late rounds, 4 bots: 0.2–1 s per bot prep, about twice the
-CPU of the real battles), so it never runs in one go on a real server: `Match.scheduleBotPrep` runs `botPrepBegin`
+distinct layout variants with the real `Battle`. On this experimental branch, each candidate uses three common
+independent samples derived from public stage/round/seat and sample index, and is ranked by mean score. A partial
+or failed sample group cannot win. Single-sample leak pruning applies only to the frozen historical path, since an
+unlucky sample cannot eliminate a candidate scored by its mean. Sampling increases CPU work; measure current prep
+latency before enabling it on a server. `Match.scheduleBotPrep` runs `botPrepBegin`
 (economy + the default layout on the board), then steps the rehearsal in slices of ≤ `opts.botSliceMs` (default 8 ms of
 wall clock, checked every 4 ticks; one scheduler callback each, so other rooms' battles and every request keep
 flowing), then `botPrepEnd` (the rehearsed layout when it won, temp, Ready). The prep ending first drops the job (the

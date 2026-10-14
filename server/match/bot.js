@@ -2,7 +2,7 @@
 // is eliminated, Match._quit). Every action goes through the same validated
 // PlayerState handlers a human uses; randomness only from the match's bot rng (deterministic per seed).
 //
-// It reads only what a player can see: its own state, the shop, the shared pool's copies left, the teammates' bond
+// It reads only what a player can see: its own state, the shop, estimated stock from scouted cards, teammates' bond
 // strips, and the round's enemy preview (composition and routes, research 06 §4.3 "查看当前回合即将迎击的敌方单位").
 //
 // Prep routine (botPrep):
@@ -79,6 +79,7 @@
 
 import { BOT_PERSONAS, personaPreferred, personaRefreshTargets } from '../../shared/botPersonas.js';
 import { projectNormalBattleOptions } from './bot-prep-projection.js';
+import { botPool, rehearsalSampleSeed } from './bot-information.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
 import { freeSlot, countFree, legalTiles, canPlace, positionClass, placeClass, basePositionClass, parseKey, tileKey, FIELD, pieceDir, boardTileOf, BOSS_MIRROR_COL } from './board.js';
@@ -441,7 +442,7 @@ function bondPoolStats(m, ps, owned) {
   const reach = new Map();
   const supply = new Map();
   const maxTier = Math.min(6, ps.shop.level + 1);
-  for (const [id, e] of m.pool.entries) {
+  for (const [id, e] of botPool(m, ps).entries) {
     if (!(e.left > 0)) continue;
     const c = m.gd.chess(id);
     if (!c || !Array.isArray(c.bonds)) continue;
@@ -1431,15 +1432,21 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
   const cands = distinct.slice(0, supportRehearsals(m, ps));
   const byUid = new Map(chosen.map((p) => [p.uid, p]));
   const battles = [];
+  const fair = !m.botLegacyParity;
+  const samples = fair ? 3 : 1;
+  const totals = cands.map(() => ({ score: 0, completed: 0 }));
   for (const plan of cands) {
-    if (m.botProjectPrepEnd) {
-      const opts = projectNormalBattleOptions(m, ps, (trial, player, clone) => {
-        // Use the real placement rules on the fork: no duplicate hand/board ownership,
-        // and summon placement/placement-triggered effects match applying the selected plan.
-        for (const _ of applyPlanSteps(trial, player, chosen.map(clone), plan)) void _;
-      });
-      battles.push(m.newBattle({ ...opts, fieldId: `r:${ps.playerId}` }));
-      yield;
+    if (fair || m.botProjectPrepEnd) {
+      for (let sample = 0; sample < samples; sample++) {
+        const opts = projectNormalBattleOptions(m, ps, (trial, player, clone) => {
+          // Use the real placement rules on the fork: no duplicate hand/board ownership,
+          // and summon placement/placement-triggered effects match applying the selected plan.
+          for (const _ of applyPlanSteps(trial, player, chosen.map(clone), plan)) void _;
+          if (fair) finishBotPreparation(trial, player);
+        }, fair ? { sampleSeed: rehearsalSampleSeed(m, ps, sample), deadline: true } : {});
+        battles.push(m.newBattle({ ...opts, fieldId: `r:${ps.playerId}` }));
+        yield;
+      }
       continue;
     }
     const saved = [...ps.board.entries()];
@@ -1490,7 +1497,7 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
             battle.step();
             t++;
             n++;
-            if ((t & 63) === 0 && bestLeaks < Infinity && countedLeaks(battle, ps.playerId) > bestLeaks) { beaten = true; break; }
+            if (!fair && (t & 63) === 0 && bestLeaks < Infinity && countedLeaks(battle, ps.playerId) > bestLeaks) { beaten = true; break; }
             if (timed && (n & 3) === 0 && performance.now() - t0 >= budgetMs) return false;
           }
           if (!beaten) {
@@ -1499,8 +1506,16 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
             const pp = r && !r.synthetic && r.perPlayer && r.perPlayer[ps.playerId];
             if (pp) {
               const leaks = (pp.leaked || []).filter((l) => l && l.counted !== false).length;
-              const score = (m.botRehearsalScore ? m.botRehearsalScore(pp) : -leaks * 1000 + (pp.killed || 0)) - i * 0.01;
-              if (score > bestScore) { bestScore = score; bestLeaks = leaks; job.best = cands[i]; }
+              const candidate = Math.floor(i / samples);
+              const total = totals[candidate];
+              total.score += m.botRehearsalScore ? m.botRehearsalScore(pp) : -leaks * 1000 + (pp.killed || 0);
+              total.completed++;
+              const score = total.score / samples - candidate * 0.01;
+              // Never pick a partial or failed sample group. Legacy pruning is deliberately disabled
+              // for mean scores: one unlucky sample cannot safely eliminate a whole candidate.
+              if (total.completed === samples && score > bestScore) {
+                bestScore = score; bestLeaks = leaks; job.best = cands[candidate];
+              }
             }
           }
         } catch (e) {
@@ -1580,13 +1595,14 @@ function copyCounts(m, ps) {
  */
 function refreshValue(m, ps, ctx) {
   const L = ps.shop.level;
+  const pool = botPool(m, ps);
   let total = 0;
-  for (const e of m.pool.entries.values()) if (e.left > 0 && e.tier <= L) total += e.left;
+  for (const e of pool.entries.values()) if (e.left > 0 && e.tier <= L) total += e.left;
   if (!(total > 0)) return 0;
   const slots = m.gd.shopSlots(L).chess;
   let v = 0;
   for (const [b, k] of ctx.copies) {
-    const e = m.pool.entries.get(b);
+    const e = pool.entries.get(b);
     if (!e || e.left <= 0 || e.tier > L) continue;
     const pShop = 1 - (1 - e.left / total) ** slots;
     if (k + 1 >= mergeNeed(m, b)) v += pShop * MERGE_HIT;
@@ -1664,7 +1680,8 @@ function sellJunk(m, ps) {
     const base = m.gd.baseIdOf(p.id);
     const copies = c.isGolden ? 0 : ctx.copies.get(base) || 0;
     // a pair whose third copy can still come (the merge's reward is worth it for any pair)
-    const pairLive = copies + 1 >= mergeNeed(m, base) && (m.pool.left(base) > 0 || !m.pool.has(base));
+    const pool = botPool(m, ps);
+    const pairLive = copies + 1 >= mergeNeed(m, base) && (pool.left(base) > 0 || !pool.has(base));
     const useful = c.isGolden || pairLive || ctx.keep.has(base) || (copies >= 2 && m.round <= 6);
     (useful ? keep : junk).push({ p, v: pieceValue(m, ps, p, ctx) + (pairLive ? 150 : useful ? 100 : 0) });
   }
@@ -1680,22 +1697,24 @@ function takeOffers(m, ps) {
   for (let guard = 0; guard < 4 && ps.offers.length; guard++) {
     const offer = ps.offers[0];
     const ctx = context(m, ps);
-    let best = -1;
-    let bestS = -Infinity;
+    const ranked = [];
     offer.slots.forEach((s, i) => {
       if (s.sold) return;
       const sc = s.kind === 'item'
         ? (canUseItem(m, ps, s) && personaAllowsItem(m, ps, s.id) ? 10 : 1) + gd.tierOf(s.id) * 3
         : buyScore(m, ps, s.id, ctx);
-      if (sc > bestS) { bestS = sc; best = i; }
+      ranked.push({ i, sc });
     });
-    if (best < 0) break;
+    ranked.sort((a, b) => b.sc - a.sc || a.i - b.i);
+    if (!ranked.length) break;
     if (freeSlot(ps.hand) < 0) sellWeakestHand(m, ps, { keepPairs: false });
-    if (!tryDo(() => ps.pickReward(best))) {
-      // could not take it (sold out / no room): drop the offer
+    const candidates = m.botLegacyParity ? ranked.slice(0, 1) : ranked;
+    if (candidates.some(({ i }) => tryDo(() => ps.pickReward(i)))) continue;
+    if (m.botLegacyParity) {
+      // Frozen offline replay only: preserve the old, invalid queue skip for comparison.
       ps.offers.shift();
       ps.dirty();
-    }
+    } else break; // Like a player, keep the unresolved offer at the head of the queue.
   }
 }
 
@@ -1755,12 +1774,18 @@ export function botPrepEnd(m, ps, job = null) {
 export function* botPrepEndSteps(m, ps, job = null) {
   if (!ps.alive || ps.ready) return;
   if (job && job.done && job.best !== job.plans[0]) yield* applyPlanSteps(m, ps, job.chosen, job.best);
+  finishBotPreparation(m, ps);
+}
+
+/** Shared by real preparation, its scheduler fallback and isolated candidate projections. */
+export function finishBotPreparation(m, ps, { choiceMode = 'bot' } = {}) {
+  if (!ps.alive || ps.ready) return;
   // 5. temp → hand / sell / destroy; keep one hand slot free for next round's merges
   resolveTemp(m, ps);
   if (freeSlot(ps.hand) < 0) freeHandSlot(m, ps);
   // what the next prep's bench shed may judge by value: what is owned now (later gains wait for a placement step)
   rememberOwned(ps);
-  m.autoPickPersonalChoice(ps, 'bot');
+  if (ps.personalChoice) m.autoPickPersonalChoice(ps, choiceMode);
   tryDo(() => ps.setReady(true));
 }
 
@@ -2577,7 +2602,12 @@ export function itemTarget(m, ps, item, ctx = context(m, ps)) {
     case 'use_equip_reward_char_chess': {
       // with 2 copies owned and none left in the pool the item gives nothing (GitHub #207): such a pair is no carrier
       const counts = copyCounts(m, ps);
-      const live = (base) => { const pool = typeof ps.poolOf === 'function' ? ps.poolOf(base) : m.pool; return pool.left(base) > 0 || !pool.has(base); };
+      const shared = botPool(m, ps);
+      const live = (base) => {
+        const own = typeof ps.poolOf === 'function' ? ps.poolOf(base) : m.pool;
+        const pool = own === m.pool ? shared : own; // Own DIY stock is known to this player.
+        return pool.left(base) > 0 || !pool.has(base);
+      };
       const dead = (p) => (counts.get(gd.baseIdOf(p.id)) || 0) >= 2 && !live(gd.baseIdOf(p.id));
       const pair = owned.filter((p) => normal(p) && !dead(p) && (counts.get(gd.baseIdOf(p.id)) || 0) + 1 >= mergeNeed(m, gd.baseIdOf(p.id)))
         .sort((a, b) => (chessRec(m, b.id, ps)?.tier || 0) - (chessRec(m, a.id, ps)?.tier || 0) || a.uid - b.uid);
@@ -2750,6 +2780,16 @@ function resolveTemp(m, ps) {
     if (!p) continue;
     const idx = freeSlot(ps.hand); // (a recompute pulls it in; a state set up without one)
     if (idx >= 0 && tryDo(() => ps.move(p.uid, { area: 'hand', idx }))) continue;
+    if (!m.botLegacyParity && p.kind === 'token') {
+      const stack = ps.hand.findIndex(x => x?.kind === 'token' && x.ownerUid === p.ownerUid && x.id === p.id);
+      if (stack >= 0 && tryDo(() => ps.move(p.uid, { area: 'hand', idx: stack }))) continue;
+      // Sacrifice a legal bench card/item to store the summon, just as a player can.
+      // If no such action succeeds, remain unready until the real preparation deadline.
+      if (makeHandRoom(m, ps, p) && ps.temp.includes(p)) {
+        const j = freeSlot(ps.hand);
+        if (j >= 0) tryDo(() => ps.move(p.uid, { area: 'hand', idx: j }));
+      }
+    }
     if (p.kind === 'chess') {
       if (!sellWeakestHand(m, ps)) tryDo(() => ps.sell(p.uid));
     } else if (p.kind === 'item') {
@@ -2763,13 +2803,12 @@ function resolveTemp(m, ps) {
       tryDo(() => ps.destroy(p.uid));
     }
   }
-  // anything left (e.g. sells failed): final sweep — tokens cannot be sold, they are dropped with the temp slot (and
-  // come back at the next round start, PlayerState.startRound)
+  // Final legal sweep. Unresolved summons are retained; deadline cleanup belongs to MatchPrep.
   for (let i = 0; i < ps.temp.length; i++) {
     const p = ps.temp[i];
     if (!p) continue;
     if (p.kind === 'chess') tryDo(() => ps.sell(p.uid));
     else if (p.kind === 'item') tryDo(() => ps.destroy(p.uid));
   }
-  if (!ps.tempEmpty) ps.resolveTemp();
+  if (m.botLegacyParity && !ps.tempEmpty) ps.resolveTemp();
 }

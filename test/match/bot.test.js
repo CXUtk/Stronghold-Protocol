@@ -269,7 +269,7 @@ test('user: Given live prep state and a duck band, When rehearsing layouts, Then
   m.dispose();
 });
 
-test('user: Given normal battle-start effects, When rehearsing candidate layouts, Then choose the layout with fewer actual battle leaks', async (t) => {
+test('historical exact-seed rehearsal preserves its normal battle-start effects and layout choice', async (t) => {
   // Real round-7 wave from seed 104; no equipment, bench, effects or prior layers are needed.
   // Blemishine also gains Kazimierz layers in battle; Touch is supplied by the teammate's contentInfo.
   const lineup = [
@@ -319,6 +319,9 @@ test('user: Given normal battle-start effects, When rehearsing candidate layouts
       assert.ok(actual[1].leaks < actual[0].leaks, 'normal combat gives the second layout a strict leak advantage');
       const { m, ps, pieces } = prep();
       try {
+        // Frozen control only. Player-parity rehearsal ranks independent samples instead of
+        // knowing this formal seed; its common-sample ranking is covered in bot-player-parity.
+        m.botLegacyParity = true;
         const plans = keys.map((key) => {
           const plan = new Map(pieces.map((p, i) => [p.uid, i === pieces.length - 1 ? key : lineup[i][1]]));
           plan.dirs = new Map(pieces.map((p) => [p.uid, p.dir]));

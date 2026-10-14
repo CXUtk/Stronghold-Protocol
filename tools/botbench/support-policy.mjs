@@ -12,6 +12,13 @@ const atlases = new Map();
 
 export const POLICIES = Object.freeze({
   baseline: { rehearsal: 3 },
+  'baseline-parity-v12': { rehearsal: 3, playerParity: true },
+  'enemy-parity-v12': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'enemy-sustain', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true,
+    projectPrepEnd: true, playerParity: true },
+  'terrain-parity-v12': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'tanks', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true,
+    projectPrepEnd: true, playerParity: true },
   'pr445-personas': { rehearsal: 4, partnerBand: 'band_amedic', personas: true },
   // v5's historical seat-order assignment is retained above for exact reproduction, not policy selection.
   'pr445-aligned': { rehearsal: 4, partnerBand: 'band_amedic', personas: true, alignPersonas: true },
@@ -102,6 +109,9 @@ export function runSupportPolicy(config, policyId = 'baseline') {
   const partnerBand = policy.partnerBand === 'other-anchor' ? (config.band === 'band_amiya' ? 'band_ioleta' : 'band_amiya') : policy.partnerBand;
   const result = runSupportMatch({ ...config, rehearsal: policy.rehearsal, partnerBand }, {
     configure(m, rec) {
+      // Existing IDs are frozen historical controls, including their audited parity defects.
+      // New policies and real matches use player-legal actions and independent random samples.
+      m.botLegacyParity = !policy.playerParity;
       if (policy.personas) {
         const bots = m.order.filter((p) => p.isBot);
         bots[0].botPersona = config.band === 'band_amiya' ? 'amiya_fallback' : 'ioleta_fallback';

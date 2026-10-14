@@ -276,8 +276,20 @@ placement code in the fork before all `onPrepEnd` hooks, all player cleanup, the
 formal seat order. The fork permits the real mutating hooks; nothing is settled back into the live match. No live
 callbacks or timer jobs are copied. Hook failures invalidate projection rather than silently score a partial state.
 This is a forecast of ending preparation with current public preparations; later player actions are not predicted.
-Historical policy IDs remain unchanged, and this flag has no lobby or server default. Keep full-run raw outcomes,
+Historical policy IDs remain unchanged. Keep full-run raw outcomes,
 rounds 7–10 comparisons, raw LP, the round-11-discounted objective and losing maps/candidates.
+
+Player parity v12 adds `baseline-parity-v12`, `enemy-parity-v12` and `terrain-parity-v12`. They retain unavailable
+reward offers, use legal inventory actions instead of early deadline cleanup, project the real preparation tail and
+Ready state, estimate shared stock from visible cards, and rank each layout on three common independent RNG samples.
+The target's pending legal actions are projected; later human/teammate actions are not predicted. A target that
+cannot Ready is modeled at the actual deadline on the fork, with no early cleanup on the live match.
+All older policy IDs explicitly enable `botLegacyParity` to replay their original action/information defects. They
+are historical controls, not eligible deployment choices. `baseline-parity-v12` provides the legal baseline under
+the same information restriction as new candidates. Compare both baselines and the v11 projections, preserve every
+raw result and fingerprint, and do not claim that removal of an information advantage must improve performance.
+The flag has no room option/environment switch. Normal matches on this experimental branch use parity behavior;
+deploy remains separate. Timing under parallel offline workers is throughput data, not production latency proof.
 
 The foundation comparison revision ports PRs 452 (`6d00ba78`), 606 (`b4e00da5`), 607 (`5bdaa6d8`)
 and 608 (`f82f64c2`): supported guard/medic positions, capacity-aware purchasing and normal-input rehearsals.

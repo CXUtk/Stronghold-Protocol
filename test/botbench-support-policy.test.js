@@ -12,11 +12,17 @@ test('cross-version policy runs reject a reference from a different scenario', (
 });
 
 const config = { seed: 11, humans: 2, band: 'band_amiya', rounds: 7, stageId: 'act2autochess_m03', leakCount: 2, sourceMode: 'all' };
-test('policy baseline preserves existing full match results and controlled human inputs', () => {
-  const base = runSupportMatch(config), policy = runSupportPolicy(config);
+test('frozen policy baseline preserves legacy full match results and controlled human inputs', () => {
+  const base = runSupportMatch(config, { configure(m) { m.botLegacyParity = true; } }), policy = runSupportPolicy(config);
   assert.deepEqual(policy.rounds, base.rounds);
   assert.deepEqual(policy.fixtureInputs, base.fixtureInputs);
   assert.equal(policy.policyDiagnostics.skipped.length, 0);
+});
+
+test('player-parity baseline matches the new default rather than the frozen historical control', () => {
+  const base = runSupportMatch(config), policy = runSupportPolicy(config, 'baseline-parity-v12');
+  assert.deepEqual(policy.rounds, base.rounds);
+  assert.deepEqual(policy.fixtureInputs, base.fixtureInputs);
 });
 test('upgrade restraint is local to the selected AI and does not change subsequent matches or shared data', () => {
   const before = digest(getData());
