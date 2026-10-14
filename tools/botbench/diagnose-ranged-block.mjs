@@ -4,12 +4,13 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeMatch, give } from '../../test/match/harness.js';
-import { arrange, planLayout, finishBotPreparation } from '../../server/match/bot.js';
+import { arrange, planLayout, botPrepEnd } from '../../server/match/bot.js';
 import { configureIndividualBot } from '../../server/match/bot-individual.js';
 import { projectNormalBattleOptions } from '../../server/match/bot-prep-projection.js';
 import { SUPPORT_MAPS } from './support-runner.mjs';
 import { hashTree } from '../botbench-support.mjs';
 import { saveSourceSnapshot } from './experiment-store.mjs';
+import { observeBattle } from './battle-observer.mjs';
 
 export function openingFixture(stageId, seed = 1801, ids = ['chess_char_1_06_a', 'chess_char_1_06_a']) {
   const h = makeMatch({ humans: 4, difficulty: 'ABYSS', seed, botRehearsal: 8 }).start().toPrep();
@@ -23,20 +24,29 @@ export function openingFixture(stageId, seed = 1801, ids = ['chess_char_1_06_a',
 
 export function replayPlan(m, ps, pieces, plan) {
   const opts = projectNormalBattleOptions(m, ps, (trial, player, clone) => {
-    for (const piece of pieces) {
-      const [row, col] = plan.get(piece.uid).split(',').map(Number);
-      const result = player.move(clone(piece).uid, { area: 'board', row, col }, plan.dirs.get(piece.uid));
-      if (!result?.ok) throw new Error(`Illegal diagnostic move: ${JSON.stringify(result)}`);
-    }
-    finishBotPreparation(trial, player);
+    // Use the production multipass placement and Ready path, including legal swap refusals/fallbacks.
+    botPrepEnd(trial, player, { done: true, chosen: pieces.map(clone), best: plan, plans: [null] });
   }, { deadline: true });
   const b = m.newBattle(opts);
+  const observation = observeBattle(b);
+  const mire = new Map();
   let blocks = 0;
   b.on('blocked', () => blocks++);
-  for (let tick = 0; !b.finished && tick < 12000; tick++) b.step();
+  for (let tick = 0; !b.finished && tick < 12000; tick++) {
+    const before = b.time;
+    b.step();
+    for (const u of b.allyUnits) if (u.alive && u.deployed && u.findBuff('terrain:mire')) {
+      const row = mire.get(u.id) || { seconds: 0, minAspd: Infinity, maxStacks: 0 };
+      row.seconds += b.time - before;
+      row.minAspd = Math.min(row.minAspd, u.s.aspd);
+      row.maxStacks = Math.max(row.maxStacks, u.mem.mireStacks || 0);
+      mire.set(u.id, row);
+    }
+  }
   if (!b.finished) throw new Error('Diagnostic battle exceeded cap');
   const result = b.result();
   return { plan: [...plan], directions: [...plan.dirs], input: opts, result, blocks,
+    observation: { ...observation(), mire: Object.fromEntries(mire) },
     leaks: result.perPlayer[ps.playerId].leaked.filter(x => x.counted !== false).length };
 }
 
@@ -57,7 +67,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     try {
       const job = arrange(m, ps, { final: true, defer: true });
       job.run();
-      const current = replayPlan(m, ps, pieces, job.best);
+      const current = replayPlan(m, ps, job.chosen, job.best);
       // A legal diagnostic alternative: only use the existing ground tiles, without changing actual terrain.
       const deployMap = ps.deployMap;
       let ground;

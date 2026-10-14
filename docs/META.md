@@ -357,6 +357,12 @@ The candidates apply to mixed lineups too, not just the first wave or Vendela. T
 three-sample comparison remain unchanged, so these proposals replace some lower-priority variants rather than
 adding more simulated battles. They are decision heuristics, not new deployment/combat rules, and do not force
 the final layout to use ground tiles or RIGHT. Boss rounds and policies that do not enable the option are unchanged.
+On mire maps, `botMireSafeCandidates` additionally puts dry-ground and dry-ground-blocking proposals near the
+front of that same budget. The previous tactical penalty could be truncated before simulation. A dry proposal
+prefers legal non-mire tiles for both damage dealers and healers and retains a legal fallback if only mire remains;
+it does not prohibit mire in other candidates. Rehearsals already simulate accumulating mire ASPD loss, actual
+incoming damage, healing and knockouts; the existing leak-first/remaining-health score chooses the final plan.
+This avoids counting extra blocking as an unconditional benefit, without inventing new terrain or combat rules.
 
 ---
 

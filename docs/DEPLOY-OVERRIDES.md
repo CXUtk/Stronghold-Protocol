@@ -98,3 +98,14 @@ all diagnostic inputs, results and source snapshots are preserved in the workspa
 The combined proposal improved 10 cases, tied 17 and regressed one (seed 1801, act2autochess_m01 R7, 0 → 2 leaks).
 It changes which candidates fit the fixed budget and is not guaranteed to retain the old winner. The fix remains
 on its feature branch pending broader evaluation; the deployed v16 result is still the preceding implementation.
+
+Mire follow-up: prioritize dry-ground and dry-ground-blocking proposals within the same eight-layout budget.
+Existing simulation already applies mire stacks (observed ASPD 100 → 50 at ten stacks), damage, healing and deaths;
+the gap was candidate coverage. The four-unit 28-case comparison retained baseline/ground/forward/combined/safe
+totals 199/139/145/118/118. A six-unit mire-only R3/R7 diagnostic retained all five policies with totals
+16/16/17/16/16. Safe versus combined: one R7 case improved 7 → 6 leaks and 2 → 0 deaths, another regressed
+7 → 8 leaks; the aggregate is tied, not evidence of a stable overall gain. No hard terrain ban is applied.
+The diagnostic replay now uses production `botPrepEnd` multipass legal placement instead of a one-pass sequence
+that can fail on a legal swap refusal. The interrupted initial six-unit batch is retained and excluded from selection.
+Full raw inputs/results, per-unit mire exposure/ASPD/damage/healing/deaths and source snapshots are archived;
+these injected-roster scenarios do not reproduce the screenshot's exact game or a complete economy trajectory.

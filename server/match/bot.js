@@ -1256,6 +1256,8 @@ export function planLayout(m, ps, pieces, params = LAYOUT_PARAMS, opts = {}) {
   return runSteps(planLayoutSteps(m, ps, pieces, params, opts));
 }
 
+const mireTile = (m, r, c) => m.stage?.tiles?.[m.stage.rows[r]?.[c]]?.special === 'mire';
+
 /** planLayout as a step generator: yields after each placed piece (Match slices a bot's prep, see botPrepBeginSteps). */
 export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupied = new Set(), recOf = null } = {}) {
   // Offline experiments can ablate layout heuristics without changing the frozen PR 445 policy.
@@ -1312,9 +1314,15 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     let bestSupportedV = -Infinity;
     let bestHealing = -Infinity;
     let bestNoise = -Infinity;
-    for (const [r, c] of legalTiles(map, cls)) {
+    const legal = legalTiles(map, cls).filter(([r, c]) => {
       const k = tileKey(r, c);
-      if (taken.has(k) || (within && !within.has(k)) || (without && without.has(k))) continue;
+      return !taken.has(k) && (!within || within.has(k)) && (!without || !without.has(k));
+    });
+    // An additional proposal, not a terrain ban: evaluate firing/healing from dry ground, and blocking at
+    // its edge. If all remaining legal tiles are mire, keep a legal placement rather than benching the unit.
+    const dry = params.avoidMire ? legal.filter(([r, c]) => !mireTile(m, r, c)) : [];
+    for (const [r, c] of dry.length ? dry : legal) {
+      const k = tileKey(r, c);
       const noise = m.rngBots() * 1e-6;
       const supported = needsSupport && (!model.ground.has(k) || model.index.get(k).every(([ri, i]) => {
         const rt = model.routes[ri];
@@ -1381,7 +1389,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     let bestV = layout.value();
     for (const [r, c] of legalTiles(map, placeClass(ps, pgd.chess(p.id) || r0))) {
       const k = tileKey(r, c);
-      if (taken.has(k) || !model.ground.has(k) || !support(k)) continue;
+      if (taken.has(k) || !model.ground.has(k) || !support(k) || params.avoidMire && mireTile(m, r, c)) continue;
       const candidate = unitOf(r0, k, r, c, unit.dir, model, params.rangedBlock);
       layout.units[index] = candidate;
       const v = layout.value();
@@ -2188,6 +2196,13 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
         { forwardRanged: true },
         ...(ground ? [{ rangedBlock: true, groundRangedCount: 1, forwardRanged: true }] : []),
         ...baseVariants.slice(1)];
+    }
+    if (m.botMireSafeCandidates && policyApplies(m, ps)
+      && [...ps.deployMap().keys()].some(k => mireTile(m, ...parseKey(k)))) {
+      // The old tactical proposal came after the eight-layout cap and could be discarded before rehearsal.
+      // Put dry alternatives inside the budget while retaining unrestricted ground/forward proposals.
+      baseVariants = [baseVariants[0], { avoidMire: true },
+        { avoidMire: true, rangedBlock: true, groundRangedCount: 1 }, ...baseVariants.slice(1)];
     }
     const variants = policyApplies(m, ps) && m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
     for (const v of variants) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));

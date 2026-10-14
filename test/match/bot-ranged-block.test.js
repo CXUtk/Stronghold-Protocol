@@ -11,6 +11,7 @@ for (const stage of SUPPORT_MAPS) test(`two Vendelas: ground-blocking rehearsal 
     const { m, ps, pieces } = openingFixture(stage);
     try {
       m.botGroundBlockCandidates = enabled;
+      m.botMireSafeCandidates = false;
       const job = arrange(m, ps, { final: true, defer: true });
       assert.ok(job.plans.length <= 8, 'keep the existing rehearsal budget');
       job.run();
