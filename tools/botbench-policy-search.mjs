@@ -39,7 +39,7 @@ export function aggregatePolicies(results) {
 export async function main(argv) {
   const opt = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!['--seed', '--seeds', '--policies', '--maps', '--jobs', '--out', '--label', '--atlas', '--reference'].includes(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option ${argv[i]}`);
+    if (!['--seed', '--seeds', '--policies', '--maps', '--jobs', '--out', '--label', '--atlas', '--reference', '--cases'].includes(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option ${argv[i]}`);
     opt[argv[i].slice(2)] = argv[i + 1];
   }
   const seed = Number(opt.seed || 11), count = Number(opt.seeds || 8), jobs = Number(opt.jobs || 8);
@@ -53,6 +53,21 @@ export async function main(argv) {
     tasks.push({ policies, config: { seed: s, humans: 2, band, rounds: 11, stageId,
       leakCount: 1 + (s - 1) % 3, sourceMode: Math.floor((s - 1) / 3) % 2 ? 'all' : 'single', atlasPath: opt.atlas ? resolve(opt.atlas) : null } });
   }
+  if (opt.cases) {
+    const cases = JSON.parse(readFileSync(resolve(opt.cases), 'utf8'));
+    if (!Array.isArray(cases) || !cases.length) throw new Error('Empty case list');
+    tasks.length = 0;
+    const seen = new Set();
+    for (const c of cases) {
+      if (!Number.isSafeInteger(c.seed) || c.seed < 1 || !['band_amiya', 'band_ioleta'].includes(c.band)
+        || !SUPPORT_MAPS.includes(c.stageId) || ![1, 2, 3].includes(c.leakCount) || !['single', 'all'].includes(c.sourceMode)) throw new Error('Invalid explicit case');
+      const key = [c.seed, c.band, c.stageId, c.leakCount, c.sourceMode].join('|');
+      if (seen.has(key)) throw new Error('Duplicate explicit case');
+      seen.add(key);
+      tasks.push({ policies, config: { seed: c.seed, band: c.band, stageId: c.stageId, leakCount: c.leakCount,
+        sourceMode: c.sourceMode, humans: 2, rounds: 11, atlasPath: opt.atlas ? resolve(opt.atlas) : null } });
+    }
+  }
   const root = fileURLToPath(new URL('../', import.meta.url));
   const git = (...args) => execFileSync('git', ['-c', `safe.directory=${root.replaceAll('\\', '/')}`, '-C', root, ...args], { encoding: 'utf8' }).trim();
   const manifest = { schemaVersion: 2, fixedHumanFixtures: true, seed, count, jobs, policies, maps: maps || 'balanced', label: opt.label || 'development',
@@ -61,6 +76,7 @@ export async function main(argv) {
     dataHash: hashTree(root, ['data']), atlasHash: opt.atlas ? hashTree(dirname(resolve(opt.atlas)), [resolve(opt.atlas)]) : null,
     node: process.version, createdAt: new Date().toISOString() };
   const prefix = resolve(opt.out);
+  if (opt.cases) manifest.explicitCases = tasks.map((t) => t.config);
   mkdirSync(dirname(prefix), { recursive: true });
   if (['.json', '.jsonl', '.source.json'].some((ext) => existsSync(prefix + ext))) throw new Error('Output already exists; use a new experiment name');
   if (opt.reference) {

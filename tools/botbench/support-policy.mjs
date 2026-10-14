@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { buildContext, combatValue } from '../../server/match/bot-build.js';
 import { fieldModel, REHEARSAL_VARIANTS } from '../../server/match/bot.js';
 import { observeBattle } from './battle-observer.mjs';
+import { observeRoutes } from './route-observer.mjs';
 import { installTacticalPolicy } from './tactical-policy.mjs';
 const atlases = new Map();
 
@@ -22,6 +23,14 @@ export const POLICIES = Object.freeze({
     levelCap: 3, role: 'anchor', build: 'tanks', tactical: 'hazard', layoutParams: { tankFirst: false }, skipCombos: true },
   'hybrid-v7': { rehearsal: 7, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
     build: 'tanks', tactical: 'hazard', routeVariants: true, skipCombos: true },
+  'dual-keep-v8': { rehearsal: 8, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'tanks', tactical: 'hazard', routeVariants: true, skipCombos: true, keepLayout: true },
+  'dual-lanes-v8': { rehearsal: 10, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'tanks', tactical: 'hazard', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true },
+  'dual-terrain-v8': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'tanks', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true },
+  'dual-economy-v8': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
+    build: 'conservative', tactical: 'dual', routeVariants: true, skipCombos: true, keepLayout: true, dualRoutes: true },
   'wider-layout': { rehearsal: 5 },
   'core3-both': { rehearsal: 3, levelCap: 3, role: 'both' },
   'core4-both': { rehearsal: 3, levelCap: 4, role: 'both' },
@@ -86,15 +95,21 @@ export function runSupportPolicy(config, policyId = 'baseline') {
       }
       m.botLayoutParams = policy.layoutParams;
       m.botSkipCombos = policy.skipCombos;
+      m.botKeepCurrentLayout = policy.keepLayout;
       if (policy.routeVariants) m.botLayoutVariants = [...REHEARSAL_VARIANTS.slice(0, 4),
         { tankFirst: false }, { tankFirst: false, spread: 3, secondHold: 0.2, cohesion: 0 }];
-      installTacticalPolicy(m, policy, tacticalTrials);
+      if (policy.dualRoutes) m.botLayoutVariants.push({ routeFloor: 0.5, cohesion: 0 },
+        { routeFloor: 0.5, cohesion: 0, tankFirst: false });
+      installTacticalPolicy(m, { ...policy, captureSpecs: config.routeDiagnostics }, tacticalTrials);
       if (config.observe) {
         const original = m.newBattle.bind(m);
         m.newBattle = (opts) => {
           const b = original(opts);
           if (!opts.fieldId?.startsWith('r:') && (opts.kind === 'unite' || opts.players.some((p) => m.players.get(p.playerId)?.isBot))) {
-            observations.push({ round: opts.round, kind: opts.kind, fieldId: opts.fieldId, snapshot: observeBattle(b) });
+            const routes = config.routeDiagnostics ? observeRoutes(b, opts) : null;
+            const snapshot = observeBattle(b);
+            observations.push({ round: opts.round, kind: opts.kind, fieldId: opts.fieldId,
+              snapshot: () => ({ ...snapshot(), ...(routes ? { routes: routes() } : {}) }) });
           }
           return b;
         };

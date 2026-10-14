@@ -50,7 +50,17 @@ export function installTacticalPolicy(m, policy, records) {
   if (policy.tactical === 'terrain') m.botLayoutAdjustment = (ps, units, model) => terrainAdjustment(m, ps, units, model);
   const hasInfection = m.stage.rows.slice(9, 13).some((row) => [...row].some((key) => m.stage.tiles[key]?.special === 'infection'));
   if (policy.tactical === 'hazard' && hasInfection) m.botLayoutAdjustment = (ps, units, model) => terrainAdjustment(m, ps, units, model, 4);
-  if (['carry', 'terrain', 'hazard'].includes(policy.tactical)) m.botRehearsalScore = carryScore;
+  if (policy.tactical === 'dual') m.botLayoutAdjustment = (ps, units, model) => {
+    let score = hasInfection ? terrainAdjustment(m, ps, units, model, 4) : 0;
+    for (const u of units) {
+      const [r, c] = u.key.split(',').map(Number), tile = m.stage.rows[r]?.[c];
+      // Mire stacks ASPD loss; concealment protects ranged damage/healing, but cannot draw enemy shots off allies.
+      if (tile === 'm') score -= Math.min(3, u.dps / 200) + (u.heal ? 1 : 0);
+      if (tile === 'g') score += u.block > 0 && model.ground.has(u.key) ? -1 : Math.min(1.5, u.dps / 300) + (u.heal ? 0.7 : 0);
+    }
+    return score;
+  };
+  if (['carry', 'terrain', 'hazard', 'dual'].includes(policy.tactical)) m.botRehearsalScore = carryScore;
   const original = m.newBattle.bind(m);
   m.newBattle = (opts) => {
     if (!opts.fieldId?.startsWith('r:')) return original(opts);
@@ -63,6 +73,7 @@ export function installTacticalPolicy(m, policy, records) {
       if (b.finished && !saved) {
         saved = true;
         records.push({ round: opts.round, pid: opts.players[0].playerId, seconds: b.time,
+          ...(policy.captureSpecs ? { spec: JSON.parse(JSON.stringify({ ...opts, players, flags: { ...opts.flags, layerGainsEnabled: policy.tactical !== 'context' } })) } : {}),
           board: opts.players[0].units.map(({ uid, chessId, row, col, dir }) => ({ uid, chessId, row, col, dir })),
           mapMedics: b.allyUnits.filter((u) => ['char_605_cmedic', 'char_613_acmedc'].includes(u.defId)).map((u) => u.defId),
           players: Object.fromEntries(Object.entries(r.perPlayer || {}).map(([id, pp]) => [id, { leaks: (pp.leaked || []).filter((l) => l.counted !== false).length,

@@ -1146,6 +1146,8 @@ export class Layout {
     const blockAt = new Map();
     for (const u of this.units) if (u.block > 0 && this.model.ground.has(u.key)) blockAt.set(u.key, (blockAt.get(u.key) || 0) + u.block);
     let total = 0;
+    let routeFloor = 1;
+    let routeCount = 0;
     for (const rt of routes) {
       let exp = 0;
       let lastBlock = -Infinity;
@@ -1163,8 +1165,12 @@ export class Layout {
         const c = cover.get(k);
         if (c) exp += t * (rt.fly ? c.a : c.g);
       }
-      total += rt.n * (1 - Math.exp(-exp / (p.kill * rt.hp)));
+      const fraction = 1 - Math.exp(-exp / (p.kill * rt.hp));
+      total += rt.n * fraction;
+      if (rt.n > 0) { routeFloor = Math.min(routeFloor, fraction); routeCount += rt.n; }
     }
+    // Offline candidate: avoid buying more coverage on a saturated lane while another entrance remains exposed.
+    if (p.routeFloor) total += p.routeFloor * routeCount * routeFloor;
     // ranged units standing on a road block and get hit: a small penalty per road tile they occupy
     for (const u of this.units) if (!u.block && this.model.ground.has(u.key)) total -= p.roadPenalty * this.model.ground.get(u.key).flow;
     // cohesion: a stray beyond blobRadius (Chebyshev) of its nearest ally is penalized per tile of excess —
@@ -2092,6 +2098,14 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
   }
   yield;
   const plans = [];
+  if (final && m.botKeepCurrentLayout) {
+    const current = new LayoutPlan();
+    for (const p of chosen) {
+      const loc = ps.find(p.uid);
+      if (loc?.area === 'board') { current.set(p.uid, loc.key); current.dirs.set(p.uid, pieceDir(p)); }
+    }
+    if (current.size === chosen.length) plans.push(current);
+  }
   if (final && m.wave && m.botRehearsal > 0) {
     const baseVariants = m.botLayoutVariants || REHEARSAL_VARIANTS;
     const variants = m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
