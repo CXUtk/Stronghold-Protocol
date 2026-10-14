@@ -8,9 +8,11 @@ import { observeBattle } from './battle-observer.mjs';
 import { observeRoutes } from './route-observer.mjs';
 import { installTacticalPolicy } from './tactical-policy.mjs';
 import { installCounterSkills } from './skill-policy.mjs';
+import { ABLATION_POLICIES } from './ablation-policies.mjs';
 const atlases = new Map();
 
 export const POLICIES = Object.freeze({
+  ...ABLATION_POLICIES,
   baseline: { rehearsal: 3 },
   'baseline-parity-v12': { rehearsal: 3, playerParity: true },
   'enemy-parity-v12': { rehearsal: 11, partnerBand: 'band_amedic', personas: true, alignPersonas: true,
@@ -106,7 +108,7 @@ export const POLICIES = Object.freeze({
 export function runSupportPolicy(config, policyId = 'baseline') {
   const policy = POLICIES[policyId];
   if (!policy || config.humans !== 2) throw new Error('Unknown policy or non-2H2AI configuration');
-  const skipped = [], preparation = [], rehearsalLayers = [], observations = [], tacticalTrials = [], equipmentActions = [];
+  const skipped = [], preparation = [], rehearsalLayers = [], observations = [], tacticalTrials = [], equipmentActions = [], economyActions = [];
   const economy = new Map();
   const partnerBand = policy.partnerBand === 'other-anchor' ? (config.band === 'band_amiya' ? 'band_ioleta' : 'band_amiya') : policy.partnerBand;
   const result = runSupportMatch({ ...config, rehearsal: policy.rehearsal, partnerBand }, {
@@ -141,6 +143,7 @@ export function runSupportPolicy(config, policyId = 'baseline') {
       if (policy.dualRoutes) m.botLayoutVariants.push({ routeFloor: 0.5, cohesion: 0 },
         { routeFloor: 0.5, cohesion: 0, tankFirst: false });
       installTacticalPolicy(m, { ...policy, captureSpecs: config.routeDiagnostics }, tacticalTrials);
+      if (policy.rehearsalScore === 'pr445') delete m.botRehearsalScore;
       if (config.observe) {
         const original = m.newBattle.bind(m);
         m.newBattle = (opts) => {
@@ -156,13 +159,19 @@ export function runSupportPolicy(config, policyId = 'baseline') {
       }
       m.botMedicalPolicy = policy.medical || '';
       m.botBuildPolicy = policy.build || '';
-      if (policy.build) {
+      if (policy.buildBands) m.botBuildPolicyByBand = Object.fromEntries(
+        ['band_amiya', 'band_ioleta', 'band_amedic'].map((band) => [band, policy.buildBands.includes(band) ? policy.build : '']));
+      if (policy.build || policy.atlas) {
         if (!config.atlasPath) throw new Error('Build policy requires --atlas');
         if (!atlases.has(config.atlasPath)) atlases.set(config.atlasPath, JSON.parse(readFileSync(config.atlasPath, 'utf8')));
         m.botCombatAtlas = atlases.get(config.atlasPath);
         if (policy.counterSkills) installCounterSkills(m, m.botCombatAtlas, rec);
       }
       for (const p of m.order.filter((p) => p.isBot)) {
+        const logEconomy = (action, before, result, details = {}) => {
+          if (policy.traceEconomy) economyActions.push({ round: m.round, pid: p.playerId, action,
+            beforeFunds: before, afterFunds: p.funds, ok: !!result?.ok, error: result?.error, ...details });
+        };
         const healer = (id) => { const c = p.gd.chess(id); return c?.attackKind === 'heal' || c?.dmgType === 'heal'; };
         const counts = () => {
           const key = `${m.round}:${p.playerId}`;
@@ -172,7 +181,9 @@ export function runSupportPolicy(config, policyId = 'baseline') {
         const buy = p.buy.bind(p), sell = p.sell.bind(p), refresh = p.refresh.bind(p);
         p.buy = (slot) => {
           const s = p.shop.slots[slot], isHeal = s?.kind === 'chess' && healer(s.id);
+          const before = p.funds, offered = s ? { ...s } : null;
           const r = buy(slot); if (r.ok && isHeal) counts().medicalBought++;
+          logEconomy('buy', before, r, { slot, offered });
           if (policy.counterEquipment && r.ok && s?.kind === 'item' && p.gd.item(s.id)?.params?.silence > 0)
             equipmentActions.push({ round: m.round, pid: p.playerId, action: 'buy', id: s.id });
           return r;
@@ -189,13 +200,24 @@ export function runSupportPolicy(config, policyId = 'baseline') {
         }
         p.sell = (uid) => {
           const owned = p.allChess().find((x) => x.uid === uid), isHeal = owned && healer(owned.id);
-          const r = sell(uid); if (r.ok && isHeal) counts().medicalSold++; return r;
+          const before = p.funds, id = owned?.id;
+          const r = sell(uid); if (r.ok && isHeal) counts().medicalSold++;
+          logEconomy('sell', before, r, { uid, id }); return r;
         };
         p.refresh = (...args) => {
           const passed = !p.allChess().some((u) => healer(u.id))
             && p.shop.slots.some((s) => s && !s.sold && s.kind === 'chess' && healer(s.id) && p.priceOf(s) <= p.funds);
-          const r = refresh(...args); if (r.ok && passed) counts().affordableMedicalPassed++; return r;
+          const before = p.funds, offers = policy.traceEconomy ? structuredClone(p.shop.slots) : undefined;
+          const r = refresh(...args); if (r.ok && passed) counts().affordableMedicalPassed++;
+          logEconomy('refresh', before, r, { offers }); return r;
         };
+        if (policy.traceEconomy) {
+          const levelUp = p.levelUp.bind(p);
+          p.levelUp = (...args) => {
+            const before = p.funds, level = p.shop.level, r = levelUp(...args);
+            logEconomy('levelUp', before, r, { beforeLevel: level, afterLevel: p.shop.level }); return r;
+          };
+        }
       }
       if (policy.rehearsalLayers) {
         const original = m.newBattle.bind(m);
@@ -254,6 +276,7 @@ export function runSupportPolicy(config, policyId = 'baseline') {
   });
   return { policyId, policy, ...result, policyDiagnostics: { skipped, preparation, rehearsalLayers,
     ...(policy.counterEquipment ? { equipmentActions } : {}),
+    ...(policy.traceEconomy ? { economyActions } : {}),
     ...(policy.tactical ? { tacticalTrials } : {}),
     ...(config.observe ? { observations: observations.map(({ snapshot, ...meta }) => ({ ...meta, ...snapshot() })) } : {}) } };
 }

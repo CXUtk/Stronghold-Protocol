@@ -293,6 +293,19 @@ raw result and fingerprint, and do not claim that removal of an information adva
 checkout of the PR's older engine. The current research candidates use eleven layouts and additional scoring,
 so report their compute cost separately instead of implying an equal-compute comparison. Fixed Amiya/Russell
 plus Touch assignments evaluate these two pairs only, not all six presets or adaptive band selection.
+The sixteen `ablate-v14-bB-lL-sS-cC` policies cross build scoring (B), expanded terrain/route layout proposals (L),
+carry scoring (S) and disabling PR 445 combo placement (C). Each bit is 0 or 1; zero retains the PR 445 behavior.
+All retain its persona/economic rules and the player-parity boundary. B=0 adds no measured buy/bench/lineup score;
+different placements can still affect later combat, income and purchases, so this is not a frozen purchase replay.
+L and S are independent: atlas-based terrain proposals do not require build scoring, and carry ranking can use
+only the original four proposals. All-zero must reproduce `pr445-parity-v13`, all-one `terrain-parity-v12`.
+Successful and rejected buy/sell/refresh/level actions, pre-refresh offers and funds are recorded read-only.
+Retain the full factorial, interactions, historical replays and per-band/per-round outcomes, including regressions.
+These are seen-sample causal ablations, not new independent validation or a deployment recommendation.
+After the factorial, `ablate-v14-build-anchor-only` and `ablate-v14-build-touch-only` isolate which AI receives
+the build bonus. The offline `botBuildPolicyByBand` override is applied inside buildContext (an empty value disables
+the bonus); no room/default setting uses it. Both still use PR 445 layouts, rehearsal scoring and combo placement.
+These diagnose shared-stock and economy feedback, not new cooperative role assignments.
 The flag has no room option/environment switch. Normal matches on this experimental branch use parity behavior;
 deploy remains separate. Timing under parallel offline workers is throughput data, not production latency proof.
 

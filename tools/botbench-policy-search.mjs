@@ -93,7 +93,7 @@ export async function main(argv) {
     manifest.reusedBaselineMatches = tasks.length;
   }
   manifest.newSimulationMatches = tasks.length * (policies.length - (opt.reference ? 1 : 0));
-  if (policies.some((p) => POLICIES[p].build)) {
+  if (policies.some((p) => POLICIES[p].build || POLICIES[p].atlas)) {
     if (!opt.atlas) throw new Error('Build policies require --atlas');
     const atlas = JSON.parse(readFileSync(resolve(opt.atlas), 'utf8'));
     if (atlas.manifest?.dataHash !== manifest.dataHash) throw new Error('Atlas data version differs; regenerate capabilities');
