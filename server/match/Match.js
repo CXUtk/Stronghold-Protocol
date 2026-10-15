@@ -13,7 +13,7 @@
 //   opts.difficulty  'FUNNY'|'NORMAL'|'HARD'|'ABYSS'
 //   opts.modeId      string                     modeIdFor(mode, difficulty), e.g. 'mode_multi_hard'
 //   opts.activeBondShopBoost boolean (optional) local opt-in: active-alliance shop cards have 1.2x weight, off by default
-//   opts.botIndividualPolicy string (optional) local selected AI strategy: terrain-parity-v12 or off; four-seat ABYSS only
+//   opts.botIndividualPolicy string (optional) local AI: diverse-parity-v17, terrain-parity-v12 or off; four-seat ABYSS only
 //   opts.aiPicksLast boolean (optional)         the co-op room option 「AI 队友最后选择」 (room.setAiPicksLast, GitHub #338):
 //                                              the strategy and 机变 drafts put every human seat before every AI seat
 //                                              (MatchPhases.humansFirst); only `true` turns it on; ignored in solo

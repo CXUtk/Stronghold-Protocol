@@ -5,7 +5,7 @@ purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsa
 results; optional local carry/terrain scoring remains independent. See `tools/botbench/README.md` for frozen inputs,
 source snapshots and cross-revision comparison.
 
-The local lobby selects `terrain-parity-v12` through `opts.botIndividualPolicy` for four-player ABYSS rooms with
+The local lobby selects `diverse-parity-v17` through `opts.botIndividualPolicy` for four-player ABYSS rooms with
 one to three AI seats. `SP_BOT_POLICY=off` disables that selection; direct Match callers keep the default unless
 they explicitly pass the option. `bot-individual.js` installs the measured capability table, tanks build scoring,
 up to eight rehearsed layouts (three independent samples each), retained-layout candidates, carry scoring and the
@@ -14,6 +14,13 @@ diagnostic snapshots. AI drafts prefer free Russell, Touch, then Amiya bands, re
 the persona follows the actual assigned band. Unavailable fallback bands use ordinary draft selection. Native policy
 layout overrides do not apply to human autoplay. Capability entries are measured scoring hints, never battle stats.
 The evidence is a controlled population comparison through round 11, not guaranteed perfect play in every room.
+For exactly two AI seats, the selected policy uses the measured `diverse-v1` allocation inside the same
+eight-layout/three-sample budget. It protects current/default, lane and healing proposals before selecting
+geometrically distinct alternatives. Other AI counts retain the population-tested terrain bank. The older
+`terrain-parity-v12` option remains unchanged for frozen comparisons or rollback. Latest 2H2AI matched trials
+favor diverse overall (75.9% versus 73.5% weighted own clear), with a mire-subset regression (73.8% versus
+77.8%); this is a measured tradeoff, not guaranteed superiority on every map. Local mutation/sampling
+experiments are not enabled by the lobby.
 
 Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
 

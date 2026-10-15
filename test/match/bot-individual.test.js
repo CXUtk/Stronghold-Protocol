@@ -11,6 +11,7 @@ for (const humans of [1, 2, 3]) test(`selected individual policy supports ${4-hu
     assert.equal(configureIndividualBot(m, INDIVIDUAL_BOT_POLICY), true);
     assert.equal(m.botRehearsal, 8);
     assert.equal(m.botBuildPolicy, 'tanks');
+    assert.equal(m.botLayoutBudgetPolicy, humans === 2 ? 'diverse-v1' : undefined);
     assert.ok(m.botCombatAtlas.entries.chess_char_1_17_a);
     const human = m.order.find(p => !p.isBot), bot = m.order.find(p => p.isBot);
     m.draft = { picks: {}, focus: new Map([[human.playerId, 'band_ioleta']]) };
@@ -21,6 +22,16 @@ for (const humans of [1, 2, 3]) test(`selected individual policy supports ${4-hu
     assert.equal(human.botPersona, null);
     assert.equal(supportRehearsals(m, human), 0, 'explicit test autoplay rehearsal budget remains unchanged');
     assert.equal(supportRehearsals(m, bot), 8);
+  } finally { m.dispose(); }
+});
+
+test('legacy policy remains selectable for frozen replays and rollback without enabling diverse', () => {
+  const { m } = makeMatch({ humans: 2, bots: 2, difficulty: 'ABYSS' });
+  try {
+    assert.equal(configureIndividualBot(m, 'terrain-parity-v12'), true);
+    assert.equal(m.botIndividualPolicy, 'terrain-parity-v12');
+    assert.equal(m.botLayoutBudgetPolicy, undefined);
+    assert.equal(m.botRehearsal, 8);
   } finally { m.dispose(); }
 });
 
