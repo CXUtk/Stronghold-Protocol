@@ -79,6 +79,7 @@
 
 import { BOT_PERSONAS, personaPreferred, personaRefreshTargets } from '../../shared/botPersonas.js';
 import { projectNormalBattleOptions } from './bot-prep-projection.js';
+import { allocateLayoutBudget } from './bot-layout-budget.js';
 import { botPool, rehearsalSampleSeed } from './bot-information.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
@@ -1469,7 +1470,13 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
   const wave = m.wave;
   const distinct = distinctPlans(plans);
   if (!wave || distinct.length < 2 || !(m.botRehearsal > 0)) return null;
-  const cands = distinct.slice(0, supportRehearsals(m, ps));
+  const budget = supportRehearsals(m, ps);
+  const cands = m.botLayoutBudgetPolicy && policyApplies(m, ps)
+    ? allocateLayoutBudget(plans, budget, { policy: m.botLayoutBudgetPolicy, round: m.round,
+      mire: [...ps.deployMap().keys()].some(k => mireTile(m, ...parseKey(k))) })
+    : distinct.slice(0, budget);
+  // Optional offline audit only. No callback is installed by the server or lobby.
+  m.botRehearsalAudit?.({ phase: 'start', player: ps, chosen, plans, distinct, candidates: cands });
   const byUid = new Map(chosen.map((p) => [p.uid, p]));
   const battles = [];
   const fair = !m.botLegacyParity;
@@ -1566,6 +1573,8 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
         t = 0;
       }
       job.done = true;
+      m.botRehearsalAudit?.({ phase: 'done', player: ps, chosen, plans, distinct, candidates: cands,
+        selected: job.best, totals: totals.map(total => ({ ...total })) });
       return true;
     },
   };
@@ -2184,6 +2193,7 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
   const plans = [];
   if (final && policyApplies(m, ps) && m.botKeepCurrentLayout) {
     const current = new LayoutPlan();
+    current.variant = { current: true };
     for (const p of chosen) {
       const loc = ps.find(p.uid);
       if (loc?.area === 'board') { current.set(p.uid, loc.key); current.dirs.set(p.uid, pieceDir(p)); }
@@ -2217,7 +2227,11 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
       baseVariants = [baseVariants[0], defense, ...(mire ? [{ ...defense, avoidMire: true }] : []), ...baseVariants.slice(1)];
     }
     const variants = policyApplies(m, ps) && m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
-    for (const v of variants) plans.push(yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v }));
+    for (const v of variants) {
+      const plan = yield* planLayoutSteps(m, ps, chosen, { ...LAYOUT_PARAMS, ...v });
+      plan.variant = { ...v };
+      plans.push(plan);
+    }
   } else {
     plans.push(yield* planLayoutSteps(m, ps, chosen));
   }

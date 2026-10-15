@@ -344,3 +344,21 @@ state and per-bond gains. All raw batches, including regressions, remain in the 
 ## Population comparisons
 
 `botbench-policy-search.mjs --humans 1,2,3` runs separate four-seat ABYSS configurations. Each policy gets the same legal draft roster: selected anchor, Touch when a second AI exists, and the other anchor when a third exists. Human fixtures reserve these bands and supply 1–2 leaks; full enemy objects are frozen per case. Summaries are grouped by human count. Explicit cases may specify `humans`; omit it to replay historical cases unchanged. Build scoring is opt-in for actual AI seats in four-player ABYSS through round 11, regardless of AI count. It never applies to human autoplay. Existing legacy medical/support experiments retain their own scope. Interrupted batches retain their journal and are registered, not silently discarded.
+
+### Offline layout-budget experiments
+
+`Match.botLayoutBudgetPolicy` is an offline-instance override only. No lobby, environment or production policy
+enables it. `protected-late-v1`, `balanced-v1`, `diverse-v1`, `diverse-from8-v2` and `legacy-from7-v2` preserve
+the generated legal boards and their generation RNG, then choose which distinct boards fit the existing budget.
+They do not increase the eight-layout / three-sample budget of the selected local policy. Protected families include
+the current board, default, lane distribution and healing/hold; diverse variants fill remaining slots by geometric
+distance, without using trial results or the formal battle RNG. Multiple family aliases of the same board cost one slot.
+These are candidates under evaluation, not a replacement for the deployed policy.
+
+The optional read-only `botRehearsalAudit` callback reports generated, distinct and selected plans at `start`, and
+the winning plan and complete sample-score totals at `done`. No callback is installed in normal play. Plans carry
+their generation parameters in `variant`; this metadata does not enter the battle spec. `layout-budget-diagnostic.mjs`
+uses archived full-match inputs for matched-preparation R8/R9 trials; `layout-budget-telemetry.mjs` replays selected
+and omitted plans to record actual damage, healing, routes and mire exposure. Keep full-prefix parity checks, trial
+tick caps, losing candidates, interrupted attempts and source snapshots. Geometric diversity and dry tiles are
+proposals, not guarantees of better combat or cooperative rescue.
