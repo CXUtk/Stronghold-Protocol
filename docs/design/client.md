@@ -224,8 +224,9 @@ Only Executor and Pinecone opt in to `shotgunWave` through their own kits. The s
 not enable it, so other scattershooters, including Ch'en the Holungday, do not inherit the fan. One fan follows the
 operator's deployed facing and reaches the far edge of the current skill/buff range, regardless of the primary
 target's lateral position. Later targets use `shotgunWaveSkip` and draw no additional shot.
-**[ASSUMED]** Its 1.10-radian spread, 0.17-game-second lifetime and orange/gold-white colours are visual approximations
-from the supplied reference, not official values. Executor also draws five cosmetic pellet streaks with different
+**[ASSUMED]** Its 1.10-radian spread, 0.17-second display-time lifetime and orange/gold-white colours are visual
+approximations from the supplied reference, not official values. The fan lifetime does not scale with the battle
+clock. Executor also draws five cosmetic pellet streaks with different
 sizes, lengths, offsets, appearance times and random angles within the fan; Pinecone retains the plain fan.
 The pellet pattern is sampled in the renderer, once per attack, and does not consume simulation RNG. The visual
 styles change neither simulated targets and projectiles nor hit counts or damage timing.
