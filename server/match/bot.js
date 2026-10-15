@@ -81,6 +81,7 @@ import { BOT_PERSONAS, personaPreferred, personaRefreshTargets } from '../../sha
 import { projectNormalBattleOptions } from './bot-prep-projection.js';
 import { allocateLayoutBudget } from './bot-layout-budget.js';
 import { isArtillery, artilleryContactScore, preferArtilleryCandidate } from './bot-artillery.js';
+import { fireCoverageSteps } from './bot-fire-coverage.js';
 import { botPool, rehearsalSampleSeed } from './bot-information.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
@@ -1479,12 +1480,29 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
   const distinct = distinctPlans(plans);
   if (!wave || distinct.length < 2 || !(m.botRehearsal > 0)) return null;
   const budget = supportRehearsals(m, ps);
-  const cands = m.botLayoutBudgetPolicy && policyApplies(m, ps)
+  let cands = m.botLayoutBudgetPolicy && policyApplies(m, ps)
     ? allocateLayoutBudget(plans, budget, { policy: m.botLayoutBudgetPolicy, round: m.round,
       mire: [...ps.deployMap().keys()].some(k => mireTile(m, ...parseKey(k))) })
     : distinct.slice(0, budget);
+  let fireAudit = null;
+  if (m.botFireCoveragePolicy && policyApplies(m, ps) && m.round <= 11) {
+    const model = fieldModel(m, ps), pgd = ps.gd || m.gd;
+    const makeUnits = plan => chosen.filter(p => plan.has(p.uid)).map(p => {
+      const rec = rangeRec(ps, p.kind === 'chess' ? pgd.chess(p.id) : pgd.token(p.id));
+      if (!rec) return null;
+      const key = plan.get(p.uid), [r, c] = parseKey(key);
+      const u = unitOf(rec, key, r, c, planDir(plan, p.uid), model, true);
+      if (isArtillery(rec) || rec.subProfessionId === 'bombarder') u.air = false;
+      return { ...u, uid: p.uid, kind: p.kind, dir: planDir(plan, p.uid), piece: p };
+    }).filter(Boolean);
+    fireAudit = yield* fireCoverageSteps(cands, { policy: m.botFireCoveragePolicy, model, makeUnits,
+      legalPositions: u => legalTiles(ps.deployMap(), placeClass(ps, pgd.chess(u.piece.id))).map(([r,c]) => tileKey(r,c)),
+      mire: key => mireTile(m, ...parseKey(key)) });
+    cands = fireAudit.plans;
+  }
   // Optional offline audit only. No callback is installed by the server or lobby.
-  m.botRehearsalAudit?.({ phase: 'start', player: ps, chosen, plans, distinct, candidates: cands });
+  m.botRehearsalAudit?.({ phase: 'start', player: ps, chosen, plans, distinct, candidates: cands,
+    fireCoverage: fireAudit ? { ...fireAudit, plans: undefined } : null });
   const byUid = new Map(chosen.map((p) => [p.uid, p]));
   const battles = [];
   const fair = !m.botLegacyParity;

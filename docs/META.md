@@ -30,6 +30,17 @@ more fortress operators that actually attack and deal damage; a worse original s
 for this preference. The option is limited to the evaluated 2H2AI scope. The deployed v17 option
 remains selectable unchanged for comparisons. No attack range or skill definition is widened.
 
+Offline-only `botFireCoveragePolicy` experiments add single-operator facing/nearby-position repairs to the
+allocated diverse bank. `contact-turn-v1` and `contact-position-v1` replace at most one slot while preserving
+the parent, current/default and explicitly tagged lane/healing proposals. The `contact-safe-*-v2` variants additionally require
+a geometrically nearby victim whose estimated route exposure is no stronger than the retained parent.
+The contact estimate splits the first block between the predecessor tile (75%) and blocker tile (25%); this
+is an explicit proposal assumption, not a combat rule. Moves cannot remove route block capacity, enter mire
+or lose existing healer coverage. Real three-sample combat scoring remains unchanged, with at most eight
+layouts, no extra trials, no live combat RNG access and no forced direction. These flags are not selected
+by the lobby and do not alter the deployed policy. Evidence and losing alternatives are retained in the
+local experiment ledger; this is not a claim of validated superiority.
+
 Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
 
 The offline `botProjectPrepEnd` flag forks preparation state for each candidate, applies its legal placement,
