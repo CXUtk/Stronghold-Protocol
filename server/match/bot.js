@@ -80,6 +80,7 @@
 import { BOT_PERSONAS, personaPreferred, personaRefreshTargets } from '../../shared/botPersonas.js';
 import { projectNormalBattleOptions } from './bot-prep-projection.js';
 import { allocateLayoutBudget } from './bot-layout-budget.js';
+import { isArtillery, artilleryContactScore, preferArtilleryCandidate } from './bot-artillery.js';
 import { botPool, rehearsalSampleSeed } from './bot-information.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
@@ -1275,7 +1276,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
   const pgd = ps.gd || m.gd;
   const rec = recOf || ((p) => (p.kind === 'token' ? pgd.token(p.id) : rangeRec(ps, pgd.chess(p.id))));
   const layout = new Layout(model, params);
-  const rank = (p) => { const r = rec(p); return isBlocker(r) ? 0 : isHealer(r) ? 2 : 1; };
+  const rank = (p) => { const r = rec(p); return params.artilleryContact && isArtillery(r) ? 3 : isBlocker(r) ? 0 : isHealer(r) ? 2 : 1; };
   // blockers place first — the tankiest takes the most exposed tile (phys mitigation is a flat subtraction:
   // hp + def/res weight ≈ effective hp), the rest by DPS, healers last (owner 2026-10-07: a glass cannon used to
   // claim the front tile while the tank stood behind it)
@@ -1322,6 +1323,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     let bestSupportedV = -Infinity;
     let bestHealing = -Infinity;
     let bestNoise = -Infinity;
+    let bestFire = null, bestFireCoverage = 0, bestFireV = -Infinity;
     const legal = legalTiles(map, cls).filter(([r, c]) => {
       const k = tileKey(r, c);
       return !taken.has(k) && (!within || within.has(k)) && (!without || !without.has(k));
@@ -1349,6 +1351,12 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         const value = layout.value() + (params.tactical && policyApplies(m, ps) && m.botLayoutAdjustment ? m.botLayoutAdjustment(ps, layout.units, model) : 0);
         const v = value + noise;
         layout.units.pop();
+        if (params.artilleryContact && isArtillery(r0)) {
+          const contact = artilleryContactScore(u, layout.units, model);
+          if (contact > 0 && (contact > bestFireCoverage || contact === bestFireCoverage && v > bestFireV)) {
+            bestFire = [k, r, c, dir]; bestFireCoverage = contact; bestFireV = v;
+          }
+        }
         if (v > bestV) { bestV = v; best = [k, r, c, dir]; }
         // [ASSUMED] Without boss rehearsal, break route-value ties by allied damage in healing range.
         // The route model otherwise values healing only through a blocker's hold time.
@@ -1368,7 +1376,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         }
       }
     }
-    const pick = bestSupported || (params.routeBlock && bestRoad) || bestHigh || bestRoad || best;
+    const pick = bestFire || bestSupported || (params.routeBlock && bestRoad) || bestHigh || bestRoad || best;
     if (!pick) continue;
     taken.add(pick[0]);
     layout.units.push(unitOf(r0, pick[0], pick[1], pick[2], pick[3], model, params.rangedBlock));
@@ -1481,7 +1489,9 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
   const battles = [];
   const fair = !m.botLegacyParity;
   const samples = fair ? 3 : 1;
-  const totals = cands.map(() => ({ score: 0, completed: 0 }));
+  const artillery = m.botArtilleryContactCandidates && policyApplies(m, ps)
+    ? new Set(chosen.filter(p => isArtillery(chessRec(m, p.id, ps))).map(p => p.uid)) : new Set();
+  const totals = cands.map(() => ({ score: 0, completed: 0, ...(artillery.size ? { artilleryFired: 0 } : {}) }));
   for (const plan of cands) {
     if (fair || m.botProjectPrepEnd) {
       for (let sample = 0; sample < samples; sample++) {
@@ -1523,6 +1533,7 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
   let i = 0;
   let t = 0;
   let bestScore = -Infinity;
+  let bestContact = null;
   let bestLeaks = Infinity;
   const job = {
     chosen,
@@ -1557,11 +1568,15 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
               const total = totals[candidate];
               total.score += policyApplies(m, ps) && m.botRehearsalScore ? m.botRehearsalScore(pp) : -leaks * 1000 + (pp.killed || 0);
               total.completed++;
+              if (artillery.size) total.artilleryFired += battle.allyUnits.filter(u => u.ownerId === ps.playerId
+                && artillery.has(u.uid) && u.stats.attacks > 0 && u.stats.dmg > 0).length;
               const score = total.score / samples - candidate * 0.01;
+              const contact = { score, mean: total.score / samples, active: total.artilleryFired || 0 };
               // Never pick a partial or failed sample group. Legacy pruning is deliberately disabled
               // for mean scores: one unlucky sample cannot safely eliminate a whole candidate.
-              if (total.completed === samples && score > bestScore) {
-                bestScore = score; bestLeaks = leaks; job.best = cands[candidate];
+              if (total.completed === samples && (artillery.size
+                ? preferArtilleryCandidate(contact, bestContact) : score > bestScore)) {
+                bestScore = score; bestContact = contact; bestLeaks = leaks; job.best = cands[candidate];
               }
             }
           }
@@ -2225,6 +2240,11 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
       const defense = { routeBlock: true, rangedBlock: true, groundRangedCount: 2 };
       const mire = [...ps.deployMap().keys()].some(k => mireTile(m, ...parseKey(k)));
       baseVariants = [baseVariants[0], defense, ...(mire ? [{ ...defense, avoidMire: true }] : []), ...baseVariants.slice(1)];
+    }
+    if (m.botArtilleryContactCandidates && policyApplies(m, ps)
+      && ctx.model.routes.some(rt => !rt.fly && rt.n > 0)
+      && chosen.some(p => isArtillery(chessRec(m, p.id, ps)))) {
+      baseVariants = [...baseVariants, { artilleryContact: true, routeBlock: true }];
     }
     const variants = policyApplies(m, ps) && m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
     for (const v of variants) {

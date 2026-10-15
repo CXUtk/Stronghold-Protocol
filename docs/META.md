@@ -5,7 +5,7 @@ purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsa
 results; optional local carry/terrain scoring remains independent. See `tools/botbench/README.md` for frozen inputs,
 source snapshots and cross-revision comparison.
 
-The local lobby selects `diverse-parity-v17` through `opts.botIndividualPolicy` for four-player ABYSS rooms with
+The local lobby selects `contact-diverse-v18` through `opts.botIndividualPolicy` for four-player ABYSS rooms with
 one to three AI seats. `SP_BOT_POLICY=off` disables that selection; direct Match callers keep the default unless
 they explicitly pass the option. `bot-individual.js` installs the measured capability table, tanks build scoring,
 up to eight rehearsed layouts (three independent samples each), retained-layout candidates, carry scoring and the
@@ -21,6 +21,14 @@ geometrically distinct alternatives. Other AI counts retain the population-teste
 favor diverse overall (75.9% versus 73.5% weighted own clear), with a mire-subset regression (73.8% versus
 77.8%); this is a measured tradeoff, not guaranteed superiority on every map. Local mutation/sampling
 experiments are not enabled by the lobby.
+The v18 local fix adds one fortress contact-firing proposal when a ground wave and a fortress operator
+are present. Blockers/healers are placed first; the fortress uses its real loadout range, prioritizing
+the incoming tile of the first allied block on each route instead of only downstream path length.
+The predecessor tile is an approximate contact model, not an engine rule change. This proposal is
+retained within the eight-layout bank. Only exact ties of the original mean preview score may prefer
+more fortress operators that actually attack and deal damage; a worse original score is not traded
+for this preference. The option is limited to the evaluated 2H2AI scope. The deployed v17 option
+remains selectable unchanged for comparisons. No attack range or skill definition is widened.
 
 Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
 
