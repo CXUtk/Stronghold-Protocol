@@ -83,6 +83,13 @@
 import { BOT_PERSONAS, personaPreferred, personaRefreshTargets } from '../../shared/botPersonas.js';
 import { projectNormalBattleOptions } from './bot-prep-projection.js';
 import { allocateLayoutBudget } from './bot-layout-budget.js';
+import { isArtillery, artilleryContactScore, preferArtilleryCandidate } from './bot-artillery.js';
+import { fireCoverageSteps } from './bot-fire-coverage.js';
+import { fireSkillDescriptor } from './bot-fire-skills.js';
+import { skillShortlistSteps, protectedFireSignatures } from './bot-fire-shortlist.js';
+import { pressureLayoutFeatures } from './bot-fire-pressure.js';
+import { preserveEffectWindows } from './bot-effect-windows.js';
+import { complementaryShortlistSteps } from './bot-complementary-shortlist.js';
 import { botPool, rehearsalSampleSeed } from './bot-information.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
@@ -90,7 +97,7 @@ import { rehearsalCap, RehearsalRun, rehearsalLeaks } from '../sim/rehearsal.js'
 import { freeSlot, countFree, legalTiles, canPlace, positionClass, placeClass, basePositionClass, parseKey, tileKey, FIELD, pieceDir, boardTileOf, BOSS_MIRROR_COL } from './board.js';
 import { rotateOffset, normDir, mirrorDir, oppositeDir } from '../sim/dir.js';
 import { itemKey } from './gamedata.js';
-import { computeBonds } from './bondsMeta.js';
+import { computeBonds, pieceBonds } from './bondsMeta.js';
 import { supportDraftBand, supportLevelCap, supportRehearsals } from './bot-support.js';
 import { medicalPolicy } from './bot-medical.js';
 import { buildContext, buildUnitBonus, buildLineupBonus, buildItemBonus, combatValue, counterBuyBonus } from './bot-build.js';
@@ -1289,7 +1296,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
   const pgd = ps.gd || m.gd;
   const rec = recOf || ((p) => (p.kind === 'token' ? pgd.token(p.id) : rangeRec(ps, pgd.chess(p.id))));
   const layout = new Layout(model, params);
-  const rank = (p) => { const r = rec(p); return isBlocker(r) ? 0 : isHealer(r) ? 2 : 1; };
+  const rank = (p) => { const r = rec(p); return params.artilleryContact && isArtillery(r) ? 3 : isBlocker(r) ? 0 : isHealer(r) ? 2 : 1; };
   // blockers place first — the tankiest takes the most exposed tile (phys mitigation is a flat subtraction:
   // hp + def/res weight ≈ effective hp), the rest by DPS, healers last (owner 2026-10-07: a glass cannon used to
   // claim the front tile while the tank stood behind it)
@@ -1336,6 +1343,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
     let bestSupportedV = -Infinity;
     let bestHealing = -Infinity;
     let bestNoise = -Infinity;
+    let bestFire = null, bestFireCoverage = 0, bestFireV = -Infinity;
     const legal = legalTiles(map, cls).filter(([r, c]) => {
       const k = tileKey(r, c);
       return !taken.has(k) && (!within || within.has(k)) && (!without || !without.has(k));
@@ -1363,6 +1371,12 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         const value = layout.value() + (params.tactical && policyApplies(m, ps) && m.botLayoutAdjustment ? m.botLayoutAdjustment(ps, layout.units, model) : 0);
         const v = value + noise;
         layout.units.pop();
+        if (params.artilleryContact && isArtillery(r0)) {
+          const contact = artilleryContactScore(u, layout.units, model);
+          if (contact > 0 && (contact > bestFireCoverage || contact === bestFireCoverage && v > bestFireV)) {
+            bestFire = [k, r, c, dir]; bestFireCoverage = contact; bestFireV = v;
+          }
+        }
         if (v > bestV) { bestV = v; best = [k, r, c, dir]; }
         // [ASSUMED] Without boss rehearsal, break route-value ties by allied damage in healing range.
         // The route model otherwise values healing only through a blocker's hold time.
@@ -1382,7 +1396,7 @@ export function* planLayoutSteps(m, ps, pieces, params = LAYOUT_PARAMS, { occupi
         }
       }
     }
-    const pick = bestSupported || (params.routeBlock && bestRoad) || bestHigh || bestRoad || best;
+    const pick = bestFire || bestSupported || (params.routeBlock && bestRoad) || bestHigh || bestRoad || best;
     if (!pick) continue;
     taken.add(pick[0]);
     layout.units.push(unitOf(r0, pick[0], pick[1], pick[2], pick[3], model, params.rangedBlock));
@@ -1535,6 +1549,69 @@ export function createRehearsal(m, ps, chosen, plans) {
   return runSteps(createRehearsalSteps(m, ps, chosen, plans));
 }
 
+/** Pure public-route/owned-loadout context shared with offline matched-state diagnostics. */
+export function fireCoverageContext(m, ps, chosen) {
+  const model = fieldModel(m, ps), pgd = ps.gd || m.gd;
+  const makeUnits = plan => chosen.filter(p => plan.has(p.uid)).map(p => {
+    const rec = rangeRec(ps, p.kind === 'chess' ? pgd.chess(p.id) : pgd.token(p.id));
+    if (!rec) return null;
+    const key = plan.get(p.uid), [r, c] = parseKey(key);
+    const u = unitOf(rec, key, r, c, planDir(plan, p.uid), model, true);
+    if (isArtillery(rec) || rec.subProfessionId === 'bombarder') u.air = false;
+    return { ...u, uid: p.uid, kind: p.kind, dir: planDir(plan, p.uid), piece: p };
+  }).filter(Boolean);
+  return { model, makeUnits,
+    legalPositions: u => legalTiles(ps.deployMap(), placeClass(ps, pgd.chess(u.piece.id))).map(([r,c]) => tileKey(r,c)),
+    mire: key => mireTile(m, ...parseKey(key)) };
+}
+
+/** Selected skill spec and basic/active ranges, from immutable public data; no battle or RNG. */
+export function skillFireCoverageContext(m, ps, chosen) {
+  const base = fireCoverageContext(m, ps, chosen), pgd = ps.gd || m.gd;
+  const descriptors = new Map(chosen.filter(p => p.kind === 'chess').map(p => {
+    const rec = pgd.chess(p.id), def = m.ds.getChess(p.id, ps.loadoutFor(rec));
+    return [p.uid, fireSkillDescriptor(def)];
+  }));
+  const tokens = new Set([...ps.board.values(),...ps.hand.filter(Boolean)].filter(p => p.kind === 'token').map(p => p.ownerUid));
+  return { ...base, makeUnits: plan => base.makeUnits(plan).map(u => {
+    const d = descriptors.get(u.uid);
+    if (!d) return { ...u, skillCover:u.cover, basicAir:u.air, activeAir:u.air };
+    const [r,c] = parseKey(u.key);
+    return { ...u, descriptor:d, basicAir:d.basicAir, activeAir:d.activeAir,
+      skillCover:new Set(rangeTiles({rangeGrid:d.activeGrid},r,c,u.dir)),hasOwnedTokens:tokens.has(u.uid) };
+  }) };
+}
+
+/** Offline public pressure estimates. Current visible layers only; not future prep gains or combat outcomes. */
+export function pressureFireCoverageContext(m, ps, chosen) {
+  const base=skillFireCoverageContext(m,ps,chosen),gd=ps.gd||m.gd;
+  const bonds=computeBonds(gd,{...ps,board:new Map(chosen.map(p=>[p.uid,p]))});
+  const bb=id=>gd.bond(id)?.bb||{},layer=id=>ps.layers[id]||0;
+  const hp=bonds.steadShip?.active?bb('steadShip').base_max_hp+bb('steadShip').max_hp_per_stack*layer('steadShip'):0;
+  const defense=bonds.deputShip?.active?bb('deputShip').base_def+bb('deputShip').def_per_stack*layer('deputShip'):0;
+  const own=new Map(chosen.filter(p=>p.kind==='chess').map(p=>{
+    const rec=gd.chess(p.id),def=m.ds.getChess(p.id,ps.loadoutFor(rec));return[p.uid,{rec,def,
+      thorns:bonds.steadShip?.tier>=2&&pieceBonds(gd,p).includes('steadShip')
+        ?bb('steadShip').base_damage_value+bb('steadShip').damage_value_per_stack*layer('steadShip'):0}];
+  }));
+  const spawns=(m.wave?.spawns||[]).filter(s=>s.tag!=='part'),threats=[];
+  for(const route of base.model.routes){
+    const pool=spawns.filter(s=>{const rt=m.wave.routes[s.routeIndex],start=rt?.start;
+      return start&&tileKey(...start)===route.tiles[0]&&!!(HOVER.has(s.enemyKey)||isFlyKey(gd,s.enemyKey))===!!route.fly;});
+    const count=pool.reduce((n,s)=>n+(s.count||1),0)||1;
+    const threat={atk:0,bat:0,res:0,type:'phys'};let arts=0;
+    for(const s of pool){const e=gd.enemy(s.enemyKey)?.stats||{},w=(s.count||1)/count;
+      threat.atk+=w*(e.atk||0)*(s.mods?.atkMul||1);threat.bat+=w*(e.bat||2);threat.res+=w*(e.res||0);if(e.dmgType==='arts')arts+=w;}
+    if(arts>.5)threat.type='arts';threats.push({...route,threat:pool.length?threat:undefined});
+  }
+  const horizon=Math.min(m.wave?.timeLimit||120,Math.max(30,...spawns.map(s=>(s.time||0)+Math.max(0,(s.count||1)-1)*(s.interval||0)+15)));
+  return{...base,model:{...base.model,routes:threats,horizon},makeUnits:plan=>base.makeUnits(plan).map(u=>{
+    const x=own.get(u.uid),s=x?.def.stats||u.rec.stats||{};
+    return{...u,mire:base.mire(u.key),rangedBlind:isArtillery(u.rec),thorns:x?.thorns||0,
+      pressureStats:{...s,maxHp:(s.maxHp||0)*(1+(hp||0)),def:(s.def||0)*(1+(defense||0))}};
+  })};
+}
+
 /**
  * createRehearsal as a step generator: yields after each candidate's preview input is taken (and, unless `delegate`,
  * after that candidate's Battle is built). Dropping the job between steps leaves all live state untouched, including
@@ -1548,19 +1625,57 @@ export function* createRehearsalSteps(m, ps, chosen, plans, { delegate = false }
   const distinct = distinctPlans(plans);
   if (!wave || distinct.length < 2 || !(m.botRehearsal > 0)) return null;
   const budget = supportRehearsals(m, ps);
-  const cands = m.botLayoutBudgetPolicy && policyApplies(m, ps)
+  let cands = m.botLayoutBudgetPolicy && policyApplies(m, ps)
     ? allocateLayoutBudget(plans, budget, { policy: m.botLayoutBudgetPolicy, round: m.round,
       mire: [...ps.deployMap().keys()].some(k => mireTile(m, ...parseKey(k))) })
     : distinct.slice(0, budget);
+  let fireAudit = null;
+  if (m.botFireCoveragePolicy && policyApplies(m, ps) && m.round <= 11) {
+    const complementary=['complementary-one-r89-v6','complementary-two-r89-v6'].includes(m.botFireCoveragePolicy);
+    const pressure=['pressure-retain-r89-v4','pressure-shortlist-r89-v4'].includes(m.botFireCoveragePolicy);
+    const windows=['effect-windows-r89-v5','effect-edit-guard-r89-v5'].includes(m.botFireCoveragePolicy);
+    const v3 = complementary||windows||pressure||['alias-contact-r89-v3','skill-shortlist-r89-v3'].includes(m.botFireCoveragePolicy);
+    if (v3 && ![8,9].includes(m.round)) {
+      fireAudit = { plans:cands,policy:m.botFireCoveragePolicy,reason:'outside-focus',evaluated:0 };
+    } else if(complementary){
+      fireAudit=yield*complementaryShortlistSteps(cands,{...skillFireCoverageContext(m,ps,chosen),allPlans:plans,
+        trace:!!m.botFireCoverageTrace,policy:m.botFireCoveragePolicy,quota:m.botFireCoveragePolicy==='complementary-one-r89-v6'?1:2});
+    } else if(windows){
+      const context=skillFireCoverageContext(m,ps,chosen);
+      fireAudit=yield*skillShortlistSteps(cands,{...context,allPlans:plans,trace:!!m.botFireCoverageTrace,policy:m.botFireCoveragePolicy,
+        editGate:(before,after,uid)=>preserveEffectWindows(before,after,context.model,{uid}),
+        ...(m.botFireCoveragePolicy==='effect-windows-r89-v5'?{
+          retentionGate:(before,after)=>preserveEffectWindows(before,after,context.model)}:{})});
+    } else if (pressure) {
+      fireAudit=yield*skillShortlistSteps(cands,{...pressureFireCoverageContext(m,ps,chosen),allPlans:plans,
+        trace:!!m.botFireCoverageTrace,policy:m.botFireCoveragePolicy,
+        ...(m.botFireCoveragePolicy==='pressure-shortlist-r89-v4'?{evaluate:pressureLayoutFeatures,allowSupport:true}:{}),
+        retentionEvaluate:pressureLayoutFeatures});
+    } else if (m.botFireCoveragePolicy === 'skill-shortlist-r89-v3') {
+      fireAudit = yield* skillShortlistSteps(cands, { ...skillFireCoverageContext(m, ps, chosen),
+        allPlans:plans,trace:!!m.botFireCoverageTrace });
+    } else {
+      const context = fireCoverageContext(m, ps, chosen);
+      if (m.botFireCoveragePolicy === 'alias-contact-r89-v3') context.protectedKeys = protectedFireSignatures(plans);
+      fireAudit = yield* fireCoverageSteps(cands, { policy:v3?'contact-position-v1':m.botFireCoveragePolicy,...context });
+    }
+    cands = fireAudit.plans;
+  }
   // Optional offline audit only. No callback is installed by the server or lobby.
-  m.botRehearsalAudit?.({ phase: 'start', player: ps, chosen, plans, distinct, candidates: cands });
+  m.botRehearsalAudit?.({ phase: 'start', player: ps, chosen, plans, distinct, candidates: cands,
+    fireCoverage: fireAudit ? { ...fireAudit, plans: undefined } : null });
   const byUid = new Map(chosen.map((p) => [p.uid, p]));
   const battles = [];
-  const fair = !m.botLegacyParity;
+  // Only explicitly configured local policies use the three-sample projection. Ordinary upstream
+  // callers leave this flag unset and must retain the host/server shared single-sample protocol.
+  const fair = m.botLegacyParity === false;
   const samples = fair ? 3 : 1;
-  const totals = cands.map(() => ({ score: 0, completed: 0 }));
+  const artillery = m.botArtilleryContactCandidates && policyApplies(m, ps)
+    ? new Set(chosen.filter(p => isArtillery(chessRec(m, p.id, ps))).map(p => p.uid)) : new Set();
+  const totals = cands.map(() => ({ score: 0, completed: 0, ...(artillery.size ? { artilleryFired: 0 } : {}) }));
   const inputs = [];
   const specialized = fair || m.botProjectPrepEnd || !!m.botRehearsalScore || !!m.botRehearsalAudit;
+
   for (const plan of cands) {
     if (fair || m.botProjectPrepEnd) {
       for (let sample = 0; sample < samples; sample++) {
@@ -1596,6 +1711,7 @@ export function* createRehearsalSteps(m, ps, chosen, plans, { delegate = false }
   let i = 0;
   let t = 0;
   let bestScore = -Infinity;
+  let bestContact = null;
   let bestLeaks = Infinity;
   const job = {
     chosen,
@@ -1630,11 +1746,15 @@ export function* createRehearsalSteps(m, ps, chosen, plans, { delegate = false }
               const total = totals[candidate];
               total.score += policyApplies(m, ps) && m.botRehearsalScore ? m.botRehearsalScore(pp) : -leaks * 1000 + (pp.killed || 0);
               total.completed++;
+              if (artillery.size) total.artilleryFired += battle.allyUnits.filter(u => u.ownerId === ps.playerId
+                && artillery.has(u.uid) && u.stats.attacks > 0 && u.stats.dmg > 0).length;
               const score = total.score / samples - candidate * 0.01;
+              const contact = { score, mean: total.score / samples, active: total.artilleryFired || 0 };
               // Never pick a partial or failed sample group. Legacy pruning is deliberately disabled
               // for mean scores: one unlucky sample cannot safely eliminate a whole candidate.
-              if (total.completed === samples && score > bestScore) {
-                bestScore = score; bestLeaks = leaks; job.best = cands[candidate];
+              if (total.completed === samples && (artillery.size
+                ? preferArtilleryCandidate(contact, bestContact) : score > bestScore)) {
+                bestScore = score; bestContact = contact; bestLeaks = leaks; job.best = cands[candidate];
               }
             }
           }
@@ -2300,6 +2420,11 @@ export function* arrangeSteps(m, ps, { final = false, defer = false, delegate = 
       const defense = { routeBlock: true, rangedBlock: true, groundRangedCount: 2 };
       const mire = [...ps.deployMap().keys()].some(k => mireTile(m, ...parseKey(k)));
       baseVariants = [baseVariants[0], defense, ...(mire ? [{ ...defense, avoidMire: true }] : []), ...baseVariants.slice(1)];
+    }
+    if (m.botArtilleryContactCandidates && policyApplies(m, ps)
+      && ctx.model.routes.some(rt => !rt.fly && rt.n > 0)
+      && chosen.some(p => isArtillery(chessRec(m, p.id, ps)))) {
+      baseVariants = [...baseVariants, { artilleryContact: true, routeBlock: true }];
     }
     const variants = policyApplies(m, ps) && m.botLayoutAdjustment ? [...baseVariants, { tactical: true }] : baseVariants;
     for (const v of variants) {

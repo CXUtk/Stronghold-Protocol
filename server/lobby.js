@@ -1294,7 +1294,8 @@ export class Lobby {
         // a plugin mode the host chose (header "Gameplay plugins"), else the official mode of the difficulty
         modeId: room.content?.modeId || modeIdFor(room.mode, room.difficulty),
         // Retain this branch's selected local AI policy when creating the match.
-        botIndividualPolicy: process.env.SP_BOT_POLICY || 'diverse-parity-v17',
+        botIndividualPolicy: process.env.SP_BOT_POLICY || 'complementary-diverse-v19',
+
         // 「AI 队友最后选择」 (GitHub #338): fixed for the match
         aiPicksLast: room.mode !== 'solo' && room.aiPicksLast === true,
         activeBondShopBoost: room.activeBondShopBoost === true,

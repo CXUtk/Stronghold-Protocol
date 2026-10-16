@@ -5,7 +5,7 @@ purchasing, and normal battle-input rehearsal from PRs 452/606/607/608. Rehearsa
 results; optional local carry/terrain scoring remains independent. See `tools/botbench/README.md` for frozen inputs,
 source snapshots and cross-revision comparison.
 
-The local lobby selects `diverse-parity-v17` through `opts.botIndividualPolicy` for four-player ABYSS rooms with
+The local lobby selects `complementary-diverse-v19` through `opts.botIndividualPolicy` for four-player ABYSS rooms with
 one to three AI seats. `SP_BOT_POLICY=off` disables that selection; direct Match callers keep the default unless
 they explicitly pass the option. `bot-individual.js` installs the measured capability table, tanks build scoring,
 up to eight rehearsed layouts (three independent samples each), retained-layout candidates, carry scoring and the
@@ -14,13 +14,75 @@ diagnostic snapshots. AI drafts prefer free Russell, Touch, then Amiya bands, re
 the persona follows the actual assigned band. Unavailable fallback bands use ordinary draft selection. Native policy
 layout overrides do not apply to human autoplay. Capability entries are measured scoring hints, never battle stats.
 The evidence is a controlled population comparison through round 11, not guaranteed perfect play in every room.
-For exactly two AI seats, the selected policy uses the measured `diverse-v1` allocation inside the same
+For exactly two AI seats, the selected policy uses `diverse-v1` plus the user-selected v6 two-slot complementary
+facing shortlist in rounds 8/9, inside the same
 eight-layout/three-sample budget. It protects current/default, lane and healing proposals before selecting
 geometrically distinct alternatives. Other AI counts retain the population-tested terrain bank. The older
 `terrain-parity-v12` option remains unchanged for frozen comparisons or rollback. Latest 2H2AI matched trials
 favor diverse overall (75.9% versus 73.5% weighted own clear), with a mire-subset regression (73.8% versus
 77.8%); this is a measured tradeoff, not guaranteed superiority on every map. Local mutation/sampling
-experiments are not enabled by the lobby.
+experiments other than this explicitly selected v6 option are not enabled by the lobby. In the later frozen
+research set the two-slot option scored 76.87% versus diverse 76.70%, with a seed-cluster interval crossing zero;
+mire did not improve and human damage rose. Deployment is a user-selected trial, not evidence of superiority.
+The separately selectable v18 local fix adds one fortress contact-firing proposal when a ground wave and a fortress operator
+are present. Blockers/healers are placed first; the fortress uses its real loadout range, prioritizing
+the incoming tile of the first allied block on each route instead of only downstream path length.
+The predecessor tile is an approximate contact model, not an engine rule change. This proposal is
+retained within the eight-layout bank. Only exact ties of the original mean preview score may prefer
+more fortress operators that actually attack and deal damage; a worse original score is not traded
+for this preference. The option is limited to the evaluated 2H2AI scope. The deployed v17 option
+remains selectable unchanged for comparisons. No attack range or skill definition is widened.
+
+Offline-only `botFireCoveragePolicy` experiments add single-operator facing/nearby-position repairs to the
+allocated diverse bank. `contact-turn-v1` and `contact-position-v1` replace at most one slot while preserving
+the parent, current/default and explicitly tagged lane/healing proposals. The `contact-safe-*-v2` variants additionally require
+a geometrically nearby victim whose estimated route exposure is no stronger than the retained parent.
+The contact estimate splits the first block between the predecessor tile (75%) and blocker tile (25%); this
+is an explicit proposal assumption, not a combat rule. Moves cannot remove route block capacity, enter mire
+or lose existing healer coverage. Real three-sample combat scoring remains unchanged, with at most eight
+layouts, no extra trials, no live combat RNG access and no forced direction. These flags are not selected
+by the lobby and do not alter the deployed policy. Evidence and losing alternatives are retained in the
+local experiment ledger; this is not a claim of validated superiority.
+
+Two further offline options are limited to normal rounds 8 and 9. `alias-contact-r89-v3` protects a deduplicated
+layout when any original alias marks it as a current/default, lane, healing or single-ranged-block proposal.
+`skill-shortlist-r89-v3` uses the actual selected kit spec to distinguish basic and active-skill range grids,
+target eligibility, simple control and own-team healing coverage. It enumerates legal empty nearby tiles and
+all four facings, statically shortlists at most four distinct proposals, and replaces at most two of the
+existing eight slots. Parent layouts and core aliases remain; basic/active/support route features constrain
+victim selection. Timed-skill uptime and downstream traffic are heuristic estimates; callbacks and formal
+combat RNG are never executed by this pre-score. Real three-sample combat selection is unchanged. Optional
+offline traces retain every scored edit and the shortlist. Neither option is selected by the lobby.
+
+  Offline R8/9 calibration options `pressure-retain-r89-v4` and `pressure-shortlist-r89-v4` additionally estimate
+  finite shared target time, mire outgoing-damage loss, short/long front contact, conditional own-team healing and
+  active 坚守 member thorns. They use public enemy statistics and current visible layers, not projected future
+  gains, arbitrary kit callbacks or the real battle seed. The retain option keeps the v3 proposal score and uses
+  pressure features only for victim selection; the shortlist option uses them for ranking too and permits a
+  healer's in-place rotation. These are explicitly approximate: equipped buffs, target priority, full skill
+  timelines, pure-healer speed changes, shared damage redirection and reactive support are not reconstructed.
+  Neither option changes
+  the lobby policy, combat selection objective, four-proposal shortlist, two-slot limit or eight-by-three budget.
+
+  Two offline R8/9 effect-window guards retain the v3 proposal score and original combat selection. A conditional
+  kit's extra upstream damage cannot pay for losing its own reserve-contact/last-three-path-tile coverage or
+  an existing blocker in its healing range. Sensitivity is read from the selected skill descriptor (control,
+  healing or opaque callbacks), not a name list. `effect-edit-guard-r89-v5` checks only the edited operator;
+  `effect-windows-r89-v5` additionally checks each sensitive operator when replacing a different original layout.
+  These static window assumptions do not reproduce skill timing, actual target allocation or callbacks. They can
+  reject useful trades and are experimental only, with unchanged four-proposal/two-slot/eight-by-three limits.
+
+  Offline R8/9 `complementary-one-r89-v6` / `complementary-two-r89-v6` explore one / two in-place facing
+  alternatives, including non-increasing static scores. They require at least 95% of parent aggregate score,
+  75% of each route's estimated effective exposure and 80% of support; blocking cannot fall. A different,
+  nonempty basic/active target-acquisition mask is required, including narrower acquisition that may avoid
+  spending attacks on unimportant traffic. These thresholds and window diversity are [ASSUMED] exploration
+  heuristics, not combat-effect guarantees. At most four proposals are shortlisted, equivalent acquisition
+  masks are deduplicated, and two inserted proposals cannot edit the same unit. Parent/core alias layouts
+  remain, replacing a redundant non-core slot only with at least 95% of its score and 80% of its support.
+  The geometric masks do not reconstruct skill downtime, charge timing or custom callback target selection.
+  Real three-sample scoring, economy and battle rules stay unchanged. The two-slot option is enabled by the
+  user-selected v19 lobby policy for exactly 2H2AI; one-slot remains offline. Other AI counts retain the former bank.
 
 Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
 

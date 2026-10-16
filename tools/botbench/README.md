@@ -362,3 +362,11 @@ uses archived full-match inputs for matched-preparation R8/R9 trials; `layout-bu
 and omitted plans to record actual damage, healing, routes and mire exposure. Keep full-prefix parity checks, trial
 tick caps, losing candidates, interrupted attempts and source snapshots. Geometric diversity and dry tiles are
 proposals, not guarantees of better combat or cooperative rescue.
+
+`complementary-seed-audit.mjs OUT_PREFIX` checks all fourteen previously observed non-increasing-score
+turns against fifteen matched battle seeds, reusing exact prior samples and caching shared baselines.
+New fixed battles, externally imported samples and within-batch reuse are counted separately. This is
+a diagnostic on inspected rosters, not independent full-match validation. `complementary-features-audit.mjs`
+archives their static route, contact and acquisition features without running combat. The opt-in v6
+complementary shortlist retains up to one/two alternative facings inside the same eight-by-three budget;
+it neither executes combat callbacks for static filtering nor reads the formal battle RNG.

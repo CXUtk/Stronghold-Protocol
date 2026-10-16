@@ -29,6 +29,8 @@ export function allocateLayoutBudget(plans, budget, { policy, round, mire = fals
   // Preserve a lane-distributed and a healing/hold proposal even on maps with many new alternatives.
   find(v => v.routeFloor === 0.5 && v.tankFirst !== false);
   find(v => v.secondHold === 1 && v.healHold === 0.75);
+  // If a fortress contact proposal exists, do not discard it for geometrical novelty before rehearsal.
+  find(v => v.artilleryContact);
   if (policy === 'protected-late-v1') {
     find(v => v.hold === 8);
     find(v => v.kill === 3);

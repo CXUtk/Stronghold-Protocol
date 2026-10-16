@@ -37,3 +37,10 @@ test('aliases consume one slot while retaining a protected family; tiny and empt
   assert.equal(allocateLayoutBudget(plans,1,{policy:'diverse-v1',round:9}).length,1);
   assert.deepEqual(allocateLayoutBudget([],8,{policy:'diverse-v1',round:9}),[]);
 });
+
+test('a distinct fortress contact proposal survives diversity allocation without adding a slot',()=>{
+  const plans=fixture(),contact=plan(15,{artilleryContact:true,routeBlock:true});
+  const result=allocateLayoutBudget([...plans,contact],8,{policy:'diverse-v1',round:5});
+  assert.equal(result.length,8);assert.ok(result.includes(contact));
+  for(const index of [0,1,11,12])assert.ok(result.includes(plans[index]));
+});

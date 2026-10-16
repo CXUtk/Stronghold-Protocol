@@ -12,6 +12,8 @@ for (const humans of [1, 2, 3]) test(`selected individual policy supports ${4-hu
     assert.equal(m.botRehearsal, 8);
     assert.equal(m.botBuildPolicy, 'tanks');
     assert.equal(m.botLayoutBudgetPolicy, humans === 2 ? 'diverse-v1' : undefined);
+    assert.equal(m.botArtilleryContactCandidates, undefined);
+    assert.equal(m.botFireCoveragePolicy, humans === 2 ? 'complementary-two-r89-v6' : undefined);
     assert.ok(m.botCombatAtlas.entries.chess_char_1_17_a);
     const human = m.order.find(p => !p.isBot), bot = m.order.find(p => p.isBot);
     m.draft = { picks: {}, focus: new Map([[human.playerId, 'band_ioleta']]) };
@@ -32,6 +34,25 @@ test('legacy policy remains selectable for frozen replays and rollback without e
     assert.equal(m.botIndividualPolicy, 'terrain-parity-v12');
     assert.equal(m.botLayoutBudgetPolicy, undefined);
     assert.equal(m.botRehearsal, 8);
+  } finally { m.dispose(); }
+});
+
+test('the deployed v17 policy preserves its original candidate bank for comparison', () => {
+  const { m } = makeMatch({ humans: 2, bots: 2, difficulty: 'ABYSS' });
+  try {
+    configureIndividualBot(m, 'diverse-parity-v17');
+    assert.equal(m.botLayoutBudgetPolicy, 'diverse-v1');
+    assert.equal(m.botArtilleryContactCandidates, undefined);
+    assert.equal(m.botFireCoveragePolicy, undefined);
+  } finally { m.dispose(); }
+});
+
+test('v18 artillery option remains separate from the complementary production option', () => {
+  const { m } = makeMatch({ humans: 2, bots: 2, difficulty: 'ABYSS' });
+  try {
+    configureIndividualBot(m, 'contact-diverse-v18');
+    assert.equal(m.botArtilleryContactCandidates, true);
+    assert.equal(m.botFireCoveragePolicy, undefined);
   } finally { m.dispose(); }
 });
 
