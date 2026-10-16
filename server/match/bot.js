@@ -86,6 +86,7 @@ import { fireSkillDescriptor } from './bot-fire-skills.js';
 import { skillShortlistSteps, protectedFireSignatures } from './bot-fire-shortlist.js';
 import { pressureLayoutFeatures } from './bot-fire-pressure.js';
 import { preserveEffectWindows } from './bot-effect-windows.js';
+import { complementaryShortlistSteps } from './bot-complementary-shortlist.js';
 import { botPool, rehearsalSampleSeed } from './bot-information.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
@@ -1553,11 +1554,15 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
     : distinct.slice(0, budget);
   let fireAudit = null;
   if (m.botFireCoveragePolicy && policyApplies(m, ps) && m.round <= 11) {
+    const complementary=['complementary-one-r89-v6','complementary-two-r89-v6'].includes(m.botFireCoveragePolicy);
     const pressure=['pressure-retain-r89-v4','pressure-shortlist-r89-v4'].includes(m.botFireCoveragePolicy);
     const windows=['effect-windows-r89-v5','effect-edit-guard-r89-v5'].includes(m.botFireCoveragePolicy);
-    const v3 = windows||pressure||['alias-contact-r89-v3','skill-shortlist-r89-v3'].includes(m.botFireCoveragePolicy);
+    const v3 = complementary||windows||pressure||['alias-contact-r89-v3','skill-shortlist-r89-v3'].includes(m.botFireCoveragePolicy);
     if (v3 && ![8,9].includes(m.round)) {
       fireAudit = { plans:cands,policy:m.botFireCoveragePolicy,reason:'outside-focus',evaluated:0 };
+    } else if(complementary){
+      fireAudit=yield*complementaryShortlistSteps(cands,{...skillFireCoverageContext(m,ps,chosen),allPlans:plans,
+        trace:!!m.botFireCoverageTrace,policy:m.botFireCoveragePolicy,quota:m.botFireCoveragePolicy==='complementary-one-r89-v6'?1:2});
     } else if(windows){
       const context=skillFireCoverageContext(m,ps,chosen);
       fireAudit=yield*skillShortlistSteps(cands,{...context,allPlans:plans,trace:!!m.botFireCoverageTrace,policy:m.botFireCoveragePolicy,

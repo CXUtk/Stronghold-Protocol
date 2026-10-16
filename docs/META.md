@@ -69,6 +69,17 @@ offline traces retain every scored edit and the shortlist. Neither option is sel
   These static window assumptions do not reproduce skill timing, actual target allocation or callbacks. They can
   reject useful trades and are experimental only, with unchanged four-proposal/two-slot/eight-by-three limits.
 
+  Offline R8/9 `complementary-one-r89-v6` / `complementary-two-r89-v6` explore one / two in-place facing
+  alternatives, including non-increasing static scores. They require at least 95% of parent aggregate score,
+  75% of each route's estimated effective exposure and 80% of support; blocking cannot fall. A different,
+  nonempty basic/active target-acquisition mask is required, including narrower acquisition that may avoid
+  spending attacks on unimportant traffic. These thresholds and window diversity are [ASSUMED] exploration
+  heuristics, not combat-effect guarantees. At most four proposals are shortlisted, equivalent acquisition
+  masks are deduplicated, and two inserted proposals cannot edit the same unit. Parent/core alias layouts
+  remain, replacing a redundant non-core slot only with at least 95% of its score and 80% of its support.
+  The geometric masks do not reconstruct skill downtime, charge timing or custom callback target selection.
+  Real three-sample scoring, economy and battle rules stay unchanged. Neither option is a lobby default.
+
 Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
 
 The offline `botProjectPrepEnd` flag forks preparation state for each candidate, applies its legal placement,
