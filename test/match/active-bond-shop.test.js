@@ -122,7 +122,7 @@ test('automatic and manual refreshes share the bonus; frozen metadata survives a
   assert.equal(ps.shop.slots[0].boostBonds, undefined);
 });
 
-test('DIY uses the chosen operator bonds and stacks with existing private-stock weighting once', (t) => {
+test('DIY uses the chosen operator bonds and boosts the upstream doubled private stock once', (t) => {
   const { h, ps } = setup(t);
   assert.equal(ps.setDiy({ [DIY]: { charId: 'char_112_siege', skillIndex: 2 } }), true);
   ps.initDiyStock();
@@ -134,7 +134,7 @@ test('DIY uses the chosen operator bonds and stacks with existing private-stock 
   h.m.rngShop = () => 0.47;
   const before = ps.diyStock.snapshot();
   const card = ps._rollChessSlot();
-  assert.equal(card.id, DIY, '16 ordinary vs 8×2×1.2 DIY weight');
+  assert.equal(card.id, DIY, '16 ordinary vs 16×1.2 DIY weight');
   assert.deepEqual(card.boostBonds, ['victoriaShip']);
   assert.deepEqual(ps.diyStock.snapshot(), before);
   ps.bondCountBonus = {}; ps.recompute();

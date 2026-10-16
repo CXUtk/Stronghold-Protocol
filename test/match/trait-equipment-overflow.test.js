@@ -60,7 +60,7 @@ test('缪尔赛思 purchase in the last hand slot and full-row passive traits pr
     const freeTemp = buy(s, 'chess_char_6_11_a');
     assert.equal(s.ps.hand.filter(Boolean).length, 10);
     assert.equal(units(s.ps, [BALL]), multiplier, `${multiplier} grants, ${temp} temp pieces, ${stock} existing stock`);
-    assert.equal(s.ps.itemOverflow.length, Math.max(0, multiplier - freeTemp));
+    assert.equal(s.ps.temp.slice(5).filter(p => p?.kind === 'item' && p.id === BALL).length, Math.max(0, multiplier - freeTemp));
     assert.equal(s.m.itemPool.held(BALL), stock + multiplier, 'guaranteed products still occupy the shared stock');
     assert.equal(s.m.itemPool.left(BALL), Math.max(0, 3 - stock - multiplier));
     assert.ok(!s.h.sent.some(([, msg]) => msg.t === 'm.toast' && /库存不足|已销毁/.test(msg.text)));
@@ -94,35 +94,34 @@ test('all normal/elite gain-equipment traits retain their multiplied products wh
   }
 });
 
-test('hidden equipment refills the temp row in grant order and becomes usable, without exposing hidden cards', () => {
+test('queued equipment refills the visible temp row in grant order and remains in private state', () => {
   const s = setup({ temp: 5 });
   buy(s, 'chess_char_6_11_a');
-  const hidden = [...s.ps.itemOverflow];
+  const hidden = s.ps.temp.slice(5).filter(p => p?.id === BALL);
   const view = s.ps.privateView();
-  assert.equal(view.overflowItemCount, 2);
-  assert.ok(![...view.hand, ...view.temp].some(p => p?.uid === hidden[0].uid));
-  assert.equal(s.ps.equip(hidden[0].uid, s.ps.hand[0].uid).error, ERR.BAD_TARGET);
-  assert.equal(s.ps.destroy(hidden[0].uid).error, ERR.BAD_TARGET);
-  assert.equal(s.ps.move(hidden[0].uid, { area: 'hand', index: 0 }).error, ERR.BAD_TARGET);
+  assert.equal(hidden.length, 2);
+  assert.ok(view.temp.some(p => p?.uid === hidden[0].uid), 'upstream exposes the entire expandable queue');
   assert.equal(s.ps.setReady(true).error, ERR.TEMP_NOT_EMPTY);
   for (const p of hidden) {
-    const filler = s.ps.temp.find(x => x && x.id !== BALL);
-    assert.deepEqual(s.ps.destroy(filler.uid), { ok: true });
+    while (s.ps.temp.indexOf(p) >= 5) {
+      const filler = s.ps.temp.find(x => x?.kind === 'item' && x.id !== BALL);
+      assert.deepEqual(s.ps.destroy(filler.uid), { ok: true });
+    }
     assert.equal(s.ps.find(p.uid).area, 'temp');
     valid(s);
   }
-  assert.equal(s.ps.privateView().overflowItemCount, 0);
+  assert.equal(s.ps.temp.slice(5).filter(p => p?.kind === 'item').length, 0);
   const target = s.ps.hand.find(p => p?.kind === 'chess');
   assert.deepEqual(s.ps.equip(hidden[0].uid, target.uid), { ok: true });
   assert.ok(target.items.some(p => p.uid === hidden[0].uid));
   valid(s);
 });
 
-test('投资人 identical equipment merges inside the hidden buffer with its stock accounting intact', () => {
+test('投资人 identical equipment merges inside the expandable queue with its stock accounting intact', () => {
   const s = setup({ temp: 5 });
   buy(s, 'chess_char_3_03_a');
   assert.equal(units(s.ps, [COIN]), 2);
-  const coin = s.ps.itemOverflow.find(p => DATA.items[p.id].baseId === COIN);
+  const coin = s.ps.temp.find(p => p && DATA.items[p.id]?.baseId === COIN);
   assert.ok(coin && DATA.items[coin.id].isGolden);
   assert.equal(coin.poolGrantCopies, 2);
   assert.equal(s.m.itemPool.held(COIN), 2);
@@ -145,7 +144,7 @@ test('hidden grants after Ready survive the deadline, refill into temp, and expi
   const s = setup({ temp: 5 });
   s.ps.ready = true; // passive gains can arrive after Ready; manual buys cannot
   for (let i = 0; i < 2; i++) s.ps.acquireItem(BALL, { requirePool: false });
-  const gifts = [...s.ps.itemOverflow];
+  const gifts = s.ps.temp.slice(5).filter(p => p?.id === BALL);
   assert.equal(gifts.length, 2);
   assert.ok(gifts.every(p => s.ps.tempDue(p) === s.ps.prepsEnded + 1));
   s.ps.endPrep();
@@ -161,7 +160,7 @@ test('un-readying makes hidden gifts due now, and the rule audit observes their 
   const audit = attachAudit(s.m);
   s.ps.ready = true;
   const gift = s.ps.acquireItem(BALL, { requirePool: false });
-  assert.equal(s.ps.find(gift.uid).area, 'overflow');
+  assert.equal(s.ps.find(gift.uid).area, 'temp');
   assert.equal(s.ps.tempDue(gift), s.ps.prepsEnded + 1);
   assert.deepEqual(s.ps.setReady(false), { ok: true });
   assert.equal(s.ps.tempDue(gift), s.ps.prepsEnded);
@@ -182,9 +181,9 @@ test('the rule audit detects hidden equipment surviving its deadline', () => {
 test('elimination clears hidden equipment and releases its shared stock occupancy', () => {
   const s = setup({ temp: 5 });
   buy(s, 'chess_char_6_11_a');
-  assert.equal(s.ps.itemOverflow.length, 2);
+  assert.equal(s.ps.temp.slice(5).filter(p => p?.id === BALL).length, 2);
   s.ps.eliminate(1);
-  assert.equal(s.ps.itemOverflow.length, 0);
+  assert.equal(s.ps.temp.filter(Boolean).length, 0);
   assert.equal(s.m.itemPool.held(BALL), 0);
   valid(s);
 });
