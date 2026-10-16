@@ -51,6 +51,16 @@ victim selection. Timed-skill uptime and downstream traffic are heuristic estima
 combat RNG are never executed by this pre-score. Real three-sample combat selection is unchanged. Optional
 offline traces retain every scored edit and the shortlist. Neither option is selected by the lobby.
 
+  Offline R8/9 calibration options `pressure-retain-r89-v4` and `pressure-shortlist-r89-v4` additionally estimate
+  finite shared target time, mire outgoing-damage loss, short/long front contact, conditional own-team healing and
+  active 坚守 member thorns. They use public enemy statistics and current visible layers, not projected future
+  gains, arbitrary kit callbacks or the real battle seed. The retain option keeps the v3 proposal score and uses
+  pressure features only for victim selection; the shortlist option uses them for ranking too and permits a
+  healer's in-place rotation. These are explicitly approximate: equipped buffs, target priority, full skill
+  timelines, pure-healer speed changes, shared damage redirection and reactive support are not reconstructed.
+  Neither option changes
+  the lobby policy, combat selection objective, four-proposal shortlist, two-slot limit or eight-by-three budget.
+
 Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
 
 The offline `botProjectPrepEnd` flag forks preparation state for each candidate, applies its legal placement,

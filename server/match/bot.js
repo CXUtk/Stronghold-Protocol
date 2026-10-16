@@ -84,13 +84,14 @@ import { isArtillery, artilleryContactScore, preferArtilleryCandidate } from './
 import { fireCoverageSteps } from './bot-fire-coverage.js';
 import { fireSkillDescriptor } from './bot-fire-skills.js';
 import { skillShortlistSteps, protectedFireSignatures } from './bot-fire-shortlist.js';
+import { pressureLayoutFeatures } from './bot-fire-pressure.js';
 import { botPool, rehearsalSampleSeed } from './bot-information.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
 import { freeSlot, countFree, legalTiles, canPlace, positionClass, placeClass, basePositionClass, parseKey, tileKey, FIELD, pieceDir, boardTileOf, BOSS_MIRROR_COL } from './board.js';
 import { rotateOffset, normDir, mirrorDir, oppositeDir } from '../sim/dir.js';
 import { itemKey } from './gamedata.js';
-import { computeBonds } from './bondsMeta.js';
+import { computeBonds, pieceBonds } from './bondsMeta.js';
 import { supportDraftBand, supportLevelCap, supportRehearsals } from './bot-support.js';
 import { medicalPolicy } from './bot-medical.js';
 import { buildContext, buildUnitBonus, buildLineupBonus, buildItemBonus, combatValue, counterBuyBonus } from './bot-build.js';
@@ -1505,6 +1506,36 @@ export function skillFireCoverageContext(m, ps, chosen) {
   }) };
 }
 
+/** Offline public pressure estimates. Current visible layers only; not future prep gains or combat outcomes. */
+export function pressureFireCoverageContext(m, ps, chosen) {
+  const base=skillFireCoverageContext(m,ps,chosen),gd=ps.gd||m.gd;
+  const bonds=computeBonds(gd,{...ps,board:new Map(chosen.map(p=>[p.uid,p]))});
+  const bb=id=>gd.bond(id)?.bb||{},layer=id=>ps.layers[id]||0;
+  const hp=bonds.steadShip?.active?bb('steadShip').base_max_hp+bb('steadShip').max_hp_per_stack*layer('steadShip'):0;
+  const defense=bonds.deputShip?.active?bb('deputShip').base_def+bb('deputShip').def_per_stack*layer('deputShip'):0;
+  const own=new Map(chosen.filter(p=>p.kind==='chess').map(p=>{
+    const rec=gd.chess(p.id),def=m.ds.getChess(p.id,ps.loadoutFor(rec));return[p.uid,{rec,def,
+      thorns:bonds.steadShip?.tier>=2&&pieceBonds(gd,p).includes('steadShip')
+        ?bb('steadShip').base_damage_value+bb('steadShip').damage_value_per_stack*layer('steadShip'):0}];
+  }));
+  const spawns=(m.wave?.spawns||[]).filter(s=>s.tag!=='part'),threats=[];
+  for(const route of base.model.routes){
+    const pool=spawns.filter(s=>{const rt=m.wave.routes[s.routeIndex],start=rt?.start;
+      return start&&tileKey(...start)===route.tiles[0]&&!!(HOVER.has(s.enemyKey)||isFlyKey(gd,s.enemyKey))===!!route.fly;});
+    const count=pool.reduce((n,s)=>n+(s.count||1),0)||1;
+    const threat={atk:0,bat:0,res:0,type:'phys'};let arts=0;
+    for(const s of pool){const e=gd.enemy(s.enemyKey)?.stats||{},w=(s.count||1)/count;
+      threat.atk+=w*(e.atk||0)*(s.mods?.atkMul||1);threat.bat+=w*(e.bat||2);threat.res+=w*(e.res||0);if(e.dmgType==='arts')arts+=w;}
+    if(arts>.5)threat.type='arts';threats.push({...route,threat:pool.length?threat:undefined});
+  }
+  const horizon=Math.min(m.wave?.timeLimit||120,Math.max(30,...spawns.map(s=>(s.time||0)+Math.max(0,(s.count||1)-1)*(s.interval||0)+15)));
+  return{...base,model:{...base.model,routes:threats,horizon},makeUnits:plan=>base.makeUnits(plan).map(u=>{
+    const x=own.get(u.uid),s=x?.def.stats||u.rec.stats||{};
+    return{...u,mire:base.mire(u.key),rangedBlind:isArtillery(u.rec),thorns:x?.thorns||0,
+      pressureStats:{...s,maxHp:(s.maxHp||0)*(1+(hp||0)),def:(s.def||0)*(1+(defense||0))}};
+  })};
+}
+
 /**
  * createRehearsal as a step generator: yields after each candidate's Battle is built. Each candidate puts its layout on
  * the board, takes the battle input and restores the board exactly before the next yield — a bot prep dropped between
@@ -1521,9 +1552,15 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
     : distinct.slice(0, budget);
   let fireAudit = null;
   if (m.botFireCoveragePolicy && policyApplies(m, ps) && m.round <= 11) {
-    const v3 = ['alias-contact-r89-v3','skill-shortlist-r89-v3'].includes(m.botFireCoveragePolicy);
+    const pressure=['pressure-retain-r89-v4','pressure-shortlist-r89-v4'].includes(m.botFireCoveragePolicy);
+    const v3 = pressure||['alias-contact-r89-v3','skill-shortlist-r89-v3'].includes(m.botFireCoveragePolicy);
     if (v3 && ![8,9].includes(m.round)) {
       fireAudit = { plans:cands,policy:m.botFireCoveragePolicy,reason:'outside-focus',evaluated:0 };
+    } else if (pressure) {
+      fireAudit=yield*skillShortlistSteps(cands,{...pressureFireCoverageContext(m,ps,chosen),allPlans:plans,
+        trace:!!m.botFireCoverageTrace,policy:m.botFireCoveragePolicy,
+        ...(m.botFireCoveragePolicy==='pressure-shortlist-r89-v4'?{evaluate:pressureLayoutFeatures,allowSupport:true}:{}),
+        retentionEvaluate:pressureLayoutFeatures});
     } else if (m.botFireCoveragePolicy === 'skill-shortlist-r89-v3') {
       fireAudit = yield* skillShortlistSteps(cands, { ...skillFireCoverageContext(m, ps, chosen),
         allPlans:plans,trace:!!m.botFireCoverageTrace });

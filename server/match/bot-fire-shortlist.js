@@ -66,14 +66,16 @@ const dominates=(a,b,tol=.92)=>a.routes.every((r,i)=>r.capacity>=b.routes[i].cap
 
 export function* skillShortlistSteps(bank,context){
   const {model,makeUnits,legalPositions,mire,allPlans=bank,trace=false,quota=2}=context;
-  const protectedKeys=protectedFireSignatures(allPlans),base=bank.map(p=>skillLayoutFeatures(makeUnits(p),model));
+  const evaluate=context.evaluate||skillLayoutFeatures,retentionEvaluate=context.retentionEvaluate||evaluate;
+  const protectedKeys=protectedFireSignatures(allPlans),base=bank.map(p=>evaluate(makeUnits(p),model));
+  const retained=retentionEvaluate===evaluate?base:bank.map(p=>retentionEvaluate(makeUnits(p),model));
   const seen=new Set(bank.map(layoutSignature)),ranked=[],scores=[];let evaluated=0;
   for(let parent=0;parent<bank.length;parent++){
     const original=makeUnits(bank[parent]),occupied=new Set(bank[parent].values()),before=base[parent];
     for(const unit of original){
-      if(unit.kind!=='chess'||unit.heal||!(unit.dps>0))continue;
+      if(unit.kind!=='chess'||(unit.heal?!context.allowSupport:!(unit.dps>0)))continue;
       const positions=[unit.key],healed=original.some(h=>h.heal&&h.cover.has(unit.key));
-      if(!model.ground.has(unit.key)&&!unit.hasOwnedTokens)for(const key of legalPositions(unit)){
+      if(!unit.heal&&!model.ground.has(unit.key)&&!unit.hasOwnedTokens)for(const key of legalPositions(unit)){
         const [r,c]=key.split(',').map(Number),[rr,cc]=unit.key.split(',').map(Number);
         if(!occupied.has(key)&&Math.max(Math.abs(r-rr),Math.abs(c-cc))<=2&&!mire(key)
           &&(!healed||original.some(h=>h.heal&&h.cover.has(key))))positions.push(key);
@@ -82,14 +84,14 @@ export function* skillShortlistSteps(bank,context){
         if(key===unit.key&&dir===unit.dir)continue;
         const plan=clone(bank[parent]);plan.set(unit.uid,key);plan.dirs.set(unit.uid,dir);
         const signature=layoutSignature(plan);if(seen.has(signature))continue;seen.add(signature);
-        const after=skillLayoutFeatures(makeUnits(plan),model);evaluated++;
+        const units=makeUnits(plan),after=evaluate(units,model);evaluated++;
         const gain=(after.score-before.score)/Math.max(.1,Math.abs(before.score));
         const accepted=gain>.0001&&dominates(after,before,.88);
         const edit={uid:unit.uid,from:unit.key,to:key,fromDir:unit.dir,toDir:dir};
         if(trace)scores.push({parent,...edit,score:after.score,gain,accepted});
         if(!accepted)continue;
-        plan.variant={fireCoverage:{policy:'skill-shortlist-r89-v3',...edit},parentVariant:bank[parent].variant||{}};
-        ranked.push({plan,signature,parent,features:after,gain,edit});
+        plan.variant={fireCoverage:{policy:context.policy||'skill-shortlist-r89-v3',...edit},parentVariant:bank[parent].variant||{}};
+        ranked.push({plan,signature,parent,features:after,retention:retentionEvaluate===evaluate?after:retentionEvaluate(units,model),gain,edit});
       }
       yield;
     }
@@ -99,7 +101,7 @@ export function* skillShortlistSteps(bank,context){
   const shortlist=[];let retentionRejected=0;
   for(const p of ranked){
     if(shortlist.length===4)break;
-    if(!bank.some((b,i)=>i!==p.parent&&!protectedKeys.has(layoutSignature(b))&&dominates(p.features,base[i],.98))){retentionRejected++;continue;}
+    if(!bank.some((b,i)=>i!==p.parent&&!protectedKeys.has(layoutSignature(b))&&dominates(p.retention,retained[i],.98))){retentionRejected++;continue;}
     if(shortlist.some(q=>q.edit.uid===p.edit.uid&&q.edit.toDir===p.edit.toDir&&q.parent===p.parent))continue;
     shortlist.push(p);
   }
@@ -110,13 +112,13 @@ export function* skillShortlistSteps(bank,context){
     let victim=-1,bestDistance=Infinity;
     for(let i=0;i<bank.length;i++){
       if(i===p.parent||parents.has(i)||protectedKeys.has(layoutSignature(bank[i]))||replaced.some(r=>r.victim===i))continue;
-      if(!dominates(p.features,base[i],.98))continue;
-      const d=distance(p.features,base[i]);if(d<bestDistance){bestDistance=d;victim=i;}
+      if(!dominates(p.retention,retained[i],.98))continue;
+      const d=distance(p.retention,retained[i]);if(d<bestDistance){bestDistance=d;victim=i;}
     }
     if(victim>=0){parents.add(p.parent);plans[victim]=p.plan;replaced.push({victim,parent:p.parent,edit:p.edit,gain:p.gain,
       removedVariant:bank[victim].variant||{},featureDistance:bestDistance});}
   }
-  return{plans,policy:'skill-shortlist-r89-v3',reason:replaced.length?'replaced':'no-compatible-slot',evaluated,retentionRejected,
+  return{plans,policy:context.policy||'skill-shortlist-r89-v3',reason:replaced.length?'replaced':'no-compatible-slot',evaluated,retentionRejected,
     replaced,selectedCount:replaced.length,base:bank.map((p,i)=>({tiles:[...p],dirs:[...p.dirs],variant:p.variant||{},features:base[i]})),
     protected:[...protectedKeys],shortlist:shortlist.map(p=>({parent:p.parent,edit:p.edit,gain:p.gain,signature:p.signature,features:p.features})),
     ...(trace?{scores}:{})};
