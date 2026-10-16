@@ -211,7 +211,9 @@ history and the open points: DESIGN §32.14.25.
   and `tools/perfbench.mjs --fx`; `tools/vfx-skill-coverage.mjs` prints the roster's plan coverage and what the battle
   view plays of it.
 
-Multi-hit visuals (§31.12): fixed multi-hit arrow and bolt attacks draw one staggered cosmetic projectile per hit
+Procedural multi-hit visuals (§34.1): when the official-effects wiring does not handle an attack (the setting is
+off, the board is 2D, or the matching extracted effects are unavailable), fixed multi-hit arrow and bolt attacks
+draw one staggered cosmetic projectile per hit
 (up to eight) from a single `atk` event. Dynamic hit counts are explicitly opted in with `visualVolley`, as in
 Kroos the Keen Glint's two/four-hit skill. One attack animation and one simulated projectile remain per target;
 extra tracers do not change damage or impact timing. Shells, beams, boomerangs and melee hits use their existing visuals.
@@ -230,6 +232,8 @@ clock. Executor also draws five cosmetic pellet streaks with different
 sizes, lengths, offsets, appearance times and random angles within the fan; Pinecone retains the plain fan.
 The pellet pattern is sampled in the renderer, once per attack, and does not consume simulation RNG. The visual
 styles change neither simulated targets and projectiles nor hit counts or damage timing.
+When the official wiring handles an attack, it keeps the upstream cast, projectile and hit effects; none of these
+procedural tracers or fans is added on top.
 
 ---
 
