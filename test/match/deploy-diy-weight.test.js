@@ -1,4 +1,4 @@
-// deploy-only rule: co-op DIY draw weight matches a full ordinary card of its tier, with private capacity unchanged.
+// The upstream co-op stock rule supersedes deploy's old per-copy sampling multiplier.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DATA, makeMatch } from './harness.js';
@@ -22,7 +22,8 @@ function setup(mode, humans = 1) {
 }
 
 for (const mode of ['solo', 'coop']) {
-  for (const [slotId, tier, privateCap] of [[T5, 5, 8], [T6, 6, 5]]) {
+  for (const [slotId, tier, soloCap] of [[T5, 5, 8], [T6, 6, 5]]) {
+    const privateCap = soloCap * (mode === 'coop' ? 2 : 1);
     test(`${mode}: full tier-${tier} DIY and ordinary cards get equal draw intervals, private capacity ${privateCap}`, () => {
       const { h, ps } = setup(mode);
       try {
@@ -32,7 +33,7 @@ for (const mode of ['solo', 'coop']) {
         const filter = id => id === ordinary || id === slotId;
         assert.equal(ps.diyStock.cap(slotId), privateCap);
         assert.equal(ps.diyStock.left(slotId), privateCap);
-        assert.equal(pool.cap(ordinary), privateCap * (mode === 'coop' ? 2 : 1));
+        assert.equal(pool.cap(ordinary), privateCap);
         // Two identities must divide the draw interval equally; this catches an initial 2:1 bias directly.
         assert.equal(pool.roll(() => 0.499, { tier, filter, extra }), ordinary);
         assert.equal(pool.roll(() => 0.501, { tier, filter, extra }), slotId);
@@ -44,7 +45,7 @@ for (const mode of ['solo', 'coop']) {
   }
 }
 
-test('co-op DIY: buying and selling change remaining weight but retain per-player 8/5 limits', () => {
+test('co-op DIY: buying and selling change remaining weight and retain upstream per-player 16/10 limits', () => {
   const { h, ps } = setup('coop', 2);
   try {
     const pool = h.m.pool;
@@ -54,18 +55,18 @@ test('co-op DIY: buying and selling change remaining weight but retain per-playe
     const filter = id => id === ordinary || id === T5;
     const single = ps.acquireChess(T5, { source: 'buy' });
     assert.ok(single);
-    assert.equal(ps.diyStock.left(T5), 7);
-    assert.equal(peer.diyStock.left(T5), 8, 'one player cannot consume another player\'s private stock');
-    assert.equal(pool.roll(() => 0.52, { tier: 5, filter, extra: ps.diyRollEntries() }), ordinary, 'ordinary weight 16 vs private weight 14');
-    assert.equal(pool.roll(() => 0.52, { tier: 5, filter, extra: peer.diyRollEntries() }), T5, 'peer still has full equal weight');
+    assert.equal(ps.diyStock.left(T5), 15);
+    assert.equal(peer.diyStock.left(T5), 16, 'one player cannot consume another player\'s private stock');
+    assert.equal(pool.roll(() => 0.51, { tier: 5, filter, extra: ps.diyRollEntries() }), ordinary, 'ordinary weight 16 vs private weight 15');
+    assert.equal(pool.roll(() => 0.51, { tier: 5, filter, extra: peer.diyRollEntries() }), T5, 'peer still has full equal weight');
     assert.deepEqual(h.m.handle(ps.playerId, { t: 'g.sell', uid: single.uid }), { ok: true });
-    assert.equal(ps.diyStock.left(T5), 8);
+    assert.equal(ps.diyStock.left(T5), 16);
     assert.equal(pool.roll(() => 0.52, { tier: 5, filter, extra: ps.diyRollEntries() }), T5);
-    assert.equal(ps.diyStock.take(T5, 100), 8, 'weight does not create purchasable copies');
+    assert.equal(ps.diyStock.take(T5, 100), 16, 'sampling creates no additional copies');
     assert.equal(pool.roll(() => 0.99, { tier: 5, filter, extra: ps.diyRollEntries() }), ordinary);
-    assert.equal(ps.diyStock.give(T5, 100), 8);
-    assert.equal(ps.diyStock.take(T6, 100), 5);
-    assert.equal(ps.diyStock.give(T6, 100), 5);
+    assert.equal(ps.diyStock.give(T5, 100), 16);
+    assert.equal(ps.diyStock.take(T6, 100), 10);
+    assert.equal(ps.diyStock.give(T6, 100), 10);
   } finally { h.m.dispose(); }
 });
 
@@ -82,7 +83,7 @@ test('co-op shop and promotion rewards use equal full-stock weights through thei
     const offer = ps.pushRewardOffer('merge', { tier: 5 });
     assert.equal(offer.slots[0].id, T5);
     assert.equal(offer.slots[1].id, ordinary, 'reward choices remain distinct');
-    assert.equal(ps.diyStock.left(T5), 8, 'offers do not consume stock');
+    assert.equal(ps.diyStock.left(T5), 16, 'offers do not consume stock');
     ps.diyStock.take(T5, 100);
     assert.equal(ps._rollChessSlot().id, ordinary, 'an exhausted pick cannot appear in the shop');
     assert.deepEqual(ps.pushRewardOffer('merge', { tier: 5 }).slots.map(s => s.id), [ordinary]);
@@ -99,7 +100,7 @@ test('co-op DIY: random-grant stock uses the same weights; identity-only draws a
     assert.equal(ps.diyRollEntries(), null, 'shop level gate is unchanged');
     const extra = ps.diyStockEntries();
     assert.equal(pool.roll(() => 0.501, { tier: 5, filter, extra }), T5, 'random grants have no shop level gate');
-    ps.diyStock.take(T5, 7);
+    ps.diyStock.take(T5, 15);
     assert.equal(pool.roll(() => 0.51, { tier: 5, filter, extra, ignoreCounts: true }), T5, 'Mimic weights identities once');
     assert.equal(pool.roll(() => 0.51, { tier: 5, filter, extra }), ordinary, 'weighted draw follows the one remaining private copy');
     assert.equal(pool.roll(() => 0.99, { tier: 4, filter, extra }), null);

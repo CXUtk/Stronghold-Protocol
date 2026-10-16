@@ -46,7 +46,10 @@
 //      arrangement of a prep REHEARSES up to m.botRehearsal distinct layout variants with the real Battle.
 //      It uses normal battle inputs with isolated meta RNG and keeps the one with the fewest leaks. The default plan is
 //      placed first; Match steps the rehearsal in wall-clock-bounded slices (botPrepBegin → job.run → botPrepEnd) so
-//      whole simulated battles never block the server's event loop. The prep routine itself is sliced the same way:
+//      whole simulated battles never block the server's event loop. With `m.botRehearsalDelegate` an AI teammate's
+//      candidates go to the current host's browser instead (a human seat under AI 托管 keeps the server's rehearsal)
+//      and the server simulates them only when nobody answers (MatchRehearsal).
+//      The prep routine itself is sliced the same way:
 //      botPrepBeginSteps / botPrepEndSteps (and planLayoutSteps, arrangeSteps, createRehearsalSteps) are step
 //      generators that yield between whole actions (never with a transient board) — the same actions in the same
 //      order as the one-shot functions (runSteps), hence the same rng draws and decisions.
@@ -83,6 +86,7 @@ import { allocateLayoutBudget } from './bot-layout-budget.js';
 import { botPool, rehearsalSampleSeed } from './bot-information.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
+import { rehearsalCap, RehearsalRun, rehearsalLeaks } from '../sim/rehearsal.js';
 import { freeSlot, countFree, legalTiles, canPlace, positionClass, placeClass, basePositionClass, parseKey, tileKey, FIELD, pieceDir, boardTileOf, BOSS_MIRROR_COL } from './board.js';
 import { rotateOffset, normDir, mirrorDir, oppositeDir } from '../sim/dir.js';
 import { itemKey } from './gamedata.js';
@@ -101,7 +105,7 @@ import { attackRangeGrid, loadoutRecord, resolveRecordLoadout } from '../../shar
  */
 export function runSteps(gen) {
   let r;
-  do r = gen.next(); while (!r.done);
+  do r = gen.next(); while (!r.done); // loop-cap: generator
   return r.value;
 }
 
@@ -1252,6 +1256,16 @@ export class LayoutPlan extends Map {
   dirOf(uid) { return this.dirs.get(uid) ?? 'RIGHT'; }
 }
 
+/** Every incoming ground route needs one ally covering both this tile and its preceding blocking contact (#452).
+ * Different routes may use different allies; healing never counts as damage support. */
+function supportedContact(model, units, key, self = null) {
+  return (model.index.get(key) || []).every(([ri, i]) => {
+    const rt = model.routes[ri];
+    return rt.fly || units.some((ally) => ally !== self && ally.ground && ally.dps > 0
+      && ally.cover.has(key) && ally.cover.has(rt.tiles[Math.max(0, i - 1)]));
+  });
+}
+
 /**
  * Plan tiles and directions for `pieces` (chess or token pieces with `id`): blockers first, then damage dealers by
  * DPS, then healers and the rest; each takes the legal free (tile, direction) with the best marginal layout value
@@ -1437,11 +1451,71 @@ function distinctPlans(plans) {
   return out;
 }
 
-/** Counted leaks of the bot's player in a (possibly still running) rehearsal battle. */
-function countedLeaks(battle, playerId) {
-  const r = battle.result();
-  const pp = r && r.perPlayer && r.perPlayer[playerId];
-  return pp ? (pp.leaked || []).filter((l) => l && l.counted !== false).length : 0;
+/**
+ * One candidate's battle options: the round's enemies against a detached copy of the plan's board.
+ * `Match._normalOpts(..., { preview: true })` (DESIGN §32.14.5): the normal field seed, start effects, enemy
+ * replacements and layer gains, on an isolated dispatcher. The live board, funds, layers and the room's script
+ * budget are not touched. A delegated rehearsal turns the same object into a BattleSpec.
+ * @returns {object}
+ */
+function candidateOpts(m, ps, byUid, plan) {
+  const board = new Map();
+  for (const [uid, key] of plan) {
+    const p = byUid.get(uid);
+    if (p) board.set(key, { ...p, dir: planDir(plan, uid) });
+  }
+  return { ...m._normalOpts(ps, { preview: true, board }), fieldId: `r:${ps.playerId}` };
+}
+
+/**
+ * Rehearsal job: the candidate layouts of one prep, the best of them and the server's own run over them. `inputs`
+ * are the candidates' preview battle options (candidateOpts). `prebuilt`, when given, is the Battle of each input
+ * already constructed — the default path builds them in the generator, exactly when 0.3.0 did, so a rehearsal that
+ * stays on the server spends its construction where it always did. A takeover passes none: the run builds each
+ * Battle when its turn comes (server/sim/rehearsal.js), inside the same slice budget as its stepping, and a preview
+ * that throws is discarded without a match error.
+ * `run(budgetMs)` steps until every candidate is done (false: still running); `done` is only true then, and `best`
+ * is the winner — the default plan (`plans[0]`) while no candidate beat it.
+ */
+export function createRehearsalJob(m, ps, chosen, plans, inputs, prebuilt = null) {
+  const cap = rehearsalCap(m.wave && m.wave.timeLimit);
+  let run = null;
+  const held = prebuilt ? prebuilt.slice() : null;
+  const factories = held
+    ? held.map((_, i) => () => { const battle = held[i]; held[i] = null; return battle; })
+    : inputs.map((o) => () => m.newBattle(o, { preview: true }));
+  const job = {
+    chosen, plans, inputs, cap, best: plans[0], done: false, pending: false,
+    run(budgetMs = Infinity) {
+      if (job.done) return true;
+      if (!run) run = new RehearsalRun(factories, ps.playerId, cap);
+      const timed = Number.isFinite(budgetMs);
+      const t0 = timed ? performance.now() : 0;
+      job.done = run.run(timed ? () => performance.now() - t0 >= budgetMs : null);
+      job.best = job.plans[run.score.index] || job.best;
+      return job.done;
+    },
+  };
+  return job;
+}
+
+/**
+ * The same job with its candidates handed to the match's current host (DESIGN §14 rehearsal delegation): the browser
+ * simulates the specs and only the winning index comes back (`accept`, which leaves `done` true and the pick in `best`
+ * — the server is done with this rehearsal and simulates nothing), so `pending` is true until then — a takeover
+ * (`takeOver`, `done` still false) runs the very same candidates here instead. A synchronous `run` (the one-shot
+ * botPrep, tools, tests) takes a delegated job over at once: no browser can answer within one call.
+ */
+export function createDelegatedRehearsalJob(m, ps, chosen, plans, inputs) {
+  const job = createRehearsalJob(m, ps, chosen, plans, inputs);
+  const step = job.run;
+  job.pending = true;
+  /** The host's pick (MatchRehearsal checked the sender, the task and the index). */
+  job.accept = (index) => { if (!job.pending) return; job.pending = false; job.done = true; job.best = job.plans[index]; };
+  /** The server runs the same candidates (timeout, host gone, a failed or refused task). */
+  job.takeOver = () => { job.pending = false; };
+  job.run = (budgetMs) => { if (job.pending) job.takeOver(); return step(budgetMs); };
+  return job;
 }
 
 /**
@@ -1462,11 +1536,14 @@ export function createRehearsal(m, ps, chosen, plans) {
 }
 
 /**
- * createRehearsal as a step generator: yields after each candidate's Battle is built. Each candidate puts its layout on
- * the board, takes the battle input and restores the board exactly before the next yield — a bot prep dropped between
- * two steps (the prep ended) never leaves a rehearsal layout on the board.
+ * createRehearsal as a step generator: yields after each candidate's preview input is taken (and, unless `delegate`,
+ * after that candidate's Battle is built). Dropping the job between steps leaves all live state untouched, including
+ * hand/temp, summons and dirty flags — the board the input was taken from is a copy.
+ * `delegate` (the async bot-prep driver, Match.scheduleBotPrep): the candidates are offered to the current host's
+ * browser (Match.delegateRehearsal — an AI teammate's prep only, and never a gameplay-plugin room). Nothing is built
+ * here in that case; a synchronous caller leaves it off and simulates on the server.
  */
-export function* createRehearsalSteps(m, ps, chosen, plans) {
+export function* createRehearsalSteps(m, ps, chosen, plans, { delegate = false } = {}) {
   const wave = m.wave;
   const distinct = distinctPlans(plans);
   if (!wave || distinct.length < 2 || !(m.botRehearsal > 0)) return null;
@@ -1482,6 +1559,8 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
   const fair = !m.botLegacyParity;
   const samples = fair ? 3 : 1;
   const totals = cands.map(() => ({ score: 0, completed: 0 }));
+  const inputs = [];
+  const specialized = fair || m.botProjectPrepEnd || !!m.botRehearsalScore || !!m.botRehearsalAudit;
   for (const plan of cands) {
     if (fair || m.botProjectPrepEnd) {
       for (let sample = 0; sample < samples; sample++) {
@@ -1491,33 +1570,27 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
           for (const _ of applyPlanSteps(trial, player, chosen.map(clone), plan)) void _;
           if (fair) finishBotPreparation(trial, player);
         }, fair ? { sampleSeed: rehearsalSampleSeed(m, ps, sample), deadline: true } : {});
-        battles.push(m.newBattle({ ...opts, fieldId: `r:${ps.playerId}` }));
+        inputs.push({ ...opts, fieldId: `r:${ps.playerId}` });
+        battles.push(m.newBattle(inputs[inputs.length - 1], { preview: true }));
         yield;
       }
       continue;
     }
-    const saved = [...ps.board.entries()];
-    // the candidate's directions are set on the pieces while its input is taken; restored exactly afterwards
-    const savedDirs = new Map([...byUid.values(), ...saved.map(([, p]) => p)].map((p) => [p, Object.hasOwn(p, 'dir') ? { v: p.dir } : null]));
-    let failed = false;
     try {
-      ps.board.clear();
-      for (const [uid, k] of plan) { const p = byUid.get(uid); if (p) { p.dir = planDir(plan, uid); ps.board.set(k, p); } }
-      ps.recompute();
-      battles.push(m.newBattle({
-        ...m._normalOpts(ps, { preview: true }), fieldId: `r:${ps.playerId}`,
-      }));
-    } catch (e) {
-      failed = true;
-      m.log.warn?.(`[match ${m.roomCode}] bot rehearsal failed: ${e && e.message}`);
-    } finally {
-      ps.board.clear();
-      for (const [p, d] of savedDirs) { if (d) p.dir = d.v; else delete p.dir; }
-      for (const [k, p] of saved) ps.board.set(k, p);
-      ps.recompute();
-    }
-    if (failed) break;
+      const opts = candidateOpts(m, ps, byUid, plan);
+      inputs.push(opts);
+      if (specialized || !delegate) battles.push(m.newBattle(opts, { preview: true }));
+    } catch { break; }
     yield;
+  }
+  // The upstream delegation protocol scores one sample per layout. Local projection/mean-score policies
+  // keep their server job; ordinary estimates may use the upstream host/server shared rehearsal.
+  if (!specialized) {
+    if (delegate && typeof m.delegateRehearsal === 'function') {
+      const job = m.delegateRehearsal({ ps, chosen, plans: cands, inputs });
+      if (job) return job;
+    }
+    return createRehearsalJob(m, ps, chosen, cands, inputs, delegate ? null : battles);
   }
   const cap = Math.ceil(((wave.timeLimit || 60) + 5) * 30);
   let i = 0;
@@ -1544,7 +1617,7 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
             battle.step();
             t++;
             n++;
-            if (!fair && (t & 63) === 0 && bestLeaks < Infinity && countedLeaks(battle, ps.playerId) > bestLeaks) { beaten = true; break; }
+            if (!fair && (t & 63) === 0 && bestLeaks < Infinity && rehearsalLeaks(battle, ps.playerId) > bestLeaks) { beaten = true; break; }
             if (timed && (n & 3) === 0 && performance.now() - t0 >= budgetMs) return false;
           }
           if (!beaten) {
@@ -1740,7 +1813,7 @@ function sellJunk(m, ps) {
   for (const { p } of junk.slice(0, 4)) if (m.round >= 5 && ps.find(p.uid) && !keepLastMedic(m, ps, p, ctx)) tryDo(() => ps.sell(p.uid));
 }
 
-/** Take the queued pick-one offers (merge rewards, special refreshes — free; they expire at prep end). */
+/** Take the queued pick-one offers (merge rewards, special refreshes — free; they last until picked, the bot takes them at once). */
 function takeOffers(m, ps) {
   const gd = ps?.gd || m.gd;
   for (let guard = 0; guard < 4 && ps.offers.length; guard++) {
@@ -1779,16 +1852,17 @@ export function botPrepBegin(m, ps) {
  * botPrepBegin as a step generator (the same actions in the same order, hence the same rng draws and decisions): it
  * yields between whole prep actions — never while the board holds a transient layout — so Match.scheduleBotPrep runs
  * it in wall-clock-bounded slices like the rehearsal (50–120 ms of planning in one callback late in a 4-bot match
- * otherwise). Returns the rehearsal job (or null).
+ * otherwise). `delegate` (the async driver): offer the final rehearsal to the current host's browser.
+ * Returns the rehearsal job (or null).
  */
-export function* botPrepBeginSteps(m, ps) {
+export function* botPrepBeginSteps(m, ps, { delegate = false } = {}) {
   if (!ps.alive || ps.ready) return null;
   m.autoPickPersonalChoice(ps, 'bot');
   // 1. reward offers (free)
   takeOffers(m, ps);
   yield;
   // 2. economy: dead bench weight back to funds, units toward a full board, the level curve, then everything else;
-  //    merges completed while buying queue reward offers that expire at prep end — take them right away
+  //    merges completed while buying queue reward offers — take them right away
   sellJunk(m, ps);
   // ④ last prep's economy carries pay out first (德克萨斯 +1 fund & +1 free refresh, 至简 +1) — the funds join
   // this round's level-up / buys
@@ -1811,7 +1885,7 @@ export function* botPrepBeginSteps(m, ps) {
   yield* arrangeSteps(m, ps);
   equipItems(m, ps);
   yield;
-  return yield* arrangeSteps(m, ps, { final: true, defer: true });
+  return yield* arrangeSteps(m, ps, { final: true, defer: true, delegate });
 }
 
 /** Prep routine, end: the rehearsed layout (when it beat the default plan), temp, a free hand slot, Ready. */
@@ -2170,15 +2244,16 @@ function* buyLoopSteps(m, ps, { fillOnly = false, maxRefreshes = 0 } = {}) {
 /**
  * Choose the deployed set and put it on the best tiles for this round's enemies (planLayout). `final`: the last
  * arrangement of the prep — candidate plans are rehearsed (see createRehearsal) when the match allows it; with `defer`
- * the default plan is placed now and the rehearsal job is returned (the caller runs it and applies `job.best`).
- * @returns {null | ReturnType<typeof createRehearsal>}
+ * the default plan is placed now and the rehearsal job is returned (the caller runs it and applies `job.best`), and with
+ * `delegate` that job may be the current host's browser instead (Match.delegateRehearsal).
+ * @returns {null | ReturnType<typeof createRehearsalSteps>}
  */
 export function arrange(m, ps, opts = {}) {
   return runSteps(arrangeSteps(m, ps, opts));
 }
 
 /** arrange as a step generator (yields inside the layout planning, see planLayoutSteps). */
-export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
+export function* arrangeSteps(m, ps, { final = false, defer = false, delegate = false } = {}) {
   const ctx = context(m, ps);
   const chosen = chooseLineup(m, ps, ctx).set;
   const chosenSet = new Set(chosen.map((p) => p.uid));
@@ -2236,7 +2311,7 @@ export function* arrangeSteps(m, ps, { final = false, defer = false } = {}) {
     plans.push(yield* planLayoutSteps(m, ps, chosen));
   }
   if (defer && plans.length > 1) {
-    const job = yield* createRehearsalSteps(m, ps, chosen, plans);
+    const job = yield* createRehearsalSteps(m, ps, chosen, plans, { delegate });
     yield* applyPlanSteps(m, ps, chosen, plans[0]);
     return job;
   }
@@ -2853,9 +2928,9 @@ function makeHandRoom(m, ps, piece = null) {
  * chess is sold; an item: see below, else destroyed.
  */
 function resolveTemp(m, ps) {
-  for (let i = ps.temp.length - 1; i >= 0; i--) {
-    const p = ps.temp[i];
-    if (!p) continue;
+  // Track pieces, not indices: draining an extended queue refills and compacts its visible window.
+  for (const p of ps.tempPieces()) {
+    if (!ps.temp.includes(p)) continue;
     const idx = freeSlot(ps.hand); // (a recompute pulls it in; a state set up without one)
     if (idx >= 0 && tryDo(() => ps.move(p.uid, { area: 'hand', idx }))) continue;
     if (!m.botLegacyParity && p.kind === 'token') {
@@ -2882,9 +2957,8 @@ function resolveTemp(m, ps) {
     }
   }
   // Final legal sweep. Unresolved summons are retained; deadline cleanup belongs to MatchPrep.
-  for (let i = 0; i < ps.temp.length; i++) {
-    const p = ps.temp[i];
-    if (!p) continue;
+  for (const p of [...ps.temp]) {
+    if (!p || !ps.temp.includes(p)) continue;
     if (p.kind === 'chess') tryDo(() => ps.sell(p.uid));
     else if (p.kind === 'item') tryDo(() => ps.destroy(p.uid));
   }

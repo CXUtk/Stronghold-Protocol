@@ -12,7 +12,7 @@ import { botPool } from './bot-information.js';
 const runtime = new Set(['opts', 'log', 'sched', 'dispatcher', 'registry', 'ds', 'BattleClass',
   'itemPool', 'fields', 'runner', 'pacer', 'bossPool', '_timers', '_privDirty',
   '_phaseTimer', '_infoAdvanceTimer', '_turnTimer', '_pubTimer', '_progressTimer',
-  '_bossPubTimer', '_bossClock', '_poolTimer', '_botPrepJobs', '_botPrepTimer']);
+  '_bossPubTimer', '_bossClock', '_poolTimer', '_botPrepJobs', '_botPrepTimer', '_rehearsalTasks', '_rehearsalSeq']);
 const noop = () => {};
 
 /** Clone gameplay state and rebind every stateful service; no live callbacks/timers are retained.
@@ -54,7 +54,7 @@ export function forkPreparation(m) {
     // Ready still runs PlayerState validation; the projection below owns the phase transition.
     onReadyChanged: noop,
     sched: new VirtualScheduler({ start: m.sched.now() }), ownsScheduler: true,
-    fields: [], runner: null, pacer: null, bossPool: null, _timers: new Set(), _privDirty: new Set() });
+    fields: [], runner: null, pacer: null, bossPool: null, _rehearsalTasks: new Map(), _rehearsalSeq: 0, _timers: new Set(), _privDirty: new Set() });
   copy.itemPool = new SharedItemPool(gd, () => copy.order);
   copy.dispatcher = new EffectDispatcher(copy, m.registry);
   return { match: copy, clone };

@@ -21,7 +21,7 @@ function offers(m, p, chess, alternative = false) {
   const item = 'chess_item_5_07_e_a';
   giveItem(m, m.order[0], item); giveItem(m, m.order[1], item);
   assert.equal(m.itemPool.canGain(item), false);
-  p.offers = [{ slots: [{ kind: 'item', id: item, price: 0 },
+  p.offers = [{ slots: [{ kind: 'item', id: item, price: 1 },
     ...(alternative ? [{ kind: 'chess', id: chess[0], price: 0 }] : [])] },
   { slots: [{ kind: 'chess', id: chess[1], price: 0 }] }];
 }
@@ -36,11 +36,11 @@ function fullHandSummon(m, p, items) {
 }
 const inventory = p => ({ hand: p.hand, temp: p.temp, board: [...p.board], ready: p.ready, funds: p.funds });
 
-test('unavailable reward stays at the head; later offers cannot be taken', t => {
+test('unaffordable reward stays at the head; later offers cannot be taken', t => {
   const { m, p, chess } = fixture(t);
   offers(m, p, chess);
   const before = structuredClone(p.offers);
-  assert.equal(p.pickReward(0).error, 'SOLD_OUT');
+  assert.equal(p.pickReward(0).error, 'NO_FUNDS');
   takeOffers(m, p);
   assert.deepEqual(p.offers, before);
   assert.equal(p.allChess().length, 0);

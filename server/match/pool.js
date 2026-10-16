@@ -6,8 +6,10 @@
 //     (config.economy.poolCopies[tier], measured identity overrides; co-op shared stock doubled). `left` is the
 //     signed capacity minus occupation; the public left() and shop sampling clamp a deficit to zero.
 //   * Owning a piece takes copies: a normal piece holds 1, an elite holds 3 (merge of 3 normals). Shop displays
-//     do NOT reserve copies. An item buy fails (SOLD_OUT) when left = 0; an operator card already shown in the shop or a
-//     reward can still be taken and overdraws (a negative raw left, the debt — GitHub #498, the owner's decision).
+//     do NOT reserve copies. An operator or equipment card already shown in the shop, or a reward already shown, can
+//     still be taken and overdraws (chess: a negative raw left; equipment: SharedItemPool's debt — GitHub #498, and
+//     the maintainer's decision of 2026-10-14 for equipment, #624). A slot that is already sold still fails SOLD_OUT.
+//     Future rolls exclude empty stock. 整备 and grants that are not an already-shown card stay stock-limited.
 //   * Pieces remember how many copies they hold (`piece.poolCopies`), so selling / elimination / temp wipes return
 //     exactly what was taken — chess granted by effects while the pool is empty (or hidden/banned chess) hold 0.
 //   * Invariant: raw left ≤ cap and raw left + Σ held copies == cap. Mimic can exceed stock, but its copies still occupy it.
@@ -16,8 +18,8 @@
 // ("copy-weighted"; duplicates within a roll allowed). The item slot picks a tier with the same tier shares, then a
 // uniform shop-eligible item of that tier (falling back to lower tiers). A roll may add entries outside the pool
 // (`extra`, after its own): one player's 自选 stock. The shop passes diyRollEntries (shopLevel gate); promotion
-// rewards and random grants pass diyStockEntries (roll-tier gate). On deploy, co-op private copies use an extra
-// weightMultiplier for copy-weighted draws, while availability and identity-only draws use actual copies.
+// rewards and random grants pass diyStockEntries (roll-tier gate). Co-op private stock is doubled by GameData,
+// just like shared stock; it needs no additional per-copy multiplier.
 
 /**
  * Per-match disabled bond set D and banned chess (research 01 A2): D = uniform sample of `core` core bonds and `addon`
@@ -97,8 +99,8 @@ export class SharedPool {
 
   /**
    * Sampling weights of eligible chess (tier ≤ maxTier, or exactly `tier`): the pool's entries, then `extra` ([id, entry]
-   * pairs of the same shape — a player's 自选 stock) under the same filters. An optional weightMultiplier changes
-   * copy-weighted sampling only, never availability or ignoreCounts identity sampling.
+   * pairs of the same shape — a player's 自选 stock) under the same filters. An optional draw weight changes
+   * sampling only, never stock availability.
    */
   _eligible({ maxTier = 6, tier = null, filter = null, extra = null, ignoreCounts = false, weight = null } = {}) {
     const out = [];
@@ -108,7 +110,7 @@ export class SharedPool {
         if (tier != null ? e.tier !== tier : e.tier > maxTier) continue;
         if (filter && !filter(id, e)) continue;
         const factor = weight ? weight(id) : 1;
-        const n = ignoreCounts ? 1 : e.left * (e.weightMultiplier ?? 1);
+        const n = ignoreCounts ? 1 : e.left;
         out.push([id, n * (Number.isFinite(factor) && factor > 0 ? factor : 1)]);
       }
     };
@@ -121,7 +123,7 @@ export class SharedPool {
    * Copy-weighted roll over eligible chess, including optional per-copy weight multipliers. Returns a base id or null.
    * @param {Function} rng
    * @param {{ maxTier?: number, tier?: number|null, filter?: (id: string, e: object) => boolean,
-   *   extra?: Iterable<[string, { left: number, tier: number, weightMultiplier?: number }]>|null,
+   *   extra?: Iterable<[string, { left: number, tier: number }]>|null,
    *   weight?: ((id: string) => number)|null }} [opts] weight adjusts this draw only, never stock or tierShares
    */
   roll(rng, opts = {}) {
@@ -189,13 +191,21 @@ export class SharedPool {
 }
 
 /** Shared equipment stock, derived from actual ownership. Merges, equips and returns cannot lose a reservation:
- * normal equipment occupies one, upgraded equipment two. Shop/choice displays reserve nothing. Source: the original
- * experiment BV1eLXXBqEgF, 1:30 and 2:30. [ASSUMED] An item that is consumed/destroyed or removed by elimination no
- * longer occupies stock, consistently with the video's ownership model; this is not a per-match purchase limit.
- * Hidden items count too. Guaranteed products can exceed capacity but still block ordinary draws; poolGrantCopies
- * tracks their contribution for the invariant, and does not exempt them from held() / left(). */
+ * normal equipment occupies one, upgraded equipment two. Shop and reward displays reserve nothing. An already
+ * displayed shop card or item reward may be taken after `left` hits 0; `owe` records those copies and `repay`
+ * clears them first when a copy actually leaves the match (destroy, consume, elimination, a temp wipe). Rolls and
+ * `canGain` keep using the clamped `left`, so an empty item does not appear again until the debt is repaid and a
+ * copy is free. 整备 and ordinary grants stay limited. Fixed gift families may exceed the cap without a debt entry.
+ * Source: the original experiment BV1eLXXBqEgF, 1:30 and 2:30, extended to equipment by the maintainer on
+ * 2026-10-14 (#624). [ASSUMED] An item that is consumed, destroyed or removed by elimination no longer occupies
+ * stock, consistently with the video's ownership model; this is not a per-match purchase limit. */
 export class SharedItemPool {
-  constructor(gd, players) { this.gd = gd; this.players = players; }
+  constructor(gd, players) {
+    this.gd = gd;
+    this.players = players;
+    /** @type {Map<string, number>} base id → copies taken past the cap by an already-displayed card */
+    this.debt = new Map();
+  }
   cap(id) { return this.gd.itemPoolCopies(id); }
   need(id) { return this.gd.isGolden(id) ? 2 : 1; }
   held(id) {
@@ -220,8 +230,30 @@ export class SharedItemPool {
     }
     return count;
   }
-  left(id) { const cap = this.cap(id); return cap == null ? Infinity : Math.max(0, cap - this.held(id)); }
+  /** Signed cap − held. Infinity when the item has no shop cap. */
+  rawLeft(id) { const cap = this.cap(id); return cap == null ? Infinity : cap - this.held(id); }
+  left(id) { const raw = this.rawLeft(id); return raw === Infinity ? Infinity : Math.max(0, raw); }
   canGain(id) { return this.left(id) >= this.need(id); }
+  debtOf(id) { return this.debt.get(this.gd.baseIdOf(id)) || 0; }
+  /** Record `copies` of debt on the base item. Uncapped items and non-positive counts record nothing. */
+  owe(id, copies) {
+    const n = Math.floor(Number(copies));
+    const base = this.gd.baseIdOf(id);
+    if (!(n > 0) || this.cap(base) == null) return 0;
+    this.debt.set(base, (this.debt.get(base) || 0) + n);
+    return n;
+  }
+  /** Repay up to `copies` of debt. Returns how many were repaid (0 when nothing is owed). */
+  repay(id, copies) {
+    const n = Math.floor(Number(copies));
+    const base = this.gd.baseIdOf(id);
+    const cur = this.debt.get(base) || 0;
+    if (!(n > 0) || cur <= 0) return 0;
+    const k = Math.min(cur, n);
+    if (cur === k) this.debt.delete(base);
+    else this.debt.set(base, cur - k);
+    return k;
+  }
   /** Stock gates eligibility, not probability: retain the existing uniform item draw or explicit data weights.
    * The measured stock table alone does not establish shop probabilities. */
   pick(rng, ids, weights = null, { requirePool = true } = {}) {
