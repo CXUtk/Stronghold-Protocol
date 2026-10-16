@@ -43,12 +43,12 @@ export function contactExposure(units,model) {
 }
 
 /** Replace at most one original slot. Parent and current/default/lane/healing anchors survive. */
-export function retainFireProposal(bank,proposal,{safe=false,features=null}={}) {
+export function retainFireProposal(bank,proposal,{safe=false,features=null,protectedKeys=null}={}) {
   if(!proposal)return{plans:bank,reason:'no-proposal'};
   if(bank.some(p=>layoutSignature(p)===layoutSignature(proposal.plan)))return{plans:bank,reason:'duplicate'};
   let victim=-1,closest=Infinity;
   for(let i=0;i<bank.length;i++){
-    if(i===proposal.parent||protectedPlan(bank[i]))continue;
+    if(i===proposal.parent||protectedPlan(bank[i])||protectedKeys?.has(layoutSignature(bank[i])))continue;
     const distance=gap(bank[i],bank[proposal.parent]);
     // v2 never sacrifices a distinct formation: at most one moved piece plus one changed facing.
     if(safe&&distance>1.25/Math.max(1,bank[i].size))continue;
@@ -66,7 +66,7 @@ export function retainFireProposal(bank,proposal,{safe=false,features=null}={}) 
 }
 
 /** makeUnits recomputes real legal record ranges/terrain factors; yielding never changes a player's board. */
-export function* fireCoverageSteps(bank,{policy,model,makeUnits,legalPositions,mire}) {
+export function* fireCoverageSteps(bank,{policy,model,makeUnits,legalPositions,mire,protectedKeys=null}) {
   if(!FIRE_COVERAGE_POLICIES.includes(policy))throw new Error('Unknown fire coverage policy');
   const signatures=new Set(bank.map(layoutSignature));
   const safe=policy.includes('safe'),features=safe?bank.map(p=>contactExposure(makeUnits(p),model)):null;
@@ -98,11 +98,11 @@ export function* fireCoverageSteps(bank,{policy,model,makeUnits,legalPositions,m
         if(!(gain>.0001)||best&&gain<=best.gain)continue;
         plan.variant={fireCoverage:{policy,uid:u.uid,from:u.key,to:key,fromDir:u.dir,toDir:facing},parentVariant:anchor.variant||{}};
         const candidate={plan,parent,gain};
-        if(safe&&retainFireProposal(bank,candidate,{safe,features}).reason!=='replaced')continue;
+        if((safe||protectedKeys)&&retainFireProposal(bank,candidate,{safe,features,protectedKeys}).reason!=='replaced')continue;
         best=candidate;
       }
       yield;
     }
   }
-  return{...retainFireProposal(bank,best,{safe,features}),evaluated,eligible,policy};
+  return{...retainFireProposal(bank,best,{safe,features,protectedKeys}),evaluated,eligible,policy};
 }

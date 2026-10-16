@@ -41,6 +41,16 @@ layouts, no extra trials, no live combat RNG access and no forced direction. The
 by the lobby and do not alter the deployed policy. Evidence and losing alternatives are retained in the
 local experiment ledger; this is not a claim of validated superiority.
 
+Two further offline options are limited to normal rounds 8 and 9. `alias-contact-r89-v3` protects a deduplicated
+layout when any original alias marks it as a current/default, lane, healing or single-ranged-block proposal.
+`skill-shortlist-r89-v3` uses the actual selected kit spec to distinguish basic and active-skill range grids,
+target eligibility, simple control and own-team healing coverage. It enumerates legal empty nearby tiles and
+all four facings, statically shortlists at most four distinct proposals, and replaces at most two of the
+existing eight slots. Parent layouts and core aliases remain; basic/active/support route features constrain
+victim selection. Timed-skill uptime and downstream traffic are heuristic estimates; callbacks and formal
+combat RNG are never executed by this pre-score. Real three-sample combat selection is unchanged. Optional
+offline traces retain every scored edit and the shortlist. Neither option is selected by the lobby.
+
 Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
 
 The offline `botProjectPrepEnd` flag forks preparation state for each candidate, applies its legal placement,

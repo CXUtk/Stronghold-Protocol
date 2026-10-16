@@ -82,6 +82,8 @@ import { projectNormalBattleOptions } from './bot-prep-projection.js';
 import { allocateLayoutBudget } from './bot-layout-budget.js';
 import { isArtillery, artilleryContactScore, preferArtilleryCandidate } from './bot-artillery.js';
 import { fireCoverageSteps } from './bot-fire-coverage.js';
+import { fireSkillDescriptor } from './bot-fire-skills.js';
+import { skillShortlistSteps, protectedFireSignatures } from './bot-fire-shortlist.js';
 import { botPool, rehearsalSampleSeed } from './bot-information.js';
 import { COMBOS, ANCHOR_TAGS, KJERAG_CHESS, combosOf, comboCompletionBonus, engineLayerValue } from '../../shared/operatorManual.js';
 import { ASPD_MIN } from '../sim/constants.js';
@@ -1470,6 +1472,39 @@ export function createRehearsal(m, ps, chosen, plans) {
   return runSteps(createRehearsalSteps(m, ps, chosen, plans));
 }
 
+/** Pure public-route/owned-loadout context shared with offline matched-state diagnostics. */
+export function fireCoverageContext(m, ps, chosen) {
+  const model = fieldModel(m, ps), pgd = ps.gd || m.gd;
+  const makeUnits = plan => chosen.filter(p => plan.has(p.uid)).map(p => {
+    const rec = rangeRec(ps, p.kind === 'chess' ? pgd.chess(p.id) : pgd.token(p.id));
+    if (!rec) return null;
+    const key = plan.get(p.uid), [r, c] = parseKey(key);
+    const u = unitOf(rec, key, r, c, planDir(plan, p.uid), model, true);
+    if (isArtillery(rec) || rec.subProfessionId === 'bombarder') u.air = false;
+    return { ...u, uid: p.uid, kind: p.kind, dir: planDir(plan, p.uid), piece: p };
+  }).filter(Boolean);
+  return { model, makeUnits,
+    legalPositions: u => legalTiles(ps.deployMap(), placeClass(ps, pgd.chess(u.piece.id))).map(([r,c]) => tileKey(r,c)),
+    mire: key => mireTile(m, ...parseKey(key)) };
+}
+
+/** Selected skill spec and basic/active ranges, from immutable public data; no battle or RNG. */
+export function skillFireCoverageContext(m, ps, chosen) {
+  const base = fireCoverageContext(m, ps, chosen), pgd = ps.gd || m.gd;
+  const descriptors = new Map(chosen.filter(p => p.kind === 'chess').map(p => {
+    const rec = pgd.chess(p.id), def = m.ds.getChess(p.id, ps.loadoutFor(rec));
+    return [p.uid, fireSkillDescriptor(def)];
+  }));
+  const tokens = new Set([...ps.board.values(),...ps.hand.filter(Boolean)].filter(p => p.kind === 'token').map(p => p.ownerUid));
+  return { ...base, makeUnits: plan => base.makeUnits(plan).map(u => {
+    const d = descriptors.get(u.uid);
+    if (!d) return { ...u, skillCover:u.cover, basicAir:u.air, activeAir:u.air };
+    const [r,c] = parseKey(u.key);
+    return { ...u, descriptor:d, basicAir:d.basicAir, activeAir:d.activeAir,
+      skillCover:new Set(rangeTiles({rangeGrid:d.activeGrid},r,c,u.dir)),hasOwnedTokens:tokens.has(u.uid) };
+  }) };
+}
+
 /**
  * createRehearsal as a step generator: yields after each candidate's Battle is built. Each candidate puts its layout on
  * the board, takes the battle input and restores the board exactly before the next yield — a bot prep dropped between
@@ -1486,18 +1521,17 @@ export function* createRehearsalSteps(m, ps, chosen, plans) {
     : distinct.slice(0, budget);
   let fireAudit = null;
   if (m.botFireCoveragePolicy && policyApplies(m, ps) && m.round <= 11) {
-    const model = fieldModel(m, ps), pgd = ps.gd || m.gd;
-    const makeUnits = plan => chosen.filter(p => plan.has(p.uid)).map(p => {
-      const rec = rangeRec(ps, p.kind === 'chess' ? pgd.chess(p.id) : pgd.token(p.id));
-      if (!rec) return null;
-      const key = plan.get(p.uid), [r, c] = parseKey(key);
-      const u = unitOf(rec, key, r, c, planDir(plan, p.uid), model, true);
-      if (isArtillery(rec) || rec.subProfessionId === 'bombarder') u.air = false;
-      return { ...u, uid: p.uid, kind: p.kind, dir: planDir(plan, p.uid), piece: p };
-    }).filter(Boolean);
-    fireAudit = yield* fireCoverageSteps(cands, { policy: m.botFireCoveragePolicy, model, makeUnits,
-      legalPositions: u => legalTiles(ps.deployMap(), placeClass(ps, pgd.chess(u.piece.id))).map(([r,c]) => tileKey(r,c)),
-      mire: key => mireTile(m, ...parseKey(key)) });
+    const v3 = ['alias-contact-r89-v3','skill-shortlist-r89-v3'].includes(m.botFireCoveragePolicy);
+    if (v3 && ![8,9].includes(m.round)) {
+      fireAudit = { plans:cands,policy:m.botFireCoveragePolicy,reason:'outside-focus',evaluated:0 };
+    } else if (m.botFireCoveragePolicy === 'skill-shortlist-r89-v3') {
+      fireAudit = yield* skillShortlistSteps(cands, { ...skillFireCoverageContext(m, ps, chosen),
+        allPlans:plans,trace:!!m.botFireCoverageTrace });
+    } else {
+      const context = fireCoverageContext(m, ps, chosen);
+      if (m.botFireCoveragePolicy === 'alias-contact-r89-v3') context.protectedKeys = protectedFireSignatures(plans);
+      fireAudit = yield* fireCoverageSteps(cands, { policy:v3?'contact-position-v1':m.botFireCoveragePolicy,...context });
+    }
     cands = fireAudit.plans;
   }
   // Optional offline audit only. No callback is installed by the server or lobby.
