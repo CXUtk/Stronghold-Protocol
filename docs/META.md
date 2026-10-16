@@ -61,6 +61,14 @@ offline traces retain every scored edit and the shortlist. Neither option is sel
   Neither option changes
   the lobby policy, combat selection objective, four-proposal shortlist, two-slot limit or eight-by-three budget.
 
+  Two offline R8/9 effect-window guards retain the v3 proposal score and original combat selection. A conditional
+  kit's extra upstream damage cannot pay for losing its own reserve-contact/last-three-path-tile coverage or
+  an existing blocker in its healing range. Sensitivity is read from the selected skill descriptor (control,
+  healing or opaque callbacks), not a name list. `effect-edit-guard-r89-v5` checks only the edited operator;
+  `effect-windows-r89-v5` additionally checks each sensitive operator when replacing a different original layout.
+  These static window assumptions do not reproduce skill timing, actual target allocation or callbacks. They can
+  reject useful trades and are experimental only, with unchanged four-proposal/two-slot/eight-by-three limits.
+
 Opt-in experimental build scoring supports one, two or three AI seats in four-player ABYSS through round 11; it does not apply to human autoplay. Population benchmarks use identical legal draft rosters within each configuration.
 
 The offline `botProjectPrepEnd` flag forks preparation state for each candidate, applies its legal placement,

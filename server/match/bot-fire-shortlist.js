@@ -86,9 +86,9 @@ export function* skillShortlistSteps(bank,context){
         const signature=layoutSignature(plan);if(seen.has(signature))continue;seen.add(signature);
         const units=makeUnits(plan),after=evaluate(units,model);evaluated++;
         const gain=(after.score-before.score)/Math.max(.1,Math.abs(before.score));
-        const accepted=gain>.0001&&dominates(after,before,.88);
+        const gate=context.editGate?.(original,units,unit.uid),accepted=gain>.0001&&dominates(after,before,.88)&&gate?.accepted!==false;
         const edit={uid:unit.uid,from:unit.key,to:key,fromDir:unit.dir,toDir:dir};
-        if(trace)scores.push({parent,...edit,score:after.score,gain,accepted});
+        if(trace)scores.push({parent,...edit,score:after.score,gain,accepted,...(gate?{gate}:{})});
         if(!accepted)continue;
         plan.variant={fireCoverage:{policy:context.policy||'skill-shortlist-r89-v3',...edit},parentVariant:bank[parent].variant||{}};
         ranked.push({plan,signature,parent,features:after,retention:retentionEvaluate===evaluate?after:retentionEvaluate(units,model),gain,edit});
@@ -101,7 +101,8 @@ export function* skillShortlistSteps(bank,context){
   const shortlist=[];let retentionRejected=0;
   for(const p of ranked){
     if(shortlist.length===4)break;
-    if(!bank.some((b,i)=>i!==p.parent&&!protectedKeys.has(layoutSignature(b))&&dominates(p.retention,retained[i],.98))){retentionRejected++;continue;}
+    if(!bank.some((b,i)=>i!==p.parent&&!protectedKeys.has(layoutSignature(b))&&dominates(p.retention,retained[i],.98)
+      &&context.retentionGate?.(makeUnits(b),makeUnits(p.plan)).accepted!==false)){retentionRejected++;continue;}
     if(shortlist.some(q=>q.edit.uid===p.edit.uid&&q.edit.toDir===p.edit.toDir&&q.parent===p.parent))continue;
     shortlist.push(p);
   }
@@ -113,6 +114,7 @@ export function* skillShortlistSteps(bank,context){
     for(let i=0;i<bank.length;i++){
       if(i===p.parent||parents.has(i)||protectedKeys.has(layoutSignature(bank[i]))||replaced.some(r=>r.victim===i))continue;
       if(!dominates(p.retention,retained[i],.98))continue;
+      if(context.retentionGate?.(makeUnits(bank[i]),makeUnits(p.plan)).accepted===false)continue;
       const d=distance(p.retention,retained[i]);if(d<bestDistance){bestDistance=d;victim=i;}
     }
     if(victim>=0){parents.add(p.parent);plans[victim]=p.plan;replaced.push({victim,parent:p.parent,edit:p.edit,gain:p.gain,
