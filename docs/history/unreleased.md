@@ -1,10 +1,10 @@
-# DESIGN §34 — Changes after 0.3.0 (unreleased)
+# DESIGN §35 — Changes after 0.3.1 (unreleased)
 
 Part of [DESIGN.md](../DESIGN.md) (the index; section numbers are global).
 
-## 34. Next release — changes after 0.3.0 (unreleased)
+## 35. Next release — changes after 0.3.1 (unreleased)
 
-### 34.1 Procedural multi-hit attack visuals (PR #550)
+### 35.1 Procedural multi-hit attack visuals (PR #550)
 
 PR #550 by @CXUtk, revised after the maintainer's review. Published 0.2.6 and 0.3.0 chapters are unchanged.
 
