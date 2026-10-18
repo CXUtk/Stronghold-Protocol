@@ -164,6 +164,7 @@ test('sampled projection is independent of live seed, RNG positions and hidden s
 
 test('candidate ranking averages three common random samples and cannot prune on one bad sample', t => {
   const { m, p, chess } = fixture(t);
+  m.botLegacyParity = false; // Explicit player-aligned sampling; ordinary upstream calls use one sample.
   const piece = give(m, p, chess[0], 'board', legalTileFor(m, p, chess[0]));
   const plans = ['RIGHT', 'LEFT'].map(dir => {
     const plan = new Map([[piece.uid, [...p.board.keys()][0]]]);

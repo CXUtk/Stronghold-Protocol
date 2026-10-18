@@ -8,7 +8,6 @@ import { createRegistry } from '../../server/match/effectsMeta.js';
 import { registerMeta, registerExtensionMeta, resetExtensions } from '../../server/sim/content/extensions.js';
 import { budgetUsed, charge, DEFAULT_BUDGET } from '../../server/sim/content/dsl/budget.js';
 import { FIELD, canPlace, placeClass, parseKey, legalTiles, tileKey } from '../../server/match/board.js';
-import { buildNormalWave } from '../../server/match/waves.js';
 import { makeMatch, checkInvariants, give, giveItem, DATA } from './harness.js';
 import { makeBattle } from '../helpers/battleHarness.js';
 
