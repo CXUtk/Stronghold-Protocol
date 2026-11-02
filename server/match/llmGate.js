@@ -4,6 +4,8 @@
 // implementation files are not in the package): external-AI configuration is ignored, one log line,
 // and the built-in bot plays. The implementation URL is built at run time so the shipped source has
 // no import specifier that names an excluded file (tools/package.mjs importProblems).
+// The local strategy imports async content definitions; initialize its base before the optional host's dynamic import.
+import './botStrategyContract.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
