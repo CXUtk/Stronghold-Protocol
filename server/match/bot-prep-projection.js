@@ -40,7 +40,7 @@ export function forkPreparation(m) {
   for (const [k, v] of Object.entries(m)) {
     if (runtime.has(k)) continue;
     if (typeof v === 'function') { if (k.startsWith('rng') && v.clone) copy[k] = v.clone(); }
-    else if (k === 'botCombatAtlas') copy[k] = v; // immutable offline capability table
+    else if (k === 'botCombatAtlas' || k === 'bot' && Object.isFrozen(v)) copy[k] = v; // immutable definitions, not per-seat state
     else copy[k] = clone(v);
   }
   for (const p of m.order) {

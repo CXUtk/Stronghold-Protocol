@@ -45,7 +45,7 @@ test('联防 阿戈尔 chain: a previously down 幽灵鲨 deploys fresh and is k
   assert.equal(down.hooksOf('deploy').filter((c) => c.unit === ghost && !c.initial).length, 0, 'no revive');
   assert.ok(devours(down).some((c) => c.target === ghost), 'the new 物理流失 lands on her');
   // Both chains now start standing: 乌尔比安's first mark knocks her out, cancelling her own marks.
-  const pairs = (h) => devours(h).map((c) => [c.source.defId, c.target.defId]);
+  const pairs = (h) => devours(h).map((c) => [c.credit.defId, c.target.defId]);
   assert.deepEqual(pairs(up), [[ULPIA, GHOST], [ULPIA, GLADY], [ULPIA, FODDER]]);
   assert.deepEqual(pairs(down), pairs(up));
   assert.equal(glady.alive, up.unit(GLADY).alive);
@@ -80,7 +80,7 @@ test('联防 阿戈尔: a previously down member at the head deploys fresh and d
     const [ghost, glady, fodder] = [GHOST, GLADY, FODDER].map((id) => down.unit(id));
     const g = buffOf(ghost, 'bond:egir:devour');
     close(g.mods.atkFinal, glady.base.atk + fodder.base.atk, 1e-6, `${tag}: marks 歌蕾蒂娅 and, through her, the fodder`);
-    const pairs = (h) => devours(h).map((c) => [c.source.defId, c.target.defId]);
+    const pairs = (h) => devours(h).map((c) => [c.credit.defId, c.target.defId]);
     assert.deepEqual(pairs(down), pairs(up), `${tag}: the marks resolve as with 幽灵鲨 standing`);
     assert.deepEqual(pairs(down), [[GHOST, GLADY], [GHOST, FODDER]], `${tag}: her two marks; 歌蕾蒂娅's on the fodder is cancelled (knocked out first)`);
     assert.ok(!fodder.alive, `${tag}: the fodder falls`);

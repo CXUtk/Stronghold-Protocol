@@ -160,7 +160,7 @@ test('卡西米尔 blocking pulses and non-blocking bonus hits are separate from
   h.b.dealDamage(free, e, { amount: 100, type: 'phys', isAttack: true, canDodge: false });
   const bondHits = h.hooksOf('damaged').filter((c) => c.dmg.tags.includes('bond:kazimierz'));
   assert.ok(bondHits.some((c) => c.source === blocker && c.dmg.isSplash), 'real blocking pulse');
-  assert.ok(bondHits.some((c) => c.source === free && !c.dmg.isSplash), 'real bonus hit');
+  assert.ok(bondHits.some((c) => c.source === null && c.credit === free && !c.dmg.isSplash), 'native source-less bonus retains operator credit');
   for (const u of [blocker, free]) {
     const expected = bondHits.filter((c) => c.credit === u).reduce((sum, c) => sum + c.amount, 0);
     const row = battleDamageStats(h.b).units.find((r) => r.uid === u.uid);

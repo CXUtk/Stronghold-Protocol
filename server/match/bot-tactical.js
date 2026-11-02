@@ -1,5 +1,5 @@
 // Tactical candidates shared by offline evaluation and the selected local AI policy.
-import { rangeTiles } from './bot.js';
+import { rangeTiles } from './botLocal.js';
 
 export function rehearsalContext(m, ps) {
   const mates = m.alivePlayers().filter((p) => p !== ps), hand = ps.hand.filter(Boolean), r = ps.round;
